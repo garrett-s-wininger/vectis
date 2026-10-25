@@ -45,7 +45,9 @@ func registeredMetricNames() (map[string]bool, error) {
 		return nil, err
 	}
 
-	metricConstructor := regexp.MustCompile(`\.(?:Int64Counter|Float64Histogram|Int64ObservableGauge|Float64ObservableGauge)\("([^"]+)"`)
+	metricConstructor := regexp.MustCompile(
+		`\.(?:Int64Counter|Float64Histogram|Int64ObservableGauge|Float64ObservableGauge)\("([^"]+)"`,
+	)
 	out := make(map[string]bool)
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {

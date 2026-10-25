@@ -88,7 +88,11 @@ func validIdempotencyKey(value string) bool {
 	return true
 }
 
-func routeHeaderMiddleware(policy routeHeaderPolicy, next http.Handler, recorders ...securityRejectionRecorder) http.Handler {
+func routeHeaderMiddleware(
+	policy routeHeaderPolicy,
+	next http.Handler,
+	recorders ...securityRejectionRecorder,
+) http.Handler {
 	var record securityRejectionRecorder
 	if len(recorders) > 0 {
 		record = recorders[0]

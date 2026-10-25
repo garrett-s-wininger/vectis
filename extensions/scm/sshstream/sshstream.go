@@ -215,7 +215,12 @@ func HostKeyCallback(opts Options) (ssh.HostKeyCallback, error) {
 	return hostKeyCallback, nil
 }
 
-func DialClient(ctx context.Context, address string, timeout time.Duration, config *ssh.ClientConfig) (*ssh.Client, error) {
+func DialClient(
+	ctx context.Context,
+	address string,
+	timeout time.Duration,
+	config *ssh.ClientConfig,
+) (*ssh.Client, error) {
 	if config == nil {
 		return nil, fmt.Errorf("SSH client config is required")
 	}
@@ -430,7 +435,13 @@ func (l stderrLogger) log(level, msg string, args ...any) {
 		component = "ssh-stream"
 	}
 
-	fmt.Fprintf(os.Stderr, "%s [%s] %s\n", time.Now().Format(time.RFC3339), level, component+": "+fmt.Sprintf(msg, args...))
+	fmt.Fprintf(
+		os.Stderr,
+		"%s [%s] %s\n",
+		time.Now().Format(time.RFC3339),
+		level,
+		component+": "+fmt.Sprintf(msg, args...),
+	)
 }
 
 func defaultKnownHostsFile() string {

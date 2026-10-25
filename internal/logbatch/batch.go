@@ -128,7 +128,11 @@ func DecodeRecords(payload []byte, handle func(Record) error) error {
 		bodyLen := int(binary.LittleEndian.Uint32(payload[:recordLengthSize]))
 		payload = payload[recordLengthSize:]
 		if bodyLen < recordHeaderSize {
-			return fmt.Errorf("log batch record body length %d is smaller than header length %d", bodyLen, recordHeaderSize)
+			return fmt.Errorf(
+				"log batch record body length %d is smaller than header length %d",
+				bodyLen,
+				recordHeaderSize,
+			)
 		}
 
 		if bodyLen > len(payload) {

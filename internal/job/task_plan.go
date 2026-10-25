@@ -56,7 +56,13 @@ func PlanTaskExecutionsWithActions(job *api.Job, resolver actionregistry.Resolve
 
 	entries := make([]TaskPlanEntry, 0, len(boundaries.Entries))
 	for _, boundary := range boundaries.Entries {
-		specHash, err := taskSpecHash(boundary.Node, boundary.TaskKey, boundary.Uses, boundary.ChildTaskKeys, actionDigests)
+		specHash, err := taskSpecHash(
+			boundary.Node,
+			boundary.TaskKey,
+			boundary.Uses,
+			boundary.ChildTaskKeys,
+			actionDigests,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +82,12 @@ func PlanTaskExecutionsWithActions(job *api.Job, resolver actionregistry.Resolve
 	return entries, nil
 }
 
-func taskSpecHash(node *api.Node, nodeID, uses string, childTaskKeys []string, actionDigests map[string]string) (string, error) {
+func taskSpecHash(
+	node *api.Node,
+	nodeID, uses string,
+	childTaskKeys []string,
+	actionDigests map[string]string,
+) (string, error) {
 	spec := canonicalTaskSpec{
 		NodeID:        nodeID,
 		Uses:          uses,

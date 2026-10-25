@@ -22,7 +22,10 @@ type testRegistryNode struct {
 	cancel context.CancelFunc
 }
 
-func startTestRegistryCluster(t *testing.T, optsForNode func(i int, addr string, peers []string) ServiceOptions) []*testRegistryNode {
+func startTestRegistryCluster(
+	t *testing.T,
+	optsForNode func(i int, addr string, peers []string) ServiceOptions,
+) []*testRegistryNode {
 	t.Helper()
 
 	listeners := make([]net.Listener, 3)
@@ -130,12 +133,25 @@ func TestRegistryCluster_GossipConvergesMetadataOverGRPC(t *testing.T) {
 		"trait.os":        "linux",
 	}
 
-	if err := client.RegisterInstanceWithMetadata(context.Background(), api.Component_COMPONENT_QUEUE, "pool-linux", "queue.pool:8081", metadata); err != nil {
+	if err := client.RegisterInstanceWithMetadata(
+		context.Background(),
+		api.Component_COMPONENT_QUEUE,
+		"pool-linux",
+		"queue.pool:8081",
+		metadata,
+	); err != nil {
 		t.Fatalf("RegisterInstanceWithMetadata: %v", err)
 	}
 
 	for _, node := range nodes {
-		waitForRegistryRegistration(t, node.addr, api.Component_COMPONENT_QUEUE, map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"}, "pool-linux", "queue.pool:8081")
+		waitForRegistryRegistration(
+			t,
+			node.addr,
+			api.Component_COMPONENT_QUEUE,
+			map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"},
+			"pool-linux",
+			"queue.pool:8081",
+		)
 	}
 }
 
@@ -228,10 +244,24 @@ func waitForRegistryAddress(t *testing.T, registryAddr string, component api.Com
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	t.Fatalf("registry %s never resolved %s/%q to %q; last got %q err %v", registryAddr, component.String(), instanceID, want, got, lastErr)
+	t.Fatalf(
+		"registry %s never resolved %s/%q to %q; last got %q err %v",
+		registryAddr,
+		component.String(),
+		instanceID,
+		want,
+		got,
+		lastErr,
+	)
 }
 
-func waitForRegistryRegistration(t *testing.T, registryAddr string, component api.Component, metadata map[string]string, wantInstanceID, wantAddress string) {
+func waitForRegistryRegistration(
+	t *testing.T,
+	registryAddr string,
+	component api.Component,
+	metadata map[string]string,
+	wantInstanceID, wantAddress string,
+) {
 	t.Helper()
 
 	client := newRegistryTestClient(t, registryAddr)
@@ -256,5 +286,13 @@ func waitForRegistryRegistration(t *testing.T, registryAddr string, component ap
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	t.Fatalf("registry %s never listed %s/%q at %q; last got %+v err %v", registryAddr, component.String(), wantInstanceID, wantAddress, got, lastErr)
+	t.Fatalf(
+		"registry %s never listed %s/%q at %q; last got %+v err %v",
+		registryAddr,
+		component.String(),
+		wantInstanceID,
+		wantAddress,
+		got,
+		lastErr,
+	)
 }

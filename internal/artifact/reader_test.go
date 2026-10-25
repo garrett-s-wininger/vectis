@@ -90,7 +90,11 @@ func TestRoutedReader_ResolvesArtifactShardFromRegistry(t *testing.T) {
 }
 
 func TestResolveArtifactReadEndpointRequiresShard(t *testing.T) {
-	if _, err := resolveArtifactReadEndpoint(context.Background(), " ", ReaderOptions{PinnedAddress: "127.0.0.1:8086"}); err == nil {
+	if _, err := resolveArtifactReadEndpoint(
+		context.Background(),
+		" ",
+		ReaderOptions{PinnedAddress: "127.0.0.1:8086"},
+	); err == nil {
 		t.Fatal("expected missing shard id to fail")
 	}
 }

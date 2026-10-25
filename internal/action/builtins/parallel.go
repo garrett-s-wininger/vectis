@@ -28,7 +28,12 @@ func (p *ParallelNode) PortSchema() []action.PortSpec {
 	}}
 }
 
-func (p *ParallelNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, ports action.Ports) action.Result {
+func (p *ParallelNode) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	_ map[string]any,
+	ports action.Ports,
+) action.Result {
 	branches := ports.Children(taskgraph.BranchesPort)
 	if len(branches) == 0 {
 		return action.NewSuccessResult(nil)

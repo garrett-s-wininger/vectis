@@ -152,8 +152,12 @@ func TestQueryChangesUsesGerritQueryAndDecodesCurrentRevision(t *testing.T) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Status:     "200 OK",
-				Body:       io.NopCloser(strings.NewReader(")]}'\n[{\"id\":\"project~master~Iabc\",\"project\":\"project\",\"branch\":\"master\",\"status\":\"NEW\",\"change_id\":\"Iabc\",\"current_revision\":\"abc\",\"revisions\":{\"abc\":{\"ref\":\"refs/changes/01/1/1\"}}}]")),
-				Request:    r,
+				Body: io.NopCloser(
+					strings.NewReader(
+						")]}'\n[{\"id\":\"project~master~Iabc\",\"project\":\"project\",\"branch\":\"master\",\"status\":\"NEW\",\"change_id\":\"Iabc\",\"current_revision\":\"abc\",\"revisions\":{\"abc\":{\"ref\":\"refs/changes/01/1/1\"}}}]",
+					),
+				),
+				Request: r,
 			}, nil
 		})},
 	}
@@ -203,7 +207,11 @@ func TestQueryChangesUsesGerritQueryAndDecodesCurrentRevision(t *testing.T) {
 func TestDecodeJSONStripsXSSIPrefix(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(")]}'\n{\"current_revision\":\"abc\",\"revisions\":{\"abc\":{\"ref\":\"refs/changes/01/1/1\"}}}")),
+		Body: io.NopCloser(
+			strings.NewReader(
+				")]}'\n{\"current_revision\":\"abc\",\"revisions\":{\"abc\":{\"ref\":\"refs/changes/01/1/1\"}}}",
+			),
+		),
 	}
 
 	var info sdkscm.Change

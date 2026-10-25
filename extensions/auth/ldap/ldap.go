@@ -194,7 +194,11 @@ func (p *Provider) Authenticate(ctx context.Context, username, password string) 
 	if p.subjectAttribute != "" {
 		subject = strings.TrimSpace(entry.GetAttributeValue(p.subjectAttribute))
 		if subject == "" {
-			return sdkauth.Identity{}, fmt.Errorf("%w: ldap subject attribute %q is empty", sdkauth.ErrIdentityNotAllowed, p.subjectAttribute)
+			return sdkauth.Identity{}, fmt.Errorf(
+				"%w: ldap subject attribute %q is empty",
+				sdkauth.ErrIdentityNotAllowed,
+				p.subjectAttribute,
+			)
 		}
 	}
 

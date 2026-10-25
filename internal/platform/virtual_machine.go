@@ -112,7 +112,13 @@ func NewVirtualMachineCommandExecutor(config VirtualMachineConfig) (*VirtualMach
 	return &VirtualMachineCommandExecutor{vm: vm}, nil
 }
 
-func (e *VirtualMachineCommandExecutor) Start(ctx context.Context, path string, args []string, workDir string, env []string) (interfaces.Process, error) {
+func (e *VirtualMachineCommandExecutor) Start(
+	ctx context.Context,
+	path string,
+	args []string,
+	workDir string,
+	env []string,
+) (interfaces.Process, error) {
 	if e == nil || e.vm == nil {
 		return nil, fmt.Errorf("virtual machine executor is not configured")
 	}

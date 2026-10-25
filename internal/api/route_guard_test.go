@@ -50,7 +50,13 @@ func TestRouteGuardRejectsAsteriskRequestTarget(t *testing.T) {
 
 	assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidRequestTarget)
 	assertNoStore(t, rec)
-	requireSecurityRejection(t, metrics, securityReasonRequestTargetInvalid, securityRejectionUnknownRoute, http.StatusBadRequest)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonRequestTargetInvalid,
+		securityRejectionUnknownRoute,
+		http.StatusBadRequest,
+	)
 }
 
 func TestRouteGuardRejectsNonCanonicalPathTargets(t *testing.T) {
@@ -79,7 +85,13 @@ func TestRouteGuardRejectsNonCanonicalPathTargets(t *testing.T) {
 
 			assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidRequestTarget)
 			assertNoStore(t, rec)
-			requireSecurityRejection(t, metrics, securityReasonRequestTargetInvalid, tt.wantRoute, http.StatusBadRequest)
+			requireSecurityRejection(
+				t,
+				metrics,
+				securityReasonRequestTargetInvalid,
+				tt.wantRoute,
+				http.StatusBadRequest,
+			)
 		})
 	}
 }
@@ -123,7 +135,13 @@ func TestRouteGuardRejectsDangerousHTTPMethods(t *testing.T) {
 	assertRouteGuardAPIError(t, rec, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)
 	assertNoStore(t, rec)
 	assertAllowHeader(t, rec, http.MethodGet, http.MethodHead, http.MethodPost)
-	requireSecurityRejection(t, metrics, securityReasonUnsupportedHTTPMethod, "/api/v1/jobs", http.StatusMethodNotAllowed)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonUnsupportedHTTPMethod,
+		"/api/v1/jobs",
+		http.StatusMethodNotAllowed,
+	)
 }
 
 func TestRouteGuardRejectsMethodOverrideHeaders(t *testing.T) {
@@ -140,7 +158,13 @@ func TestRouteGuardRejectsMethodOverrideHeaders(t *testing.T) {
 
 			assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrMethodOverrideForbidden)
 			assertNoStore(t, rec)
-			requireSecurityRejection(t, metrics, securityReasonMethodOverrideForbidden, "/api/v1/version", http.StatusBadRequest)
+			requireSecurityRejection(
+				t,
+				metrics,
+				securityReasonMethodOverrideForbidden,
+				"/api/v1/version",
+				http.StatusBadRequest,
+			)
 		})
 	}
 }
@@ -170,7 +194,13 @@ func TestRouteGuardVariableRouteMethodNotAllowed(t *testing.T) {
 
 	assertRouteGuardAPIError(t, rec, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)
 	assertAllowHeader(t, rec, http.MethodGet, http.MethodHead)
-	requireSecurityRejection(t, metrics, securityReasonMethodNotAllowed, "/api/v1/jobs/{id}/runs", http.StatusMethodNotAllowed)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonMethodNotAllowed,
+		"/api/v1/jobs/{id}/runs",
+		http.StatusMethodNotAllowed,
+	)
 }
 
 func assertRouteGuardAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code apiErrorCode) {

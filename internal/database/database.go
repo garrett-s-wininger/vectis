@@ -130,7 +130,10 @@ func pgxDSNWithDefaults(dsn string) (string, error) {
 	switch planCacheMode {
 	case "auto", "force_custom_plan", "force_generic_plan":
 	default:
-		return "", fmt.Errorf("database.pgx.plan_cache_mode must be one of auto, force_custom_plan, or force_generic_plan (got %q)", planCacheMode)
+		return "", fmt.Errorf(
+			"database.pgx.plan_cache_mode must be one of auto, force_custom_plan, or force_generic_plan (got %q)",
+			planCacheMode,
+		)
 	}
 
 	return pgxDSNWithParam(dsn, "plan_cache_mode", planCacheMode), nil
@@ -413,7 +416,11 @@ func waitForMigrationDB(db *sql.DB) error {
 	}
 
 	if schemaWaitConnectFailure(lastErr) {
-		return fmt.Errorf("database did not become reachable for migrations within %s: %w", postgresMigrationConnectDeadline, lastErr)
+		return fmt.Errorf(
+			"database did not become reachable for migrations within %s: %w",
+			postgresMigrationConnectDeadline,
+			lastErr,
+		)
 	}
 
 	return fmt.Errorf("database readiness check failed before migrations: %w", lastErr)
@@ -460,9 +467,13 @@ func WaitForMigrationsContext(ctx context.Context, db *sql.DB, log interfaces.Lo
 		if log != nil {
 			if !warned {
 				if schemaWaitConnectFailure(err) {
-					log.Warn("Cannot connect to the database (retries at debug; check DSN, network/DNS, and credentials)")
+					log.Warn(
+						"Cannot connect to the database (retries at debug; check DSN, network/DNS, and credentials)",
+					)
 				} else {
-					log.Warn("Database is reachable but schema is not ready (retries at debug; apply migrations, e.g. vectis-cli database migrate)")
+					log.Warn(
+						"Database is reachable but schema is not ready (retries at debug; apply migrations, e.g. vectis-cli database migrate)",
+					)
 				}
 
 				log.Debug("database schema poll error: %v", err)
@@ -479,12 +490,15 @@ func WaitForMigrationsContext(ctx context.Context, db *sql.DB, log interfaces.Lo
 		}
 	}
 
-	return fmt.Errorf("timed out waiting for database readiness; check connectivity and apply migrations with vectis-cli database migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)")
+	return fmt.Errorf(
+		"timed out waiting for database readiness; check connectivity and apply migrations with vectis-cli database migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)",
+	)
 }
 
 func schemaMigrationsReady(ctx context.Context, db *sql.DB) error {
 	var dirty bool
-	if err := db.QueryRowContext(ctx, "SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&dirty); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").
+		Scan(&dirty); err != nil {
 		return err
 	}
 

@@ -171,7 +171,10 @@ func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID 
 		logCtx = metadata.AppendToOutgoingContext(logCtx, getLogsTailMetadata, strconv.Itoa(replay.Tail))
 	}
 
-	stream, err := holder.client.GetLogs(logCtx, &api.GetLogsRequest{RunId: &runID, SinceSequence: &replay.SinceSequence})
+	stream, err := holder.client.GetLogs(
+		logCtx,
+		&api.GetLogsRequest{RunId: &runID, SinceSequence: &replay.SinceSequence},
+	)
 	if err != nil {
 		s.logger.Warn("Failed to connect to log service: %v", err)
 		writeAPIError(w, http.StatusBadGateway, "log_service_error", "failed to connect to log service", nil)
@@ -253,7 +256,13 @@ func parseLogReplayRequest(w http.ResponseWriter, r *http.Request) (logReplayReq
 	if raw := q.Get("replay_limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n <= 0 || n > maxLogReplayLimit {
-			writeAPIError(w, http.StatusBadRequest, "invalid_replay_limit", fmt.Sprintf("replay_limit must be between 1 and %d", maxLogReplayLimit), nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_replay_limit",
+				fmt.Sprintf("replay_limit must be between 1 and %d", maxLogReplayLimit),
+				nil,
+			)
 			return logReplayRequest{}, false
 		}
 		replay.ReplayLimit = n
@@ -262,7 +271,13 @@ func parseLogReplayRequest(w http.ResponseWriter, r *http.Request) (logReplayReq
 	if raw := q.Get("tail"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n <= 0 || n > maxLogTail {
-			writeAPIError(w, http.StatusBadRequest, "invalid_tail", fmt.Sprintf("tail must be between 1 and %d", maxLogTail), nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_tail",
+				fmt.Sprintf("tail must be between 1 and %d", maxLogTail),
+				nil,
+			)
 			return logReplayRequest{}, false
 		}
 
@@ -280,7 +295,13 @@ func parseLogReplayRequest(w http.ResponseWriter, r *http.Request) (logReplayReq
 	if rawSince != "" {
 		n, err := strconv.ParseInt(rawSince, 10, 64)
 		if err != nil || n < 0 {
-			writeAPIError(w, http.StatusBadRequest, "invalid_since_sequence", "since_sequence and Last-Event-ID must be non-negative integers", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_since_sequence",
+				"since_sequence and Last-Event-ID must be non-negative integers",
+				nil,
+			)
 			return logReplayRequest{}, false
 		}
 

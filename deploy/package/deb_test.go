@@ -50,7 +50,16 @@ func TestDebArchiveContents(t *testing.T) {
 	}
 
 	members := readArMembers(t, path)
-	if got, want := sortedMemberNames(members), []string{"control.tar.gz", "data.tar.gz", "debian-binary"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedMemberNames(
+		members,
+	), []string{
+		"control.tar.gz",
+		"data.tar.gz",
+		"debian-binary",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("ar members = %v, want %v", got, want)
 	}
 

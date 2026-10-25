@@ -202,7 +202,8 @@ func TestPostSetupComplete_linksExternalIdentityAndDisablesPasswordAuth(t *testi
 		t.Fatalf("bad setup response: %+v", out)
 	}
 
-	if out.ExternalIdentity == nil || out.ExternalIdentity.ProviderID != "corp-ldap" || out.ExternalIdentity.Subject != "entryUUID=root-uuid" {
+	if out.ExternalIdentity == nil || out.ExternalIdentity.ProviderID != "corp-ldap" ||
+		out.ExternalIdentity.Subject != "entryUUID=root-uuid" {
 		t.Fatalf("bad external identity response: %+v", out.ExternalIdentity)
 	}
 
@@ -257,11 +258,16 @@ func TestPostSetupComplete_linksExternalIdentityAndKeepsPasswordAuth(t *testing.
 		t.Fatalf("bad setup response: %+v", out)
 	}
 
-	if out.ExternalIdentity == nil || out.ExternalIdentity.ProviderID != "corp-ldap" || out.ExternalIdentity.Subject != "entryUUID=root-uuid" {
+	if out.ExternalIdentity == nil || out.ExternalIdentity.ProviderID != "corp-ldap" ||
+		out.ExternalIdentity.Subject != "entryUUID=root-uuid" {
 		t.Fatalf("bad external identity response: %+v", out.ExternalIdentity)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader(`{"username":"root","password":"longenough"}`))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/login",
+		strings.NewReader(`{"username":"root","password":"longenough"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

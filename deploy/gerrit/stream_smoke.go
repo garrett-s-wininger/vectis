@@ -423,10 +423,25 @@ func (r smokeRunner) runStreamSmoke(ctx context.Context, opts StreamSmokeOptions
 		return StreamSmokeResult{}, err
 	}
 	if streamInfo.CurrentRevision != revision || streamInfo.Ref != fetchRef {
-		return StreamSmokeResult{}, fmt.Errorf("gerrit stream event revision/ref %s/%s, detail returned %s/%s", streamInfo.CurrentRevision, streamInfo.Ref, revision, fetchRef)
+		return StreamSmokeResult{}, fmt.Errorf(
+			"gerrit stream event revision/ref %s/%s, detail returned %s/%s",
+			streamInfo.CurrentRevision,
+			streamInfo.Ref,
+			revision,
+			fetchRef,
+		)
 	}
 
-	if err := r.runStreamPollerDedupe(ctx, workspaceRoot, opts, password, event, change, revision, fetchRef); err != nil {
+	if err := r.runStreamPollerDedupe(
+		ctx,
+		workspaceRoot,
+		opts,
+		password,
+		event,
+		change,
+		revision,
+		fetchRef,
+	); err != nil {
 		return StreamSmokeResult{}, err
 	}
 
@@ -445,7 +460,14 @@ func (r smokeRunner) runStreamSmoke(ctx context.Context, opts StreamSmokeOptions
 	}, nil
 }
 
-func (r smokeRunner) runStreamPollerDedupe(ctx context.Context, workspaceRoot string, opts StreamSmokeOptions, password string, event scm.Event, change, revision, fetchRef string) error {
+func (r smokeRunner) runStreamPollerDedupe(
+	ctx context.Context,
+	workspaceRoot string,
+	opts StreamSmokeOptions,
+	password string,
+	event scm.Event,
+	change, revision, fetchRef string,
+) error {
 	restoreDriver, err := forceSQLiteDatabaseDriver()
 	if err != nil {
 		return err
@@ -535,7 +557,9 @@ func (r smokeRunner) runStreamPollerDedupe(ctx context.Context, workspaceRoot st
 		return fmt.Errorf("route gerrit stream smoke event: %w", err)
 	}
 
-	if routed.Candidates != 1 || routed.Matched != 1 || routed.Handled != 1 || routed.Dispatched != 1 || routed.RunsCreated != 1 || routed.AlreadyDispatched != 0 {
+	if routed.Candidates != 1 || routed.Matched != 1 || routed.Handled != 1 || routed.Dispatched != 1 ||
+		routed.RunsCreated != 1 ||
+		routed.AlreadyDispatched != 0 {
 		return fmt.Errorf("gerrit stream smoke route result = %+v, want one new dispatched trigger", routed)
 	}
 
@@ -575,7 +599,11 @@ func (r smokeRunner) runStreamPollerDedupe(ctx context.Context, workspaceRoot st
 	return nil
 }
 
-func (r smokeRunner) verifyStreamPollerDedupeRows(ctx context.Context, db *sql.DB, runID, change, revision, fetchRef string) error {
+func (r smokeRunner) verifyStreamPollerDedupeRows(
+	ctx context.Context,
+	db *sql.DB,
+	runID, change, revision, fetchRef string,
+) error {
 	var eventKey, payloadJSON, eventRunID, firstSource, firstInstance, lastSource, lastInstance string
 	var observationCount int
 	if err := db.QueryRowContext(ctx, `
@@ -594,7 +622,14 @@ func (r smokeRunner) verifyStreamPollerDedupeRows(ctx context.Context, db *sql.D
 
 	if firstSource != dal.DispatchSourceSCMGerritStream || lastSource != dal.DispatchSourceSCMPoller ||
 		firstInstance != "gerrit-stream-smoke-stream" || lastInstance != "gerrit-stream-smoke-poller" || observationCount != 2 {
-		return fmt.Errorf("gerrit stream smoke dedupe observation metadata first=%s/%s last=%s/%s count=%d", firstSource, firstInstance, lastSource, lastInstance, observationCount)
+		return fmt.Errorf(
+			"gerrit stream smoke dedupe observation metadata first=%s/%s last=%s/%s count=%d",
+			firstSource,
+			firstInstance,
+			lastSource,
+			lastInstance,
+			observationCount,
+		)
 	}
 
 	if !strings.Contains(eventKey, revision) {
@@ -602,7 +637,11 @@ func (r smokeRunner) verifyStreamPollerDedupeRows(ctx context.Context, db *sql.D
 	}
 
 	if !strings.Contains(eventKey, change) {
-		return fmt.Errorf("gerrit stream smoke dedupe event key %q did not include change identity %s", eventKey, change)
+		return fmt.Errorf(
+			"gerrit stream smoke dedupe event key %q did not include change identity %s",
+			eventKey,
+			change,
+		)
 	}
 
 	var payload struct {
@@ -615,7 +654,13 @@ func (r smokeRunner) verifyStreamPollerDedupeRows(ctx context.Context, db *sql.D
 	}
 
 	if payload.CurrentRevision != revision || payload.Ref != fetchRef {
-		return fmt.Errorf("gerrit stream smoke dedupe payload revision/ref %s/%s, want %s/%s", payload.CurrentRevision, payload.Ref, revision, fetchRef)
+		return fmt.Errorf(
+			"gerrit stream smoke dedupe payload revision/ref %s/%s, want %s/%s",
+			payload.CurrentRevision,
+			payload.Ref,
+			revision,
+			fetchRef,
+		)
 	}
 
 	repos := dal.NewSQLRepositories(db)
@@ -625,7 +670,10 @@ func (r smokeRunner) verifyStreamPollerDedupeRows(ctx context.Context, db *sql.D
 	}
 
 	if run.TriggerSourceInstance == nil || *run.TriggerSourceInstance != "gerrit-stream-smoke-stream" {
-		return fmt.Errorf("gerrit stream smoke dedupe run source instance = %+v, want gerrit-stream-smoke-stream", run.TriggerSourceInstance)
+		return fmt.Errorf(
+			"gerrit stream smoke dedupe run source instance = %+v, want gerrit-stream-smoke-stream",
+			run.TriggerSourceInstance,
+		)
 	}
 
 	dispatches, err := repos.DispatchEvents().ListByRun(ctx, runID)
@@ -633,12 +681,14 @@ func (r smokeRunner) verifyStreamPollerDedupeRows(ctx context.Context, db *sql.D
 		return fmt.Errorf("list gerrit stream smoke dedupe dispatch events: %w", err)
 	}
 
-	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt || dispatches[1].EventType != dal.DispatchEventSuccess {
+	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt ||
+		dispatches[1].EventType != dal.DispatchEventSuccess {
 		return fmt.Errorf("gerrit stream smoke dedupe dispatch events = %+v, want attempt/success", dispatches)
 	}
 
 	for _, dispatch := range dispatches {
-		if dispatch.Source != dal.DispatchSourceSCMGerritStream || dispatch.SourceInstance != "gerrit-stream-smoke-stream" {
+		if dispatch.Source != dal.DispatchSourceSCMGerritStream ||
+			dispatch.SourceInstance != "gerrit-stream-smoke-stream" {
 			return fmt.Errorf("gerrit stream smoke dedupe dispatch source = %+v", dispatch)
 		}
 	}
@@ -679,7 +729,12 @@ func writeStreamSmokeKnownHosts(workspaceRoot string, opts StreamSmokeOptions, k
 
 func (r smokeRunner) addSSHKey(ctx context.Context, password string, key ssh.PublicKey) error {
 	endpoint := r.opts.URL + "/a/accounts/self/sshkeys"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(ssh.MarshalAuthorizedKey(key))))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		endpoint,
+		strings.NewReader(string(ssh.MarshalAuthorizedKey(key))),
+	)
 	if err != nil {
 		return err
 	}
@@ -700,7 +755,11 @@ func (r smokeRunner) addSSHKey(ctx context.Context, password string, key ssh.Pub
 	return nil
 }
 
-func (r smokeRunner) waitForSSHKeyAuth(ctx context.Context, opts StreamSmokeOptions, signer ssh.Signer) (ssh.PublicKey, error) {
+func (r smokeRunner) waitForSSHKeyAuth(
+	ctx context.Context,
+	opts StreamSmokeOptions,
+	signer ssh.Signer,
+) (ssh.PublicKey, error) {
 	address := net.JoinHostPort(opts.SSHHost, strconv.Itoa(opts.SSHPort))
 	var lastErr error
 	for {

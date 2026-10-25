@@ -46,7 +46,10 @@ func QueueIngressMetadata() map[string]string {
 	return QueueIngressMetadataForCell(DefaultCellID)
 }
 
-func WorkerExecutionMetadataForCell(cellID, backend, defaultIsolation string, supportedIsolation []string) map[string]string {
+func WorkerExecutionMetadataForCell(
+	cellID, backend, defaultIsolation string,
+	supportedIsolation []string,
+) map[string]string {
 	metadata := DefaultServiceMetadataForCell(cellID)
 	if backend = strings.TrimSpace(backend); backend != "" {
 		metadata[MetadataWorkerExecutionBackend] = backend
@@ -85,7 +88,12 @@ func ValidateComponentMetadata(component api.Component, metadata map[string]stri
 	case api.Component_COMPONENT_LOG:
 		return validateWriteStateMetadata(metadata, MetadataLogWriteState, LogWriteStateWritable, LogWriteStateReadOnly)
 	case api.Component_COMPONENT_ARTIFACT:
-		return validateWriteStateMetadata(metadata, MetadataArtifactWriteState, ArtifactWriteStateWritable, ArtifactWriteStateReadOnly)
+		return validateWriteStateMetadata(
+			metadata,
+			MetadataArtifactWriteState,
+			ArtifactWriteStateWritable,
+			ArtifactWriteStateReadOnly,
+		)
 	case api.Component_COMPONENT_WORKER:
 		return validateWorkerMetadata(metadata)
 	case api.Component_COMPONENT_ORCHESTRATOR:
@@ -193,7 +201,12 @@ func validateWorkerMetadata(metadata map[string]string) error {
 
 	if defaultIsolation != "" && len(supported) > 0 {
 		if _, ok := supported[defaultIsolation]; !ok {
-			return fmt.Errorf("%s metadata %q must be present in %s", MetadataWorkerDefaultIsolation, defaultIsolation, MetadataWorkerSupportedIsolation)
+			return fmt.Errorf(
+				"%s metadata %q must be present in %s",
+				MetadataWorkerDefaultIsolation,
+				defaultIsolation,
+				MetadataWorkerSupportedIsolation,
+			)
 		}
 	}
 

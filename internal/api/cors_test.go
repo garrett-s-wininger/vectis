@@ -44,8 +44,20 @@ func TestCORSMiddlewareDefaultClosed(t *testing.T) {
 		t.Fatalf("preflight code = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonCORSOriginForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
-	requireSecurityRejection(t, metrics, securityReasonCORSPreflightForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonCORSOriginForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonCORSPreflightForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
 }
 
 func TestCORSMiddlewareAllowsSameOriginWithoutConfiguredCORS(t *testing.T) {
@@ -103,14 +115,25 @@ func TestCORSMiddlewareRejectsSameHostDifferentSchemeWithoutConfiguredCORS(t *te
 	s.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("same-host different-scheme code = %d, want %d; body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+		t.Fatalf(
+			"same-host different-scheme code = %d, want %d; body=%s",
+			rec.Code,
+			http.StatusForbidden,
+			rec.Body.String(),
+		)
 	}
 
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want empty", got)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonCORSOriginForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonCORSOriginForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
 }
 
 func TestCORSMiddlewareAllowsConfiguredOrigin(t *testing.T) {
@@ -188,7 +211,13 @@ func TestCORSMiddlewarePreflightRejectsUnlistedHeader(t *testing.T) {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want empty on rejected preflight", got)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonCORSPreflightForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonCORSPreflightForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
 }
 
 func TestCORSAllowedHeaders(t *testing.T) {

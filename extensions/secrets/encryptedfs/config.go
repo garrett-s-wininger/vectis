@@ -86,7 +86,12 @@ func (c Config) NewProvider() (*EncryptedFSProvider, error) {
 	}
 
 	if strings.TrimSpace(c.KeyFile) == "" {
-		return nil, fmt.Errorf("secrets: encryptedfs provider requires %s, %s, or --%s", ConfigKeyKeyFile, EnvKeyFile, FlagKeyFile)
+		return nil, fmt.Errorf(
+			"secrets: encryptedfs provider requires %s, %s, or --%s",
+			ConfigKeyKeyFile,
+			EnvKeyFile,
+			FlagKeyFile,
+		)
 	}
 
 	return NewEncryptedFSProvider(c.Root, WithEncryptedFSKeyFile(c.KeyFile))

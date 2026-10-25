@@ -41,7 +41,12 @@ type Service struct {
 	metrics   Metrics
 }
 
-func NewService(logger interfaces.Logger, events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater, artifacts ...dal.ArtifactsRepository) *Service {
+func NewService(
+	logger interfaces.Logger,
+	events dal.CatalogEventsRepository,
+	updater dal.RunCatalogUpdater,
+	artifacts ...dal.ArtifactsRepository,
+) *Service {
 	return NewServiceWithProcessor(logger, cell.NewCatalogInboxProcessor(events, updater, artifacts...))
 }
 
@@ -81,7 +86,13 @@ func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInbox
 		}
 
 		if result.Total() > 0 && s.logger != nil {
-			s.logger.Info("catalog: backfilled %d missing events (%d run, %d execution, %d security)", result.Total(), result.RunEvents, result.ExecutionEvents, result.ExecutionSecurityEvents)
+			s.logger.Info(
+				"catalog: backfilled %d missing events (%d run, %d execution, %d security)",
+				result.Total(),
+				result.RunEvents,
+				result.ExecutionEvents,
+				result.ExecutionSecurityEvents,
+			)
 		}
 	}
 
@@ -96,7 +107,13 @@ func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInbox
 		}
 
 		if (result.Read > 0 || result.Backfilled > 0) && s.logger != nil {
-			s.logger.Info("catalog: ingested %d events from %d source(s) (%d copied, %d backfilled)", result.Read, result.Sources, result.Copied, result.Backfilled)
+			s.logger.Info(
+				"catalog: ingested %d events from %d source(s) (%d copied, %d backfilled)",
+				result.Read,
+				result.Sources,
+				result.Copied,
+				result.Backfilled,
+			)
 		}
 	}
 
@@ -114,7 +131,13 @@ func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInbox
 	}
 
 	if result.Read > 0 && s.logger != nil {
-		s.logger.Info("catalog: processed %d events (%d applied, %d retryable, %d failed)", result.Read, result.Applied, result.Retryable, result.Failed)
+		s.logger.Info(
+			"catalog: processed %d events (%d applied, %d retryable, %d failed)",
+			result.Read,
+			result.Applied,
+			result.Retryable,
+			result.Failed,
+		)
 	}
 
 	return result, nil

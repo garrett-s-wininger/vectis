@@ -11,19 +11,49 @@ import (
 
 const registrationHeartbeatRPCTimeout = 30 * time.Second
 
-func StartRegistrationHeartbeat(ctx context.Context, r *Registry, comp api.Component, address string, interval time.Duration, logger interfaces.Logger) (stop func()) {
+func StartRegistrationHeartbeat(
+	ctx context.Context,
+	r *Registry,
+	comp api.Component,
+	address string,
+	interval time.Duration,
+	logger interfaces.Logger,
+) (stop func()) {
 	return StartRegistrationHeartbeatWithMetadata(ctx, r, comp, address, nil, interval, logger)
 }
 
-func StartRegistrationHeartbeatWithMetadata(ctx context.Context, r *Registry, comp api.Component, address string, metadata map[string]string, interval time.Duration, logger interfaces.Logger) (stop func()) {
+func StartRegistrationHeartbeatWithMetadata(
+	ctx context.Context,
+	r *Registry,
+	comp api.Component,
+	address string,
+	metadata map[string]string,
+	interval time.Duration,
+	logger interfaces.Logger,
+) (stop func()) {
 	return StartInstanceRegistrationHeartbeatWithMetadata(ctx, r, comp, "", address, metadata, interval, logger)
 }
 
-func StartInstanceRegistrationHeartbeat(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, interval time.Duration, logger interfaces.Logger) (stop func()) {
+func StartInstanceRegistrationHeartbeat(
+	ctx context.Context,
+	r *Registry,
+	comp api.Component,
+	instanceID, address string,
+	interval time.Duration,
+	logger interfaces.Logger,
+) (stop func()) {
 	return StartInstanceRegistrationHeartbeatWithMetadata(ctx, r, comp, instanceID, address, nil, interval, logger)
 }
 
-func StartInstanceRegistrationHeartbeatWithMetadata(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, metadata map[string]string, interval time.Duration, logger interfaces.Logger) (stop func()) {
+func StartInstanceRegistrationHeartbeatWithMetadata(
+	ctx context.Context,
+	r *Registry,
+	comp api.Component,
+	instanceID, address string,
+	metadata map[string]string,
+	interval time.Duration,
+	logger interfaces.Logger,
+) (stop func()) {
 	if r == nil || interval <= 0 || logger == nil {
 		return func() {}
 	}
@@ -34,7 +64,15 @@ func StartInstanceRegistrationHeartbeatWithMetadata(ctx context.Context, r *Regi
 	return cancel
 }
 
-func registrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, metadata map[string]string, interval time.Duration, logger interfaces.Logger) {
+func registrationHeartbeatLoop(
+	ctx context.Context,
+	r *Registry,
+	comp api.Component,
+	instanceID, address string,
+	metadata map[string]string,
+	interval time.Duration,
+	logger interfaces.Logger,
+) {
 	for {
 		wait := intervalWithJitter(interval)
 		select {

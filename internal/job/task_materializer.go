@@ -16,14 +16,28 @@ type TaskMaterializationResult struct {
 }
 
 type plannedTaskExecutionBatcher interface {
-	EnsurePlannedTaskExecutionsBatch(ctx context.Context, creates []dal.TaskExecutionCreate) ([]dal.TaskExecutionRecord, int, error)
+	EnsurePlannedTaskExecutionsBatch(
+		ctx context.Context,
+		creates []dal.TaskExecutionCreate,
+	) ([]dal.TaskExecutionRecord, int, error)
 }
 
-func EnsureJobTaskExecutions(ctx context.Context, runs dal.RunsRepository, job *api.Job, targetCellID string) (TaskMaterializationResult, error) {
+func EnsureJobTaskExecutions(
+	ctx context.Context,
+	runs dal.RunsRepository,
+	job *api.Job,
+	targetCellID string,
+) (TaskMaterializationResult, error) {
 	return EnsureJobTaskExecutionsWithActions(ctx, runs, job, targetCellID, nil)
 }
 
-func EnsureJobTaskExecutionsWithActions(ctx context.Context, runs dal.RunsRepository, job *api.Job, targetCellID string, resolver actionregistry.Resolver) (TaskMaterializationResult, error) {
+func EnsureJobTaskExecutionsWithActions(
+	ctx context.Context,
+	runs dal.RunsRepository,
+	job *api.Job,
+	targetCellID string,
+	resolver actionregistry.Resolver,
+) (TaskMaterializationResult, error) {
 	if runs == nil {
 		return TaskMaterializationResult{}, fmt.Errorf("runs repository is required")
 	}
@@ -45,7 +59,13 @@ func EnsureJobTaskExecutionsWithActions(ctx context.Context, runs dal.RunsReposi
 	return EnsurePlannedTaskExecutions(ctx, runs, runID, plan, targetCellID)
 }
 
-func EnsurePlannedTaskExecutions(ctx context.Context, runs dal.RunsRepository, runID string, plan []TaskPlanEntry, targetCellID string) (TaskMaterializationResult, error) {
+func EnsurePlannedTaskExecutions(
+	ctx context.Context,
+	runs dal.RunsRepository,
+	runID string,
+	plan []TaskPlanEntry,
+	targetCellID string,
+) (TaskMaterializationResult, error) {
 	if runs == nil {
 		return TaskMaterializationResult{}, fmt.Errorf("runs repository is required")
 	}
@@ -73,7 +93,11 @@ func EnsurePlannedTaskExecutions(ctx context.Context, runs dal.RunsRepository, r
 
 		parentTaskID, ok := taskIDsByKey[parentKey]
 		if !ok {
-			return TaskMaterializationResult{}, fmt.Errorf("task %q parent %q has not been materialized", entry.TaskKey, parentKey)
+			return TaskMaterializationResult{}, fmt.Errorf(
+				"task %q parent %q has not been materialized",
+				entry.TaskKey,
+				parentKey,
+			)
 		}
 
 		create := dal.TaskExecutionCreate{

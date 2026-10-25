@@ -499,7 +499,12 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 	}
 
 	if report.Cutoffs.IdempotencyKeys != nil {
-		deleted, err := execRows(ctx, tx, `DELETE FROM idempotency_keys WHERE updated_at < ?`, sqlTimeParam(*report.Cutoffs.IdempotencyKeys))
+		deleted, err := execRows(
+			ctx,
+			tx,
+			`DELETE FROM idempotency_keys WHERE updated_at < ?`,
+			sqlTimeParam(*report.Cutoffs.IdempotencyKeys),
+		)
 		if err != nil {
 			return Report{}, fmt.Errorf("delete idempotency keys: %w", err)
 		}
@@ -507,7 +512,11 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 	}
 
 	if report.Cutoffs.AuditLog != nil {
-		deleted, err := execRows(ctx, tx, `DELETE FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded), auditLogPredicateArgs(*report.Cutoffs.AuditLog, now)...)
+		deleted, err := execRows(
+			ctx,
+			tx,
+			`DELETE FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded),
+			auditLogPredicateArgs(*report.Cutoffs.AuditLog, now)...)
 		if err != nil {
 			return Report{}, fmt.Errorf("delete audit log: %w", err)
 		}
@@ -563,11 +572,19 @@ func (c *SQLCleaner) ReferencedArtifactBlobKeys(ctx context.Context) (map[string
 	return c.referencedArtifactBlobKeys(ctx, 0, time.Time{})
 }
 
-func (c *SQLCleaner) ReferencedArtifactBlobKeysExcludingTerminalRuns(ctx context.Context, retention time.Duration, now time.Time) (map[string]bool, error) {
+func (c *SQLCleaner) ReferencedArtifactBlobKeysExcludingTerminalRuns(
+	ctx context.Context,
+	retention time.Duration,
+	now time.Time,
+) (map[string]bool, error) {
 	return c.referencedArtifactBlobKeys(ctx, retention, now)
 }
 
-func (c *SQLCleaner) referencedArtifactBlobKeys(ctx context.Context, retention time.Duration, now time.Time) (map[string]bool, error) {
+func (c *SQLCleaner) referencedArtifactBlobKeys(
+	ctx context.Context,
+	retention time.Duration,
+	now time.Time,
+) (map[string]bool, error) {
 	query := `
 		SELECT DISTINCT blob_key
 		FROM run_artifacts
@@ -667,52 +684,122 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs, no
 			return Counts{}, Counts{}, fmt.Errorf("count held run dispatch events: %w", err)
 		}
 
-		out.RunArtifacts, err = c.countTerminalRunChildren(ctx, tx, "run_artifacts", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		out.RunArtifacts, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"run_artifacts",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldExcluded,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count run artifacts: %w", err)
 		}
 
-		held.RunArtifacts, err = c.countTerminalRunChildren(ctx, tx, "run_artifacts", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		held.RunArtifacts, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"run_artifacts",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldRequired,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count held run artifacts: %w", err)
 		}
 
-		out.RunTasks, err = c.countTerminalRunChildren(ctx, tx, "run_tasks", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		out.RunTasks, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"run_tasks",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldExcluded,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count run tasks: %w", err)
 		}
 
-		held.RunTasks, err = c.countTerminalRunChildren(ctx, tx, "run_tasks", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		held.RunTasks, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"run_tasks",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldRequired,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count held run tasks: %w", err)
 		}
 
-		out.TaskAttempts, err = c.countTerminalRunChildren(ctx, tx, "task_attempts", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		out.TaskAttempts, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"task_attempts",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldExcluded,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count task attempts: %w", err)
 		}
 
-		held.TaskAttempts, err = c.countTerminalRunChildren(ctx, tx, "task_attempts", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		held.TaskAttempts, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"task_attempts",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldRequired,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count held task attempts: %w", err)
 		}
 
-		out.RunSegments, err = c.countTerminalRunChildren(ctx, tx, "run_segments", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		out.RunSegments, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"run_segments",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldExcluded,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count run segments: %w", err)
 		}
 
-		held.RunSegments, err = c.countTerminalRunChildren(ctx, tx, "run_segments", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		held.RunSegments, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"run_segments",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldRequired,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count held run segments: %w", err)
 		}
 
-		out.SegmentExecutions, err = c.countTerminalRunChildren(ctx, tx, "segment_executions", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		out.SegmentExecutions, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"segment_executions",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldExcluded,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count segment executions: %w", err)
 		}
 
-		held.SegmentExecutions, err = c.countTerminalRunChildren(ctx, tx, "segment_executions", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		held.SegmentExecutions, err = c.countTerminalRunChildren(
+			ctx,
+			tx,
+			"segment_executions",
+			*cutoffs.TerminalRuns,
+			now,
+			terminalRunHoldRequired,
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count held segment executions: %w", err)
 		}
@@ -759,19 +846,32 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs, no
 	}
 
 	if cutoffs.IdempotencyKeys != nil {
-		out.IdempotencyKeys, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM idempotency_keys WHERE updated_at < ?`, sqlTimeParam(*cutoffs.IdempotencyKeys))
+		out.IdempotencyKeys, err = c.queryCount(
+			ctx,
+			tx,
+			`SELECT COUNT(*) FROM idempotency_keys WHERE updated_at < ?`,
+			sqlTimeParam(*cutoffs.IdempotencyKeys),
+		)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count idempotency keys: %w", err)
 		}
 	}
 
 	if cutoffs.AuditLog != nil {
-		out.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded), auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
+		out.AuditLog, err = c.queryCount(
+			ctx,
+			tx,
+			`SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded),
+			auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count audit log: %w", err)
 		}
 
-		held.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldRequired), auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
+		held.AuditLog, err = c.queryCount(
+			ctx,
+			tx,
+			`SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldRequired),
+			auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count held audit log: %w", err)
 		}
@@ -780,7 +880,13 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs, no
 	return out, held, nil
 }
 
-func (c *SQLCleaner) countTerminalRunChildren(ctx context.Context, tx *sql.Tx, table string, cutoff, now time.Time, holdMatch terminalRunHoldMatch) (int64, error) {
+func (c *SQLCleaner) countTerminalRunChildren(
+	ctx context.Context,
+	tx *sql.Tx,
+	table string,
+	cutoff, now time.Time,
+	holdMatch terminalRunHoldMatch,
+) (int64, error) {
 	return c.queryCount(ctx, tx, `
 		SELECT COUNT(*)
 		FROM `+table+`
@@ -892,8 +998,16 @@ func auditRangeHoldBoundSQL(targetExpr string) (sinceExpr, untilExpr string) {
 	const boundLength = len("2006-01-02 15:04:05")
 	const untilStart = boundLength + len("..") + 1
 	if os.Getenv(database.EnvDatabaseDriver) == "pgx" {
-		since := `((substring(` + targetExpr + ` from ` + strconv.Itoa(sinceStart) + ` for ` + strconv.Itoa(boundLength) + `))::timestamp AT TIME ZONE 'UTC')`
-		until := `((substring(` + targetExpr + ` from ` + strconv.Itoa(untilStart) + ` for ` + strconv.Itoa(boundLength) + `))::timestamp AT TIME ZONE 'UTC')`
+		since := `((substring(` + targetExpr + ` from ` + strconv.Itoa(
+			sinceStart,
+		) + ` for ` + strconv.Itoa(
+			boundLength,
+		) + `))::timestamp AT TIME ZONE 'UTC')`
+		until := `((substring(` + targetExpr + ` from ` + strconv.Itoa(
+			untilStart,
+		) + ` for ` + strconv.Itoa(
+			boundLength,
+		) + `))::timestamp AT TIME ZONE 'UTC')`
 		return since, until
 	}
 
@@ -991,7 +1105,8 @@ func requireHoldTarget(ctx context.Context, tx *sql.Tx, scope, targetID string) 
 
 func requireRunExists(ctx context.Context, tx *sql.Tx, runID string) error {
 	var exists int
-	if err := tx.QueryRowContext(ctx, rebind(`SELECT 1 FROM job_runs WHERE run_id = ?`), runID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, rebind(`SELECT 1 FROM job_runs WHERE run_id = ?`), runID).
+		Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("run %s not found", runID)
 		}
@@ -1271,7 +1386,11 @@ func lockArtifactStorageForCleanup(dir string) (func(), error) {
 	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
 		if platform.IsFileLockUnavailable(err) {
-			return nil, fmt.Errorf("artifact storage directory %s is in use; stop vectis-artifact or run cleanup during a maintenance window before pruning blobs: %w", dir, err)
+			return nil, fmt.Errorf(
+				"artifact storage directory %s is in use; stop vectis-artifact or run cleanup during a maintenance window before pruning blobs: %w",
+				dir,
+				err,
+			)
 		}
 
 		return nil, fmt.Errorf("lock artifact storage directory %s: %w", dir, err)

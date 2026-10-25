@@ -83,5 +83,11 @@ func TestAPIServerHandlerRejectsUntrustedHostWithSecurityHeaders(t *testing.T) {
 		t.Fatalf("code=%q, want %q", body.Code, apiErrInvalidHostHeader)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonInvalidHostHeader, securityRejectionUnknownRoute, http.StatusBadRequest)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonInvalidHostHeader,
+		securityRejectionUnknownRoute,
+		http.StatusBadRequest,
+	)
 }

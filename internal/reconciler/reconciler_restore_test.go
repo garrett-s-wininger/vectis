@@ -50,7 +50,12 @@ func TestService_Process_RestoreSkewRepopulatesLostQueueFromFrozenSQLPayload(t *
 
 	pending, inflight, dlq := queuepkg.MetricsSnapshot(firstQueue)
 	if pending != 1 || inflight != 0 || dlq != 0 {
-		t.Fatalf("expected first queue to hold one pending job, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+		t.Fatalf(
+			"expected first queue to hold one pending job, got pending=%d inflight=%d dlq=%d",
+			pending,
+			inflight,
+			dlq,
+		)
 	}
 
 	closeQueueServiceForRestoreTest(t, firstQueue)
@@ -67,7 +72,13 @@ func TestService_Process_RestoreSkewRepopulatesLostQueueFromFrozenSQLPayload(t *
 	}
 
 	advanceClockPastLastDispatch(t, ctx, db, clock, runID, time.Second)
-	restoredSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
+	restoredSvc := NewServiceWithRepositories(
+		interfaces.NewLogger("test"),
+		repos.Jobs(),
+		repos.Runs(),
+		restoredQueue,
+		clock,
+	)
 	restoredSvc.SetServiceLeases(nil)
 	restoredSvc.SetMinDispatchGap(time.Second)
 
@@ -77,7 +88,12 @@ func TestService_Process_RestoreSkewRepopulatesLostQueueFromFrozenSQLPayload(t *
 
 	pending, inflight, dlq = queuepkg.MetricsSnapshot(restoredQueue)
 	if pending != 1 || inflight != 0 || dlq != 0 {
-		t.Fatalf("expected reconciler to repopulate one pending job, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+		t.Fatalf(
+			"expected reconciler to repopulate one pending job, got pending=%d inflight=%d dlq=%d",
+			pending,
+			inflight,
+			dlq,
+		)
 	}
 
 	got, err := restoredQueue.TryDequeue(ctx, &api.DequeueRequest{})
@@ -95,7 +111,11 @@ func TestService_Process_RestoreSkewRepopulatesLostQueueFromFrozenSQLPayload(t *
 
 	secondEnvelope := got.GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
 	if secondEnvelope != firstEnvelope {
-		t.Fatalf("redispatched envelope changed after queue restore skew:\nfirst:  %s\nsecond: %s", firstEnvelope, secondEnvelope)
+		t.Fatalf(
+			"redispatched envelope changed after queue restore skew:\nfirst:  %s\nsecond: %s",
+			firstEnvelope,
+			secondEnvelope,
+		)
 	}
 
 	secondPayload, err := repos.Runs().GetExecutionPayloadForRun(ctx, runID)
@@ -104,11 +124,16 @@ func TestService_Process_RestoreSkewRepopulatesLostQueueFromFrozenSQLPayload(t *
 	}
 
 	if secondPayload.PayloadHash != firstPayload.PayloadHash || secondPayload.PayloadJSON != firstPayload.PayloadJSON {
-		t.Fatalf("execution payload changed after redispatch:\nfirst hash:  %s\nsecond hash: %s", firstPayload.PayloadHash, secondPayload.PayloadHash)
+		t.Fatalf(
+			"execution payload changed after redispatch:\nfirst hash:  %s\nsecond hash: %s",
+			firstPayload.PayloadHash,
+			secondPayload.PayloadHash,
+		)
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).
+		Scan(&runCount); err != nil {
 		t.Fatalf("count job runs: %v", err)
 	}
 
@@ -148,7 +173,11 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 	}
 
 	if delivered.GetJob().GetId() != jobID || delivered.GetJob().GetRunId() != runID {
-		t.Fatalf("first delivery identity mismatch: job=%q run=%q", delivered.GetJob().GetId(), delivered.GetJob().GetRunId())
+		t.Fatalf(
+			"first delivery identity mismatch: job=%q run=%q",
+			delivered.GetJob().GetId(),
+			delivered.GetJob().GetRunId(),
+		)
 	}
 
 	firstPayload, err := repos.Runs().GetExecutionPayloadForRun(ctx, runID)
@@ -161,13 +190,25 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 		t.Fatal("expected first delivery to include execution envelope metadata")
 	}
 
-	if payloadEnvelope := executionEnvelopeMetadataForRestoreTest(t, firstPayload.PayloadJSON); payloadEnvelope != firstEnvelope {
-		t.Fatalf("delivered envelope differs from frozen payload:\npayload:  %s\ndelivery: %s", payloadEnvelope, firstEnvelope)
+	if payloadEnvelope := executionEnvelopeMetadataForRestoreTest(
+		t,
+		firstPayload.PayloadJSON,
+	); payloadEnvelope != firstEnvelope {
+		t.Fatalf(
+			"delivered envelope differs from frozen payload:\npayload:  %s\ndelivery: %s",
+			payloadEnvelope,
+			firstEnvelope,
+		)
 	}
 
 	pending, inflight, dlq := queuepkg.MetricsSnapshot(firstQueue)
 	if pending != 0 || inflight != 1 || dlq != 0 {
-		t.Fatalf("expected first queue to hold one in-flight delivery, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+		t.Fatalf(
+			"expected first queue to hold one in-flight delivery, got pending=%d inflight=%d dlq=%d",
+			pending,
+			inflight,
+			dlq,
+		)
 	}
 
 	closeQueueServiceForRestoreTest(t, firstQueue)
@@ -184,7 +225,13 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 	}
 
 	advanceClockPastLastDispatch(t, ctx, db, clock, runID, time.Second)
-	restoredSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
+	restoredSvc := NewServiceWithRepositories(
+		interfaces.NewLogger("test"),
+		repos.Jobs(),
+		repos.Runs(),
+		restoredQueue,
+		clock,
+	)
 	restoredSvc.SetServiceLeases(nil)
 	restoredSvc.SetMinDispatchGap(time.Second)
 
@@ -194,7 +241,12 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 
 	pending, inflight, dlq = queuepkg.MetricsSnapshot(restoredQueue)
 	if pending != 1 || inflight != 0 || dlq != 0 {
-		t.Fatalf("expected reconciler to repopulate one pending job, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+		t.Fatalf(
+			"expected reconciler to repopulate one pending job, got pending=%d inflight=%d dlq=%d",
+			pending,
+			inflight,
+			dlq,
+		)
 	}
 
 	redispatched, err := restoredQueue.TryDequeue(ctx, &api.DequeueRequest{})
@@ -207,12 +259,20 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 	}
 
 	if redispatched.GetJob().GetId() != jobID || redispatched.GetJob().GetRunId() != runID {
-		t.Fatalf("redispatched identity mismatch: job=%q run=%q", redispatched.GetJob().GetId(), redispatched.GetJob().GetRunId())
+		t.Fatalf(
+			"redispatched identity mismatch: job=%q run=%q",
+			redispatched.GetJob().GetId(),
+			redispatched.GetJob().GetRunId(),
+		)
 	}
 
 	secondEnvelope := redispatched.GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
 	if secondEnvelope != firstEnvelope {
-		t.Fatalf("redispatched envelope changed after lost in-flight delivery:\nfirst:  %s\nsecond: %s", firstEnvelope, secondEnvelope)
+		t.Fatalf(
+			"redispatched envelope changed after lost in-flight delivery:\nfirst:  %s\nsecond: %s",
+			firstEnvelope,
+			secondEnvelope,
+		)
 	}
 
 	secondPayload, err := repos.Runs().GetExecutionPayloadForRun(ctx, runID)
@@ -221,7 +281,11 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 	}
 
 	if secondPayload.PayloadHash != firstPayload.PayloadHash || secondPayload.PayloadJSON != firstPayload.PayloadJSON {
-		t.Fatalf("execution payload changed after in-flight redispatch:\nfirst hash:  %s\nsecond hash: %s", firstPayload.PayloadHash, secondPayload.PayloadHash)
+		t.Fatalf(
+			"execution payload changed after in-flight redispatch:\nfirst hash:  %s\nsecond hash: %s",
+			firstPayload.PayloadHash,
+			secondPayload.PayloadHash,
+		)
 	}
 
 	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
@@ -248,7 +312,8 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).
+		Scan(&runCount); err != nil {
 		t.Fatalf("count job runs: %v", err)
 	}
 
@@ -288,7 +353,11 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 	}
 
 	if delivered.GetJob().GetId() != jobID || delivered.GetJob().GetRunId() != runID {
-		t.Fatalf("first delivery identity mismatch: job=%q run=%q", delivered.GetJob().GetId(), delivered.GetJob().GetRunId())
+		t.Fatalf(
+			"first delivery identity mismatch: job=%q run=%q",
+			delivered.GetJob().GetId(),
+			delivered.GetJob().GetRunId(),
+		)
 	}
 
 	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
@@ -315,7 +384,13 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 	defer closeQueueServiceForRestoreTest(t, restoredQueue)
 
 	advanceClockPastLastDispatch(t, ctx, db, clock, runID, time.Second)
-	restoredSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
+	restoredSvc := NewServiceWithRepositories(
+		interfaces.NewLogger("test"),
+		repos.Jobs(),
+		repos.Runs(),
+		restoredQueue,
+		clock,
+	)
 	restoredSvc.SetServiceLeases(nil)
 	restoredSvc.SetMinDispatchGap(time.Second)
 
@@ -325,10 +400,16 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 
 	pending, inflight, dlq := queuepkg.MetricsSnapshot(restoredQueue)
 	if pending != 0 || inflight != 0 || dlq != 0 {
-		t.Fatalf("active durable claim should suppress redispatch, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+		t.Fatalf(
+			"active durable claim should suppress redispatch, got pending=%d inflight=%d dlq=%d",
+			pending,
+			inflight,
+			dlq,
+		)
 	}
 
-	duplicateClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(time.Minute))
+	duplicateClaim, err := repos.Runs().
+		TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("duplicate claim with active owner: %v", err)
 	}
@@ -338,11 +419,21 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 	}
 
 	expiredLease := now.Add(-time.Minute).Unix()
-	if _, err := db.ExecContext(ctx, "UPDATE segment_executions SET lease_until = ? WHERE execution_id = ?", expiredLease, dispatch.ExecutionID); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		"UPDATE segment_executions SET lease_until = ? WHERE execution_id = ?",
+		expiredLease,
+		dispatch.ExecutionID,
+	); err != nil {
 		t.Fatalf("expire execution lease: %v", err)
 	}
 
-	if _, err := db.ExecContext(ctx, "UPDATE job_runs SET lease_until = ? WHERE run_id = ?", expiredLease, runID); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		"UPDATE job_runs SET lease_until = ? WHERE run_id = ?",
+		expiredLease,
+		runID,
+	); err != nil {
 		t.Fatalf("expire run lease: %v", err)
 	}
 
@@ -353,7 +444,12 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 
 	pending, inflight, dlq = queuepkg.MetricsSnapshot(restoredQueue)
 	if pending != 0 || inflight != 0 || dlq != 0 {
-		t.Fatalf("expired durable claim should orphan without queue redispatch, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+		t.Fatalf(
+			"expired durable claim should orphan without queue redispatch, got pending=%d inflight=%d dlq=%d",
+			pending,
+			inflight,
+			dlq,
+		)
 	}
 
 	var status string
@@ -365,24 +461,38 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 		t.Fatalf("expired durable claim should orphan run, got %q", status)
 	}
 
-	replacementClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(time.Minute))
+	replacementClaim, err := repos.Runs().
+		TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("replacement claim after orphaning: %v", err)
 	}
 
 	if replacementClaim.Claimed || replacementClaim.ClaimToken != "" {
-		t.Fatalf("expected replacement claim after orphaning to be rejected, first=%+v replacement=%+v", firstClaim, replacementClaim)
+		t.Fatalf(
+			"expected replacement claim after orphaning to be rejected, first=%+v replacement=%+v",
+			firstClaim,
+			replacementClaim,
+		)
 	}
 
-	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-a", firstClaim.ClaimToken, time.Now().Add(time.Minute)); !dal.IsConflict(err) {
+	if err := repos.Runs().
+		RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-a", firstClaim.ClaimToken, time.Now().Add(time.Minute)); !dal.IsConflict(
+		err,
+	) {
 		t.Fatalf("expected stale owner renew conflict, got %v", err)
 	}
 
-	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", firstClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(err) {
+	if _, err := repos.Runs().
+		CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", firstClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(
+		err,
+	) {
 		t.Fatalf("expected stale owner completion conflict, got %v", err)
 	}
 
-	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", replacementClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(err) {
+	if _, err := repos.Runs().
+		CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", replacementClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(
+		err,
+	) {
 		t.Fatalf("expected replacement completion conflict, got %v", err)
 	}
 }

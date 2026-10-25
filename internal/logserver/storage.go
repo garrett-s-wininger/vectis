@@ -190,7 +190,11 @@ func acquireLogStorageLock(dir string) (*os.File, error) {
 	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
 		if platform.IsFileLockUnavailable(err) {
-			return nil, fmt.Errorf("log storage directory %s is already in use by another log process; use a distinct storage directory for each active log shard: %w", dir, err)
+			return nil, fmt.Errorf(
+				"log storage directory %s is already in use by another log process; use a distinct storage directory for each active log shard: %w",
+				dir,
+				err,
+			)
 		}
 
 		return nil, fmt.Errorf("lock log storage directory %s: %w", dir, err)
@@ -532,7 +536,13 @@ func (s *LocalRunLogStore) newRunWritable() error {
 	}
 
 	if stats.freeBytes < s.newRunMinFreeBytes {
-		return fmt.Errorf("%w: %d bytes free below %d byte threshold in %s", ErrLogStoreReadOnly, stats.freeBytes, s.newRunMinFreeBytes, s.baseDir)
+		return fmt.Errorf(
+			"%w: %d bytes free below %d byte threshold in %s",
+			ErrLogStoreReadOnly,
+			stats.freeBytes,
+			s.newRunMinFreeBytes,
+			s.baseDir,
+		)
 	}
 
 	return nil
@@ -596,7 +606,11 @@ func readLogEntryRecord(r io.Reader) (LogEntry, error) {
 
 	bodyLen := binary.LittleEndian.Uint32(lengthBuf[:])
 	if bodyLen < logEntryRecordHeaderSize {
-		return LogEntry{}, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+		return LogEntry{}, fmt.Errorf(
+			"record body length %d is smaller than header length %d",
+			bodyLen,
+			logEntryRecordHeaderSize,
+		)
 	}
 
 	if uint64(bodyLen) > uint64(int(^uint(0)>>1)) {
@@ -622,12 +636,20 @@ func readLogEntryRecord(r io.Reader) (LogEntry, error) {
 
 func decodeLogEntryRecordBody(body []byte) (LogEntry, error) {
 	if len(body) < logEntryRecordHeaderSize {
-		return LogEntry{}, fmt.Errorf("record body length %d is smaller than header length %d", len(body), logEntryRecordHeaderSize)
+		return LogEntry{}, fmt.Errorf(
+			"record body length %d is smaller than header length %d",
+			len(body),
+			logEntryRecordHeaderSize,
+		)
 	}
 
 	dataLen := binary.LittleEndian.Uint32(body[28:32])
 	if dataLen != uint32(len(body)-logEntryRecordHeaderSize) {
-		return LogEntry{}, fmt.Errorf("record data length %d does not match body payload length %d", dataLen, len(body)-logEntryRecordHeaderSize)
+		return LogEntry{}, fmt.Errorf(
+			"record data length %d does not match body payload length %d",
+			dataLen,
+			len(body)-logEntryRecordHeaderSize,
+		)
 	}
 
 	nsec := binary.LittleEndian.Uint32(body[8:12])
@@ -711,7 +733,11 @@ func (s *LocalRunLogStore) Replay(runID string, opts LogReplayOptions) (LogRepla
 	}
 }
 
-func (s *LocalRunLogStore) skipReplayRecordData(r *bufio.Reader, header logEntryRecordHeader, result *LogReplayResult) error {
+func (s *LocalRunLogStore) skipReplayRecordData(
+	r *bufio.Reader,
+	header logEntryRecordHeader,
+	result *LogReplayResult,
+) error {
 	if header.stream != api.Stream_STREAM_CONTROL && header.completed == api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
 		if _, err := r.Discard(header.dataLen); err != nil {
 			return err
@@ -758,7 +784,11 @@ func readLogEntryRecordHeader(r io.Reader) (logEntryRecordHeader, error) {
 
 	bodyLen := binary.LittleEndian.Uint32(lengthBuf[:])
 	if bodyLen < logEntryRecordHeaderSize {
-		return logEntryRecordHeader{}, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+		return logEntryRecordHeader{}, fmt.Errorf(
+			"record body length %d is smaller than header length %d",
+			bodyLen,
+			logEntryRecordHeaderSize,
+		)
 	}
 
 	if uint64(bodyLen) > uint64(int(^uint(0)>>1)) {
@@ -772,7 +802,11 @@ func readLogEntryRecordHeader(r io.Reader) (logEntryRecordHeader, error) {
 
 	dataLen := binary.LittleEndian.Uint32(headerBuf[28:32])
 	if dataLen != bodyLen-logEntryRecordHeaderSize {
-		return logEntryRecordHeader{}, fmt.Errorf("record data length %d does not match body payload length %d", dataLen, bodyLen-logEntryRecordHeaderSize)
+		return logEntryRecordHeader{}, fmt.Errorf(
+			"record data length %d does not match body payload length %d",
+			dataLen,
+			bodyLen-logEntryRecordHeaderSize,
+		)
 	}
 
 	nsec := binary.LittleEndian.Uint32(headerBuf[8:12])
@@ -893,7 +927,11 @@ func readLogEntryRecordBefore(f *os.File, pos int64) (LogEntry, int64, error) {
 
 	bodyLen := binary.LittleEndian.Uint32(suffix[:])
 	if bodyLen < logEntryRecordHeaderSize {
-		return LogEntry{}, 0, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+		return LogEntry{}, 0, fmt.Errorf(
+			"record body length %d is smaller than header length %d",
+			bodyLen,
+			logEntryRecordHeaderSize,
+		)
 	}
 
 	if uint64(bodyLen) > uint64(int(^uint(0)>>1)) {

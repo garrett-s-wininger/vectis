@@ -24,12 +24,18 @@ func (u *recordingCatalogUpdater) ApplyRunStatusUpdate(ctx context.Context, upda
 	return u.errIfNeeded()
 }
 
-func (u *recordingCatalogUpdater) ApplyExecutionStatusUpdate(ctx context.Context, update dal.ExecutionStatusUpdate) error {
+func (u *recordingCatalogUpdater) ApplyExecutionStatusUpdate(
+	ctx context.Context,
+	update dal.ExecutionStatusUpdate,
+) error {
 	u.calls = append(u.calls, "execution:"+update.ExecutionID+":"+update.Status)
 	return u.errIfNeeded()
 }
 
-func (u *recordingCatalogUpdater) ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+func (u *recordingCatalogUpdater) ApplyTerminalExecutionSnapshot(
+	ctx context.Context,
+	update dal.TerminalExecutionSnapshotUpdate,
+) error {
 	u.calls = append(u.calls, "terminal-snapshot:"+update.RunID+":"+string(update.Outcome))
 	return u.errIfNeeded()
 }
@@ -151,9 +157,12 @@ func TestCatalogEventConsumer_RejectsInvalidEvents(t *testing.T) {
 		{
 			name: "multiple status updates",
 			event: CatalogEvent{
-				SourceCellID:    "iad-a",
-				RunStatus:       &dal.RunStatusUpdate{RunID: "run-1", Status: dal.RunStatusRunning},
-				ExecutionStatus: &dal.ExecutionStatusUpdate{ExecutionID: "execution-1", Status: dal.ExecutionStatusAccepted},
+				SourceCellID: "iad-a",
+				RunStatus:    &dal.RunStatusUpdate{RunID: "run-1", Status: dal.RunStatusRunning},
+				ExecutionStatus: &dal.ExecutionStatusUpdate{
+					ExecutionID: "execution-1",
+					Status:      dal.ExecutionStatusAccepted,
+				},
 			},
 		},
 	}
@@ -174,11 +183,17 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 	ctx := context.Background()
 	publisher := NewCatalogEventPublisher("iad-a", repos.CatalogEvents())
 
-	if err := publisher.RecordRunStatus(ctx, dal.RunStatusUpdate{RunID: "run-1", Status: dal.RunStatusRunning}); err != nil {
+	if err := publisher.RecordRunStatus(
+		ctx,
+		dal.RunStatusUpdate{RunID: "run-1", Status: dal.RunStatusRunning},
+	); err != nil {
 		t.Fatalf("RecordRunStatus: %v", err)
 	}
 
-	if err := publisher.RecordExecutionStatus(ctx, dal.ExecutionStatusUpdate{ExecutionID: "execution-1", Status: dal.ExecutionStatusAccepted}); err != nil {
+	if err := publisher.RecordExecutionStatus(
+		ctx,
+		dal.ExecutionStatusUpdate{ExecutionID: "execution-1", Status: dal.ExecutionStatusAccepted},
+	); err != nil {
 		t.Fatalf("RecordExecutionStatus: %v", err)
 	}
 
@@ -233,23 +248,28 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 		t.Fatalf("pending records: got %d, want 5", len(records))
 	}
 
-	if records[0].SourceCell != "iad-a" || records[0].EventKey != "run:run-1:running" || records[0].EventType != CatalogEventTypeRunStatus {
+	if records[0].SourceCell != "iad-a" || records[0].EventKey != "run:run-1:running" ||
+		records[0].EventType != CatalogEventTypeRunStatus {
 		t.Fatalf("unexpected run event: %+v", records[0])
 	}
 
-	if records[1].SourceCell != "iad-a" || records[1].EventKey != "execution:execution-1:accepted" || records[1].EventType != CatalogEventTypeExecutionStatus {
+	if records[1].SourceCell != "iad-a" || records[1].EventKey != "execution:execution-1:accepted" ||
+		records[1].EventType != CatalogEventTypeExecutionStatus {
 		t.Fatalf("unexpected execution event: %+v", records[1])
 	}
 
-	if records[2].SourceCell != "iad-a" || records[2].EventKey != "artifact:run-1:coverage" || records[2].EventType != CatalogEventTypeArtifactRecord {
+	if records[2].SourceCell != "iad-a" || records[2].EventKey != "artifact:run-1:coverage" ||
+		records[2].EventType != CatalogEventTypeArtifactRecord {
 		t.Fatalf("unexpected artifact event: %+v", records[2])
 	}
 
-	if records[3].SourceCell != "iad-a" || !strings.HasPrefix(records[3].EventKey, "security:run-1:") || records[3].EventType != CatalogEventTypeExecutionSecurity {
+	if records[3].SourceCell != "iad-a" || !strings.HasPrefix(records[3].EventKey, "security:run-1:") ||
+		records[3].EventType != CatalogEventTypeExecutionSecurity {
 		t.Fatalf("unexpected security event: %+v", records[3])
 	}
 
-	if records[4].SourceCell != "iad-a" || records[4].EventKey != "run:run-1:terminal-snapshot" || records[4].EventType != CatalogEventTypeTerminalSnapshot {
+	if records[4].SourceCell != "iad-a" || records[4].EventKey != "run:run-1:terminal-snapshot" ||
+		records[4].EventType != CatalogEventTypeTerminalSnapshot {
 		t.Fatalf("unexpected terminal snapshot event: %+v", records[4])
 	}
 }
@@ -265,7 +285,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 	}
 
 	jobID := "job-catalog-inbox"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-inbox","root":{"uses":"builtins/script"}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-inbox","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -355,7 +376,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 	}
 
 	var executionStatus string
-	if err := db.QueryRowContext(ctx, "SELECT status FROM segment_executions WHERE execution_id = ?", dispatch.ExecutionID).Scan(&executionStatus); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT status FROM segment_executions WHERE execution_id = ?", dispatch.ExecutionID).
+		Scan(&executionStatus); err != nil {
 		t.Fatalf("query execution status: %v", err)
 	}
 
@@ -364,7 +386,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 	}
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, "SELECT status FROM job_runs WHERE run_id = ?", runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT status FROM job_runs WHERE run_id = ?", runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -379,7 +402,8 @@ func TestCatalogInboxProcessor_RejectsCrossCellRunStatusEvent(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "job-catalog-cross-cell"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-cross-cell","root":{"uses":"builtins/script"}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-cross-cell","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -413,7 +437,8 @@ func TestCatalogInboxProcessor_RejectsCrossCellRunStatusEvent(t *testing.T) {
 	assertCatalogEventFailed(t, db, rec.ID, "cannot update run")
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, "SELECT status FROM job_runs WHERE run_id = ?", runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT status FROM job_runs WHERE run_id = ?", runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -433,7 +458,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T)
 	}
 
 	jobID := "job-catalog-artifact"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-artifact","root":{"uses":"builtins/script"}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-artifact","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -460,7 +486,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T)
 		t.Fatalf("marshal artifact event: %v", err)
 	}
 
-	if _, _, err := repos.CatalogEvents().Record(ctx, "iad-a", CatalogArtifactEventKey(runID, create.Name), CatalogEventTypeArtifactRecord, payload); err != nil {
+	if _, _, err := repos.CatalogEvents().
+		Record(ctx, "iad-a", CatalogArtifactEventKey(runID, create.Name), CatalogEventTypeArtifactRecord, payload); err != nil {
 		t.Fatalf("record artifact event: %v", err)
 	}
 
@@ -495,7 +522,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.
 	}
 
 	jobID := "job-catalog-terminal-snapshot"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-terminal-snapshot","root":{"uses":"builtins/script"}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-terminal-snapshot","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -561,7 +589,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.
 		t.Fatalf("marshal terminal snapshot event: %v", err)
 	}
 
-	if _, _, err := repos.CatalogEvents().Record(ctx, "iad-a", CatalogTerminalSnapshotEventKey(runID), CatalogEventTypeTerminalSnapshot, payload); err != nil {
+	if _, _, err := repos.CatalogEvents().
+		Record(ctx, "iad-a", CatalogTerminalSnapshotEventKey(runID), CatalogEventTypeTerminalSnapshot, payload); err != nil {
 		t.Fatalf("record terminal snapshot event: %v", err)
 	}
 
@@ -597,7 +626,8 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.
 		}
 	}
 
-	if child == nil || child.Status != dal.TaskStatusSucceeded || len(child.Attempts) != 1 || child.Attempts[0].ExecutionStatus != dal.ExecutionStatusSucceeded {
+	if child == nil || child.Status != dal.TaskStatusSucceeded || len(child.Attempts) != 1 ||
+		child.Attempts[0].ExecutionStatus != dal.ExecutionStatusSucceeded {
 
 		t.Fatalf("child final fact after terminal snapshot event: child=%+v tasks=%+v", child, tasks)
 	}
@@ -608,7 +638,8 @@ func TestCatalogInboxProcessor_ProcessPendingMarksInvalidPayloadFailed(t *testin
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	rec, _, err := repos.CatalogEvents().Record(ctx, "iad-a", "event-bad", CatalogEventTypeRunStatus, []byte(`{"run_id":`))
+	rec, _, err := repos.CatalogEvents().
+		Record(ctx, "iad-a", "event-bad", CatalogEventTypeRunStatus, []byte(`{"run_id":`))
 	if err != nil {
 		t.Fatalf("record invalid event: %v", err)
 	}
@@ -673,7 +704,8 @@ func assertCatalogEventFailed(t *testing.T, db *sql.DB, eventID int64, wantError
 	var status string
 	var attempts int
 	var lastError sql.NullString
-	if err := db.QueryRow("SELECT status, attempts, last_error FROM cell_catalog_events WHERE id = ?", eventID).Scan(&status, &attempts, &lastError); err != nil {
+	if err := db.QueryRow("SELECT status, attempts, last_error FROM cell_catalog_events WHERE id = ?", eventID).
+		Scan(&status, &attempts, &lastError); err != nil {
 		t.Fatalf("query catalog event: %v", err)
 	}
 
@@ -696,7 +728,8 @@ func assertCatalogEventPending(t *testing.T, db *sql.DB, eventID int64, wantAtte
 	var status string
 	var attempts int
 	var lastError sql.NullString
-	if err := db.QueryRow("SELECT status, attempts, last_error FROM cell_catalog_events WHERE id = ?", eventID).Scan(&status, &attempts, &lastError); err != nil {
+	if err := db.QueryRow("SELECT status, attempts, last_error FROM cell_catalog_events WHERE id = ?", eventID).
+		Scan(&status, &attempts, &lastError); err != nil {
 		t.Fatalf("query catalog event: %v", err)
 	}
 
@@ -720,7 +753,8 @@ func assertCatalogEventApplied(t *testing.T, db *sql.DB, eventID int64, wantAtte
 	var attempts int
 	var lastError sql.NullString
 	var appliedAt sql.NullInt64
-	if err := db.QueryRow("SELECT status, attempts, last_error, applied_at FROM cell_catalog_events WHERE id = ?", eventID).Scan(&status, &attempts, &lastError, &appliedAt); err != nil {
+	if err := db.QueryRow("SELECT status, attempts, last_error, applied_at FROM cell_catalog_events WHERE id = ?", eventID).
+		Scan(&status, &attempts, &lastError, &appliedAt); err != nil {
 		t.Fatalf("query catalog event: %v", err)
 	}
 

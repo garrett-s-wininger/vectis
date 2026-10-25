@@ -72,7 +72,8 @@ func TestLocalRunLogStore_AppendAndList(t *testing.T) {
 	}
 
 	for i := range want {
-		if got[i].Sequence != want[i].Sequence || !bytes.Equal(got[i].Data, want[i].Data) || got[i].Stream != want[i].Stream {
+		if got[i].Sequence != want[i].Sequence || !bytes.Equal(got[i].Data, want[i].Data) ||
+			got[i].Stream != want[i].Stream {
 			t.Fatalf("entry %d mismatch: got=%+v want=%+v", i, got[i], want[i])
 		}
 	}
@@ -441,7 +442,10 @@ func TestLocalRunLogStore_ConcurrentAppendBatchDifferentRuns(t *testing.T) {
 		wg.Go(func() {
 			entries := make([]LogEntry, 0, entriesPerRun)
 			for i := 1; i <= entriesPerRun; i++ {
-				entries = append(entries, LogEntry{Sequence: int64(i), Data: []byte(fmt.Sprintf("%s-line-%02d", runID, i))})
+				entries = append(
+					entries,
+					LogEntry{Sequence: int64(i), Data: []byte(fmt.Sprintf("%s-line-%02d", runID, i))},
+				)
 			}
 
 			if err := store.AppendBatch(runID, entries); err != nil {

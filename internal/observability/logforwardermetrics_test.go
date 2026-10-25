@@ -47,7 +47,10 @@ func TestLogForwarderMetrics_ExposeCountersAndSpoolGauges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !metricFamilyHasLabels(families["vectis_log_forwarder_chunks_received_total"], map[string]string{"route": "hinted"}) {
+	if !metricFamilyHasLabels(
+		families["vectis_log_forwarder_chunks_received_total"],
+		map[string]string{"route": "hinted"},
+	) {
 		t.Fatal("missing log-forwarder chunk route labels")
 	}
 

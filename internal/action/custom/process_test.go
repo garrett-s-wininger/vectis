@@ -83,7 +83,8 @@ func TestProcessActionRejectsMissingCommand(t *testing.T) {
 	}, nil)
 
 	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "runtime_config.command") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "runtime_config.command") {
 		t.Fatalf("Execute result = %+v, want missing command failure", result)
 	}
 }
@@ -130,8 +131,14 @@ func TestProcessActionRejectsChildrenWhenUnsupported(t *testing.T) {
 		RuntimeConfig: map[string]string{"command": "true"},
 	}, nil)
 
-	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, action.Ports{"steps": []*api.Node{{}}})
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "does not support child ports") {
+	result := act.Execute(
+		context.Background(),
+		&action.ExecutionState{Logger: mocks.NewMockLogger()},
+		nil,
+		action.Ports{"steps": []*api.Node{{}}},
+	)
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "does not support child ports") {
 		t.Fatalf("Execute result = %+v, want child-port failure", result)
 	}
 }
@@ -146,7 +153,8 @@ func TestProcessActionRejectsMissingWorkingDirectoryBase(t *testing.T) {
 	}, mocks.NewMockExecExecutor())
 
 	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "base directory is required") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "base directory is required") {
 		t.Fatalf("Execute result = %+v, want working directory base failure", result)
 	}
 }
@@ -169,7 +177,8 @@ func TestProcessActionRejectsAbsoluteWorkingDirectory(t *testing.T) {
 	}
 
 	result := act.Execute(context.Background(), state, nil, nil)
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must be relative") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "must be relative") {
 		t.Fatalf("Execute result = %+v, want relative working directory failure", result)
 	}
 }
@@ -192,7 +201,8 @@ func TestProcessActionRejectsEscapingWorkingDirectory(t *testing.T) {
 	}
 
 	result := act.Execute(context.Background(), state, nil, nil)
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must stay within the action base directory") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "must stay within the action base directory") {
 		t.Fatalf("Execute result = %+v, want working directory containment failure", result)
 	}
 }
@@ -297,7 +307,8 @@ func TestProcessActionRejectsSymlinkEscapingWorkingDirectory(t *testing.T) {
 	}, mocks.NewMockExecExecutor())
 
 	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must stay within the action base directory") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "must stay within the action base directory") {
 		t.Fatalf("Execute result = %+v, want symlink working directory containment failure", result)
 	}
 }

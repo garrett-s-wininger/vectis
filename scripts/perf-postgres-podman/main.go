@@ -517,7 +517,8 @@ func waitForPostgres(ctx context.Context, podman, containerID string) error {
 
 	var lastOutput string
 	for {
-		output, err := exec.CommandContext(ctx, podman, "exec", containerID, "pg_isready", "-U", postgresUser, "-d", postgresDatabase).CombinedOutput()
+		output, err := exec.CommandContext(ctx, podman, "exec", containerID, "pg_isready", "-U", postgresUser, "-d", postgresDatabase).
+			CombinedOutput()
 		if err == nil {
 			return nil
 		}

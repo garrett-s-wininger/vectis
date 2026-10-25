@@ -126,7 +126,16 @@ func benchmarkServiceClaimCompleteLeaf(b *testing.B, shardCount, workerCount int
 					return
 				}
 
-				result, err := svc.CompleteExecutionByClaim(ctx, dispatch.runID, dispatch.executionID, workerID, claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+				result, err := svc.CompleteExecutionByClaim(
+					ctx,
+					dispatch.runID,
+					dispatch.executionID,
+					workerID,
+					claim.ClaimToken,
+					dal.ExecutionStatusSucceeded,
+					"",
+					"",
+				)
 				if err != nil {
 					errCh <- err
 					return
@@ -521,15 +530,31 @@ func benchmarkServiceLoadClaimCompleteFanoutWidth(b *testing.B, width int) {
 				b.Fatalf("root execution %s was not claimed", loaded.Root.ExecutionID)
 			}
 
-			result, err := svc.CompleteExecutionByClaim(ctx, runID, loaded.Root.ExecutionID, "bench-worker", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+			result, err := svc.CompleteExecutionByClaim(
+				ctx,
+				runID,
+				loaded.Root.ExecutionID,
+				"bench-worker",
+				claim.ClaimToken,
+				dal.ExecutionStatusSucceeded,
+				"",
+				"",
+			)
 			if err != nil {
 				svc.Close()
 				b.Fatalf("complete root %s: %v", runID, err)
 			}
 
-			if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != width || len(result.Children) != width {
+			if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != width ||
+				len(result.Children) != width {
 				svc.Close()
-				b.Fatalf("root result for width %d: outcome=%q activated=%d children=%d", width, result.Outcome, result.Activated, len(result.Children))
+				b.Fatalf(
+					"root result for width %d: outcome=%q activated=%d children=%d",
+					width,
+					result.Outcome,
+					result.Activated,
+					len(result.Children),
+				)
 			}
 
 			activated += result.Activated
@@ -585,13 +610,27 @@ func benchmarkServiceCompleteTerminalSnapshot(b *testing.B, totalTasks int) {
 			b.Fatalf("root execution %s was not claimed", loaded.Root.ExecutionID)
 		}
 
-		rootResult, err := svc.CompleteExecutionByClaim(ctx, runID, loaded.Root.ExecutionID, workerID, rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+		rootResult, err := svc.CompleteExecutionByClaim(
+			ctx,
+			runID,
+			loaded.Root.ExecutionID,
+			workerID,
+			rootClaim.ClaimToken,
+			dal.ExecutionStatusSucceeded,
+			"",
+			"",
+		)
 		if err != nil {
 			b.Fatalf("complete root %s: %v", runID, err)
 		}
 
 		if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || len(rootResult.Children) != childCount {
-			b.Fatalf("root result for total %d: outcome=%q children=%d", totalTasks, rootResult.Outcome, len(rootResult.Children))
+			b.Fatalf(
+				"root result for total %d: outcome=%q children=%d",
+				totalTasks,
+				rootResult.Outcome,
+				len(rootResult.Children),
+			)
 		}
 
 		for childIndex := 0; childIndex < childCount-1; childIndex++ {
@@ -605,7 +644,16 @@ func benchmarkServiceCompleteTerminalSnapshot(b *testing.B, totalTasks int) {
 				b.Fatalf("child execution %s was not claimed", child.ExecutionID)
 			}
 
-			result, err := svc.CompleteExecutionByClaim(ctx, runID, child.ExecutionID, workerID, childClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+			result, err := svc.CompleteExecutionByClaim(
+				ctx,
+				runID,
+				child.ExecutionID,
+				workerID,
+				childClaim.ClaimToken,
+				dal.ExecutionStatusSucceeded,
+				"",
+				"",
+			)
 			if err != nil {
 				b.Fatalf("complete child %s: %v", child.ExecutionID, err)
 			}
@@ -639,13 +687,27 @@ func benchmarkServiceCompleteTerminalSnapshot(b *testing.B, totalTasks int) {
 
 	for i, dispatch := range dispatches {
 		workerID := fmt.Sprintf("bench-worker-%d", i)
-		result, err := svc.CompleteExecutionByClaim(ctx, dispatch.runID, dispatch.executionID, workerID, dispatch.claimToken, dal.ExecutionStatusSucceeded, "", "")
+		result, err := svc.CompleteExecutionByClaim(
+			ctx,
+			dispatch.runID,
+			dispatch.executionID,
+			workerID,
+			dispatch.claimToken,
+			dal.ExecutionStatusSucceeded,
+			"",
+			"",
+		)
 		if err != nil {
 			b.Fatalf("complete terminal child %s: %v", dispatch.executionID, err)
 		}
 
 		if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded || len(result.Executions) != totalTasks {
-			b.Fatalf("terminal result for total %d: outcome=%q snapshots=%d", totalTasks, result.Outcome, len(result.Executions))
+			b.Fatalf(
+				"terminal result for total %d: outcome=%q snapshots=%d",
+				totalTasks,
+				result.Outcome,
+				len(result.Executions),
+			)
 		}
 	}
 
@@ -749,7 +811,16 @@ func benchmarkServiceClaimCompleteRootChild(b *testing.B, shardCount, workerCoun
 					return
 				}
 
-				rootResult, err := svc.CompleteExecutionByClaim(ctx, dispatch.runID, dispatch.root, workerID, rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+				rootResult, err := svc.CompleteExecutionByClaim(
+					ctx,
+					dispatch.runID,
+					dispatch.root,
+					workerID,
+					rootClaim.ClaimToken,
+					dal.ExecutionStatusSucceeded,
+					"",
+					"",
+				)
 				if err != nil {
 					errCh <- err
 					return
@@ -772,7 +843,16 @@ func benchmarkServiceClaimCompleteRootChild(b *testing.B, shardCount, workerCoun
 					return
 				}
 
-				childResult, err := svc.CompleteExecutionByClaim(ctx, dispatch.runID, child.ExecutionID, workerID, childClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+				childResult, err := svc.CompleteExecutionByClaim(
+					ctx,
+					dispatch.runID,
+					child.ExecutionID,
+					workerID,
+					childClaim.ClaimToken,
+					dal.ExecutionStatusSucceeded,
+					"",
+					"",
+				)
 				if err != nil {
 					errCh <- err
 					return

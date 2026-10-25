@@ -29,7 +29,8 @@ func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
 	if status.ErrorCode != "" {
 		t.Fatalf("sync clone failed: %+v", status)
 	}
-	if !status.PathExists || !status.PathIsDirectory || !status.GitRepository || !status.DefaultRefResolved || status.ResolvedCommit != firstCommit {
+	if !status.PathExists || !status.PathIsDirectory || !status.GitRepository || !status.DefaultRefResolved ||
+		status.ResolvedCommit != firstCommit {
 		t.Fatalf("clone status mismatch: %+v", status)
 	}
 
@@ -49,7 +50,9 @@ func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
 		t.Fatalf("fetch should advance HEAD: got %q, want %q; status=%+v", status.ResolvedCommit, secondCommit, status)
 	}
 
-	file, err := NewGitCheckout(checkoutPath).ReadFile(context.Background(), Revision{Commit: secondCommit}, "README.md")
+	file, err := NewGitCheckout(
+		checkoutPath,
+	).ReadFile(context.Background(), Revision{Commit: secondCommit}, "README.md")
 	if err != nil {
 		t.Fatalf("ReadFile after managed sync: %v", err)
 	}
@@ -278,7 +281,13 @@ func TestHydrateManagedGitRefDoesNotPublishFailedCandidate(t *testing.T) {
 		t.Fatalf("expected fetch failure hydrating missing branch, got %+v", status)
 	}
 
-	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/remotes/origin/feature/missing"); got != "" {
+	if got := gitOutput(
+		t,
+		checkoutPath,
+		"for-each-ref",
+		"--format=%(refname)",
+		"refs/remotes/origin/feature/missing",
+	); got != "" {
 		t.Fatalf("failed hydrate should not publish destination ref, got %q", got)
 	}
 
@@ -350,7 +359,11 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 	}
 
 	if status.HydrationRemote != "vectis-fallback-1" || status.HydrationTier != "fallback-1" {
-		t.Fatalf("updated fallback hydration evidence: got remote=%q tier=%q", status.HydrationRemote, status.HydrationTier)
+		t.Fatalf(
+			"updated fallback hydration evidence: got remote=%q tier=%q",
+			status.HydrationRemote,
+			status.HydrationTier,
+		)
 	}
 
 	if got := gitOutput(t, checkoutPath, "remote", "get-url", "vectis-fallback-1"); got != upstream {
@@ -365,7 +378,12 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 		t.Fatalf("fallback hydrate should clean candidate refs, got %q", got)
 	}
 
-	if got := gitOutput(t, checkoutPath, "rev-parse", "refs/remotes/origin/feature/upstream-only"); got != featureCommit {
+	if got := gitOutput(
+		t,
+		checkoutPath,
+		"rev-parse",
+		"refs/remotes/origin/feature/upstream-only",
+	); got != featureCommit {
 		t.Fatalf("fallback hydrate should publish managed origin ref: got %q, want %q", got, featureCommit)
 	}
 }
@@ -419,7 +437,12 @@ func TestHydrateManagedGitRefFetchesProviderRefs(t *testing.T) {
 				t.Fatalf("hydrated provider ref target: got %q, want %q", got, reviewCommit)
 			}
 
-			if _, err := NewGitCheckout(checkoutPath).ResolveRevision(context.Background(), ref); !errors.Is(err, ErrNotFound) {
+			if _, err := NewGitCheckout(
+				checkoutPath,
+			).ResolveRevision(context.Background(), ref); !errors.Is(
+				err,
+				ErrNotFound,
+			) {
 				t.Fatalf("plain checkout should not resolve provider hydrated ref, got %v", err)
 			}
 
@@ -492,7 +515,8 @@ func TestHydrateManagedGitContextFetchesAuxiliaryNotesRef(t *testing.T) {
 		t.Fatalf("ListCommits hydrated provider ref: %v", err)
 	}
 
-	if len(commits.Commits) != 1 || commits.Commits[0].Commit != reviewCommit || commits.Commits[0].Subject != "review" {
+	if len(commits.Commits) != 1 || commits.Commits[0].Commit != reviewCommit ||
+		commits.Commits[0].Subject != "review" {
 		t.Fatalf("hydrated provider commit listing mismatch: %+v", commits)
 	}
 
@@ -623,7 +647,11 @@ func TestManagedGitFetchRemotesSortsFallbacksByNumericSuffix(t *testing.T) {
 	}
 
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("preferred fallback remotes order:\ngot:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		t.Fatalf(
+			"preferred fallback remotes order:\ngot:\n%s\nwant:\n%s",
+			strings.Join(got, "\n"),
+			strings.Join(want, "\n"),
+		)
 	}
 }
 
@@ -865,7 +893,12 @@ func TestManagedGitCheckoutResolvesHydratedRemoteBranchByPlainName(t *testing.T)
 		t.Fatalf("hydrate feature branch failed: %+v", status)
 	}
 
-	if _, err := NewGitCheckout(checkoutPath).ResolveRevision(context.Background(), "feature/ref-fallback"); !errors.Is(err, ErrNotFound) {
+	if _, err := NewGitCheckout(
+		checkoutPath,
+	).ResolveRevision(context.Background(), "feature/ref-fallback"); !errors.Is(
+		err,
+		ErrNotFound,
+	) {
 		t.Fatalf("plain GitCheckout should not resolve remote-only branch by plain name, got %v", err)
 	}
 

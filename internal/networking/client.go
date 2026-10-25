@@ -27,7 +27,14 @@ type Client[T any] struct {
 	Metrics   backoff.RetryMetrics
 }
 
-func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.ClientConnInterface) T, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*Client[T], error) {
+func NewClient[T any](
+	ctx context.Context,
+	addr string,
+	newClient func(grpc.ClientConnInterface) T,
+	logger interfaces.Logger,
+	clock interfaces.Clock,
+	retryMetrics backoff.RetryMetrics,
+) (*Client[T], error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -52,7 +59,13 @@ func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.Clie
 	}, nil
 }
 
-func connectWithRetry(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*grpc.ClientConn, error) {
+func connectWithRetry(
+	ctx context.Context,
+	addr string,
+	logger interfaces.Logger,
+	clock interfaces.Clock,
+	retryMetrics backoff.RetryMetrics,
+) (*grpc.ClientConn, error) {
 	opts, err := config.GRPCClientDialOptions(addr)
 	if err != nil {
 		return nil, err
@@ -75,7 +88,13 @@ func connectWithRetry(ctx context.Context, addr string, logger interfaces.Logger
 		if attempt == 1 {
 			logger.Warn("Failed to connect to %s: %v (retries at debug)", addr, err)
 		} else {
-			logger.Debug("Failed to connect (attempt %d/%d): %v. Retrying in %v...", attempt, defaultMaxTries, err, nextDelay)
+			logger.Debug(
+				"Failed to connect (attempt %d/%d): %v. Retrying in %v...",
+				attempt,
+				defaultMaxTries,
+				err,
+				nextDelay,
+			)
 		}
 	})
 

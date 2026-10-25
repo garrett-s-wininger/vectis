@@ -151,7 +151,15 @@ func namespaceList(w io.Writer) error {
 			parent = strconv.FormatInt(*ns.ParentID, 10)
 		}
 
-		fmt.Fprintf(w, "%d\t%s\tname=%s\tparent=%s\tbreak_inheritance=%t\n", ns.ID, ns.Path, ns.Name, parent, ns.BreakInheritance)
+		fmt.Fprintf(
+			w,
+			"%d\t%s\tname=%s\tparent=%s\tbreak_inheritance=%t\n",
+			ns.ID,
+			ns.Path,
+			ns.Name,
+			parent,
+			ns.BreakInheritance,
+		)
 	}
 
 	return nil
@@ -172,7 +180,15 @@ func namespaceGet(id int64, w io.Writer) error {
 		return writeJSON(w, ns)
 	}
 
-	fmt.Fprintf(w, "id=%d\nname=%s\npath=%s\nparent_id=%s\nbreak_inheritance=%t\n", ns.ID, ns.Name, ns.Path, parent, ns.BreakInheritance)
+	fmt.Fprintf(
+		w,
+		"id=%d\nname=%s\npath=%s\nparent_id=%s\nbreak_inheritance=%t\n",
+		ns.ID,
+		ns.Name,
+		ns.Path,
+		parent,
+		ns.BreakInheritance,
+	)
 	return nil
 }
 
@@ -210,7 +226,15 @@ func userList(w io.Writer) error {
 	}
 
 	for _, u := range users {
-		fmt.Fprintf(w, "%d\t%s\tenabled=%t\tpassword_auth=%t\tcreated=%s\n", u.ID, u.Username, u.Enabled, u.PasswordAuthEnabled, u.CreatedAt)
+		fmt.Fprintf(
+			w,
+			"%d\t%s\tenabled=%t\tpassword_auth=%t\tcreated=%s\n",
+			u.ID,
+			u.Username,
+			u.Enabled,
+			u.PasswordAuthEnabled,
+			u.CreatedAt,
+		)
 	}
 
 	return nil
@@ -226,7 +250,15 @@ func userGet(id int64, w io.Writer) error {
 		return writeJSON(w, u)
 	}
 
-	fmt.Fprintf(w, "id=%d\nusername=%s\nenabled=%t\npassword_auth_enabled=%t\ncreated_at=%s\n", u.ID, u.Username, u.Enabled, u.PasswordAuthEnabled, u.CreatedAt)
+	fmt.Fprintf(
+		w,
+		"id=%d\nusername=%s\nenabled=%t\npassword_auth_enabled=%t\ncreated_at=%s\n",
+		u.ID,
+		u.Username,
+		u.Enabled,
+		u.PasswordAuthEnabled,
+		u.CreatedAt,
+	)
 	return nil
 }
 
@@ -254,7 +286,13 @@ func userCreate(username, password string, w io.Writer) error {
 }
 
 func userSetEnabled(id int64, enabled bool) error {
-	return doJSONAPI(http.MethodPut, fmt.Sprintf("/api/v1/users/%d", id), map[string]any{"enabled": enabled}, http.StatusNoContent, nil)
+	return doJSONAPI(
+		http.MethodPut,
+		fmt.Sprintf("/api/v1/users/%d", id),
+		map[string]any{"enabled": enabled},
+		http.StatusNoContent,
+		nil,
+	)
 }
 
 func userDelete(id int64) error {
@@ -276,7 +314,13 @@ func userChangePassword(userID int64, currentPassword, newPassword string) error
 
 func userExternalIdentityList(userID int64, w io.Writer) error {
 	var identities []externalIdentityCLIResponse
-	if err := doJSONAPI(http.MethodGet, fmt.Sprintf("/api/v1/users/%d/external-identities", userID), nil, http.StatusOK, &identities); err != nil {
+	if err := doJSONAPI(
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/users/%d/external-identities", userID),
+		nil,
+		http.StatusOK,
+		&identities,
+	); err != nil {
 		return err
 	}
 
@@ -285,7 +329,16 @@ func userExternalIdentityList(userID int64, w io.Writer) error {
 	}
 
 	for _, identity := range identities {
-		fmt.Fprintf(w, "%d\tprovider=%s\tkind=%s\tsubject=%s\tusername=%s\tlast_seen=%s\n", identity.ID, identity.ProviderID, identity.Kind, identity.Subject, identity.Username, identity.LastSeenAt)
+		fmt.Fprintf(
+			w,
+			"%d\tprovider=%s\tkind=%s\tsubject=%s\tusername=%s\tlast_seen=%s\n",
+			identity.ID,
+			identity.ProviderID,
+			identity.Kind,
+			identity.Subject,
+			identity.Username,
+			identity.LastSeenAt,
+		)
 	}
 
 	return nil
@@ -304,7 +357,13 @@ func userExternalIdentityLink(userID int64, providerID, subject, username, displ
 	}
 
 	var identity externalIdentityCLIResponse
-	if err := doJSONAPI(http.MethodPost, fmt.Sprintf("/api/v1/users/%d/external-identities", userID), payload, http.StatusCreated, &identity); err != nil {
+	if err := doJSONAPI(
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/users/%d/external-identities", userID),
+		payload,
+		http.StatusCreated,
+		&identity,
+	); err != nil {
 		return err
 	}
 
@@ -312,17 +371,36 @@ func userExternalIdentityLink(userID int64, providerID, subject, username, displ
 		return writeJSON(w, identity)
 	}
 
-	fmt.Fprintf(w, "External identity linked: user=%d identity=%d provider=%s subject=%s\n", userID, identity.ID, identity.ProviderID, identity.Subject)
+	fmt.Fprintf(
+		w,
+		"External identity linked: user=%d identity=%d provider=%s subject=%s\n",
+		userID,
+		identity.ID,
+		identity.ProviderID,
+		identity.Subject,
+	)
 	return nil
 }
 
 func userExternalIdentityUnlink(userID, identityID int64) error {
-	return doJSONAPI(http.MethodDelete, fmt.Sprintf("/api/v1/users/%d/external-identities/%d", userID, identityID), nil, http.StatusNoContent, nil)
+	return doJSONAPI(
+		http.MethodDelete,
+		fmt.Sprintf("/api/v1/users/%d/external-identities/%d", userID, identityID),
+		nil,
+		http.StatusNoContent,
+		nil,
+	)
 }
 
 func bindingList(namespaceID int64, w io.Writer) error {
 	var bindings []bindingCLIResponse
-	if err := doJSONAPI(http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%d/bindings", namespaceID), nil, http.StatusOK, &bindings); err != nil {
+	if err := doJSONAPI(
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/namespaces/%d/bindings", namespaceID),
+		nil,
+		http.StatusOK,
+		&bindings,
+	); err != nil {
 		return err
 	}
 
@@ -355,7 +433,13 @@ func bindingCreate(namespaceID, userID int64, role string, w io.Writer) error {
 		return writeJSON(w, binding)
 	}
 
-	fmt.Fprintf(w, "Role binding created: namespace=%d user=%d role=%s\n", namespaceID, binding.LocalUserID, binding.Role)
+	fmt.Fprintf(
+		w,
+		"Role binding created: namespace=%d user=%d role=%s\n",
+		namespaceID,
+		binding.LocalUserID,
+		binding.Role,
+	)
 	return nil
 }
 
@@ -531,9 +615,27 @@ var namespaceCmd = &cobra.Command{
 }
 
 var namespaceListCmd = &cobra.Command{Use: "list", Short: "List namespaces", Run: runNamespaceList}
-var namespaceGetCmd = &cobra.Command{Use: "show [namespace-id]", Short: "Show a namespace", Args: cobra.ExactArgs(1), Run: runNamespaceGet}
-var namespaceCreateCmd = &cobra.Command{Use: "create [name]", Short: "Create a namespace", Args: cobra.ExactArgs(1), Run: runNamespaceCreate}
-var namespaceDeleteCmd = &cobra.Command{Use: "delete [namespace-id]", Short: "Delete an empty namespace", Args: cobra.ExactArgs(1), Run: runNamespaceDelete}
+
+var namespaceGetCmd = &cobra.Command{
+	Use:   "show [namespace-id]",
+	Short: "Show a namespace",
+	Args:  cobra.ExactArgs(1),
+	Run:   runNamespaceGet,
+}
+
+var namespaceCreateCmd = &cobra.Command{
+	Use:   "create [name]",
+	Short: "Create a namespace",
+	Args:  cobra.ExactArgs(1),
+	Run:   runNamespaceCreate,
+}
+
+var namespaceDeleteCmd = &cobra.Command{
+	Use:   "delete [namespace-id]",
+	Short: "Delete an empty namespace",
+	Args:  cobra.ExactArgs(1),
+	Run:   runNamespaceDelete,
+}
 
 var userCmd = &cobra.Command{
 	Use:   "users",
@@ -542,25 +644,88 @@ var userCmd = &cobra.Command{
 
 var userListCmd = &cobra.Command{Use: "list", Short: "List users", Run: runUserList}
 var userGetCmd = &cobra.Command{Use: "show [user-id]", Short: "Show a user", Args: cobra.ExactArgs(1), Run: runUserGet}
-var userCreateCmd = &cobra.Command{Use: "create [username]", Short: "Create a user", Args: cobra.ExactArgs(1), Run: runUserCreate}
-var userEnableCmd = &cobra.Command{Use: "enable [user-id]", Short: "Enable a user", Args: cobra.ExactArgs(1), Run: runUserEnable}
-var userDisableCmd = &cobra.Command{Use: "disable [user-id]", Short: "Disable a user", Args: cobra.ExactArgs(1), Run: runUserDisable}
-var userDeleteCmd = &cobra.Command{Use: "delete [user-id]", Short: "Delete a user", Args: cobra.ExactArgs(1), Run: runUserDelete}
-var userChangePasswordCmd = &cobra.Command{Use: "change-password", Short: "Change a user password", Run: runUserChangePassword}
+
+var userCreateCmd = &cobra.Command{
+	Use:   "create [username]",
+	Short: "Create a user",
+	Args:  cobra.ExactArgs(1),
+	Run:   runUserCreate,
+}
+
+var userEnableCmd = &cobra.Command{
+	Use:   "enable [user-id]",
+	Short: "Enable a user",
+	Args:  cobra.ExactArgs(1),
+	Run:   runUserEnable,
+}
+
+var userDisableCmd = &cobra.Command{
+	Use:   "disable [user-id]",
+	Short: "Disable a user",
+	Args:  cobra.ExactArgs(1),
+	Run:   runUserDisable,
+}
+
+var userDeleteCmd = &cobra.Command{
+	Use:   "delete [user-id]",
+	Short: "Delete a user",
+	Args:  cobra.ExactArgs(1),
+	Run:   runUserDelete,
+}
+
+var userChangePasswordCmd = &cobra.Command{
+	Use:   "change-password",
+	Short: "Change a user password",
+	Run:   runUserChangePassword,
+}
 var userExternalIdentityCmd = &cobra.Command{
 	Use:   "external-identities",
 	Short: "List, link, and unlink external identity mappings",
 }
 
-var userExternalIdentityListCmd = &cobra.Command{Use: "list [user-id]", Short: "List external identities for a user", Args: cobra.ExactArgs(1), Run: runUserExternalIdentityList}
-var userExternalIdentityLinkCmd = &cobra.Command{Use: "link [user-id] [provider-id] [subject]", Short: "Link an external identity to a user", Args: cobra.ExactArgs(3), Run: runUserExternalIdentityLink}
-var userExternalIdentityUnlinkCmd = &cobra.Command{Use: "unlink [user-id] [identity-id]", Short: "Unlink an external identity from a user", Args: cobra.ExactArgs(2), Run: runUserExternalIdentityUnlink}
+var userExternalIdentityListCmd = &cobra.Command{
+	Use:   "list [user-id]",
+	Short: "List external identities for a user",
+	Args:  cobra.ExactArgs(1),
+	Run:   runUserExternalIdentityList,
+}
+
+var userExternalIdentityLinkCmd = &cobra.Command{
+	Use:   "link [user-id] [provider-id] [subject]",
+	Short: "Link an external identity to a user",
+	Args:  cobra.ExactArgs(3),
+	Run:   runUserExternalIdentityLink,
+}
+
+var userExternalIdentityUnlinkCmd = &cobra.Command{
+	Use:   "unlink [user-id] [identity-id]",
+	Short: "Unlink an external identity from a user",
+	Args:  cobra.ExactArgs(2),
+	Run:   runUserExternalIdentityUnlink,
+}
 
 var roleBindingCmd = &cobra.Command{
 	Use:   "role-bindings",
 	Short: "List, grant, and revoke namespace role bindings",
 }
 
-var roleBindingListCmd = &cobra.Command{Use: "list [namespace-id]", Short: "List role bindings", Args: cobra.ExactArgs(1), Run: runBindingList}
-var roleBindingCreateCmd = &cobra.Command{Use: "grant [namespace-id] [user-id] [role]", Short: "Grant a namespace role", Args: cobra.ExactArgs(3), Run: runBindingCreate}
-var roleBindingDeleteCmd = &cobra.Command{Use: "revoke [namespace-id] [user-id] [role]", Short: "Revoke a namespace role", Args: cobra.ExactArgs(3), Run: runBindingDelete}
+var roleBindingListCmd = &cobra.Command{
+	Use:   "list [namespace-id]",
+	Short: "List role bindings",
+	Args:  cobra.ExactArgs(1),
+	Run:   runBindingList,
+}
+
+var roleBindingCreateCmd = &cobra.Command{
+	Use:   "grant [namespace-id] [user-id] [role]",
+	Short: "Grant a namespace role",
+	Args:  cobra.ExactArgs(3),
+	Run:   runBindingCreate,
+}
+
+var roleBindingDeleteCmd = &cobra.Command{
+	Use:   "revoke [namespace-id] [user-id] [role]",
+	Short: "Revoke a namespace role",
+	Args:  cobra.ExactArgs(3),
+	Run:   runBindingDelete,
+}

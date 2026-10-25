@@ -15,11 +15,16 @@ import (
 func TestProviderPollBootstrapsCursorWithoutEvents(t *testing.T) {
 	var gotPath string
 	var gotQuery url.Values
-	provider := NewProvider(WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		gotPath = r.URL.EscapedPath()
-		gotQuery = r.URL.Query()
-		return gerritChangesResponse(r, `[{"id":"project~main~Iabc","project":"project","branch":"main","status":"NEW","change_id":"Iabc","current_revision":"rev1","revisions":{"rev1":{"ref":"refs/changes/01/1/1"}}}]`), nil
-	})}))
+	provider := NewProvider(
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotPath = r.URL.EscapedPath()
+			gotQuery = r.URL.Query()
+			return gerritChangesResponse(
+				r,
+				`[{"id":"project~main~Iabc","project":"project","branch":"main","status":"NEW","change_id":"Iabc","current_revision":"rev1","revisions":{"rev1":{"ref":"refs/changes/01/1/1"}}}]`,
+			), nil
+		})}),
+	)
 
 	result, err := provider.Poll(context.Background(), scm.PollSpec{
 		Provider: "gerrit",
@@ -52,12 +57,14 @@ func TestProviderPollEmitsNewAndUpdatedChanges(t *testing.T) {
 		t.Fatalf("encode cursor: %v", err)
 	}
 
-	provider := NewProvider(WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		return gerritChangesResponse(r, `[
+	provider := NewProvider(
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return gerritChangesResponse(r, `[
 			{"id":"project~main~Iabc","project":"project","branch":"main","status":"NEW","change_id":"Iabc","current_revision":"rev2","revisions":{"rev2":{"ref":"refs/changes/01/1/2"}}},
 			{"id":"project~main~Idef","project":"project","branch":"main","status":"NEW","change_id":"Idef","current_revision":"rev1","revisions":{"rev1":{"ref":"refs/changes/02/2/1"}}}
 		]`), nil
-	})}))
+		})}),
+	)
 
 	result, err := provider.Poll(context.Background(), scm.PollSpec{
 		Provider: "gerrit",
@@ -76,7 +83,8 @@ func TestProviderPollEmitsNewAndUpdatedChanges(t *testing.T) {
 		t.Fatalf("events = %+v, want two events", result.Events)
 	}
 
-	if !strings.Contains(result.Events[0].Key, ":project~main~Iabc:rev2") || !strings.Contains(result.Events[1].Key, ":project~main~Idef:rev1") {
+	if !strings.Contains(result.Events[0].Key, ":project~main~Iabc:rev2") ||
+		!strings.Contains(result.Events[1].Key, ":project~main~Idef:rev1") {
 		t.Fatalf("event order/keys = %+v", result.Events)
 	}
 
@@ -100,9 +108,14 @@ func TestProviderPollSkipsUnchangedChanges(t *testing.T) {
 		t.Fatalf("encode cursor: %v", err)
 	}
 
-	provider := NewProvider(WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		return gerritChangesResponse(r, `[{"id":"project~main~Iabc","project":"project","branch":"main","change_id":"Iabc","current_revision":"rev1","revisions":{"rev1":{"ref":"refs/changes/01/1/1"}}}]`), nil
-	})}))
+	provider := NewProvider(
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return gerritChangesResponse(
+				r,
+				`[{"id":"project~main~Iabc","project":"project","branch":"main","change_id":"Iabc","current_revision":"rev1","revisions":{"rev1":{"ref":"refs/changes/01/1/1"}}}]`,
+			), nil
+		})}),
+	)
 
 	result, err := provider.Poll(context.Background(), scm.PollSpec{
 		BaseURL: "http://gerrit.example.com",
@@ -120,9 +133,11 @@ func TestProviderPollSkipsUnchangedChanges(t *testing.T) {
 }
 
 func TestProviderPollRejectsInvalidCursor(t *testing.T) {
-	provider := NewProvider(WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		return gerritChangesResponse(r, `[]`), nil
-	})}))
+	provider := NewProvider(
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return gerritChangesResponse(r, `[]`), nil
+		})}),
+	)
 
 	_, err := provider.Poll(context.Background(), scm.PollSpec{
 		BaseURL: "http://gerrit.example.com",
@@ -147,7 +162,10 @@ func TestProviderPollUsesAuthenticatedGerritEndpointWhenConfigured(t *testing.T)
 		})}),
 	)
 
-	if _, err := provider.Poll(context.Background(), scm.PollSpec{BaseURL: "http://gerrit.example.com", Cursor: `{"version":1,"changes":{}}`}); err != nil {
+	if _, err := provider.Poll(
+		context.Background(),
+		scm.PollSpec{BaseURL: "http://gerrit.example.com", Cursor: `{"version":1,"changes":{}}`},
+	); err != nil {
 		t.Fatalf("Poll: %v", err)
 	}
 

@@ -40,7 +40,9 @@ func TestSchemaMigrationsReadyRejectsDirtyVersion(t *testing.T) {
 	}
 	defer db.Close()
 
-	if _, err := db.Exec("CREATE TABLE schema_migrations (version INTEGER NOT NULL PRIMARY KEY, dirty INTEGER NOT NULL)"); err != nil {
+	if _, err := db.Exec(
+		"CREATE TABLE schema_migrations (version INTEGER NOT NULL PRIMARY KEY, dirty INTEGER NOT NULL)",
+	); err != nil {
 		t.Fatalf("create schema_migrations: %v", err)
 	}
 

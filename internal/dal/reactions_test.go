@@ -718,7 +718,8 @@ func TestReactionsRepository_ListMatchingSubscriptionsFiltersEventMetadata(t *te
 		t.Fatalf("subscription: got %+v want %+v", matches[0].Subscription, matchingSubscription)
 	}
 
-	if matches[0].Target.TargetID != matchingTarget.TargetID || string(matches[0].Target.ConfigJSON) != string(matchingTarget.ConfigJSON) {
+	if matches[0].Target.TargetID != matchingTarget.TargetID ||
+		string(matches[0].Target.ConfigJSON) != string(matchingTarget.ConfigJSON) {
 		t.Fatalf("target: got %+v want %+v", matches[0].Target, matchingTarget)
 	}
 }
@@ -993,7 +994,12 @@ func TestReactionsRepository_ListReadyInvocationsIncludesExpiredClaims(t *testin
 		t.Fatalf("create invocation: %v", err)
 	}
 
-	claimed, err := repo.MarkInvocationRunning(ctx, invocation.InvocationID, "stale-runner", time.Now().Add(-time.Second).UnixNano())
+	claimed, err := repo.MarkInvocationRunning(
+		ctx,
+		invocation.InvocationID,
+		"stale-runner",
+		time.Now().Add(-time.Second).UnixNano(),
+	)
 	if err != nil {
 		t.Fatalf("mark stale running: %v", err)
 	}
@@ -1007,11 +1013,17 @@ func TestReactionsRepository_ListReadyInvocationsIncludesExpiredClaims(t *testin
 		t.Fatalf("list ready: %v", err)
 	}
 
-	if len(ready) != 1 || ready[0].InvocationID != invocation.InvocationID || ready[0].Status != dal.ReactionInvocationStatusRunning {
+	if len(ready) != 1 || ready[0].InvocationID != invocation.InvocationID ||
+		ready[0].Status != dal.ReactionInvocationStatusRunning {
 		t.Fatalf("ready expired invocations: %+v", ready)
 	}
 
-	claimed, err = repo.MarkInvocationRunning(ctx, invocation.InvocationID, "fresh-runner", time.Now().Add(time.Minute).UnixNano())
+	claimed, err = repo.MarkInvocationRunning(
+		ctx,
+		invocation.InvocationID,
+		"fresh-runner",
+		time.Now().Add(time.Minute).UnixNano(),
+	)
 	if err != nil {
 		t.Fatalf("reclaim running: %v", err)
 	}
@@ -1068,7 +1080,12 @@ func TestReactionsRepository_MarkExpiredInvocationsFailedFinalizesMaxedClaims(t 
 		t.Fatalf("create invocation: %v", err)
 	}
 
-	claimed, err := repo.MarkInvocationRunning(ctx, invocation.InvocationID, "stale-runner", time.Now().Add(-time.Second).UnixNano())
+	claimed, err := repo.MarkInvocationRunning(
+		ctx,
+		invocation.InvocationID,
+		"stale-runner",
+		time.Now().Add(-time.Second).UnixNano(),
+	)
 	if err != nil {
 		t.Fatalf("mark stale running: %v", err)
 	}
@@ -1100,7 +1117,8 @@ func TestReactionsRepository_MarkExpiredInvocationsFailedFinalizesMaxedClaims(t 
 		t.Fatalf("get invocation: %v", err)
 	}
 
-	if final.Status != dal.ReactionInvocationStatusFailed || final.Attempts != 1 || final.ClaimedBy != "" || final.ClaimUntil != nil {
+	if final.Status != dal.ReactionInvocationStatusFailed || final.Attempts != 1 || final.ClaimedBy != "" ||
+		final.ClaimUntil != nil {
 		t.Fatalf("final invocation: %+v", final)
 	}
 
@@ -1147,7 +1165,12 @@ func TestReactionsRepository_MarkInvocationFailedRetriesThenFinalizesAndCapsErro
 		t.Fatalf("create invocation: %v", err)
 	}
 
-	claimed, err := repo.MarkInvocationRunning(ctx, invocation.InvocationID, "retry-1", time.Now().Add(time.Minute).UnixNano())
+	claimed, err := repo.MarkInvocationRunning(
+		ctx,
+		invocation.InvocationID,
+		"retry-1",
+		time.Now().Add(time.Minute).UnixNano(),
+	)
 	if err != nil {
 		t.Fatalf("claim first: %v", err)
 	}
@@ -1157,7 +1180,13 @@ func TestReactionsRepository_MarkInvocationFailedRetriesThenFinalizesAndCapsErro
 	}
 
 	longError := strings.Repeat("x", dal.ReactionInvocationLastErrorMaxLength+512)
-	if err := repo.MarkInvocationFailed(ctx, invocation.InvocationID, "retry-1", longError, time.Now().Add(-time.Second).UnixNano()); err != nil {
+	if err := repo.MarkInvocationFailed(
+		ctx,
+		invocation.InvocationID,
+		"retry-1",
+		longError,
+		time.Now().Add(-time.Second).UnixNano(),
+	); err != nil {
 		t.Fatalf("mark first failed: %v", err)
 	}
 
@@ -1170,11 +1199,17 @@ func TestReactionsRepository_MarkInvocationFailedRetriesThenFinalizesAndCapsErro
 		t.Fatalf("retryable invocation: %+v", retryable)
 	}
 
-	if retryable.LastError == nil || len([]rune(*retryable.LastError)) > dal.ReactionInvocationLastErrorMaxLength || !strings.HasSuffix(*retryable.LastError, "...(truncated)") {
+	if retryable.LastError == nil || len([]rune(*retryable.LastError)) > dal.ReactionInvocationLastErrorMaxLength ||
+		!strings.HasSuffix(*retryable.LastError, "...(truncated)") {
 		t.Fatalf("last error was not capped: %v", retryable.LastError)
 	}
 
-	claimed, err = repo.MarkInvocationRunning(ctx, invocation.InvocationID, "retry-2", time.Now().Add(time.Minute).UnixNano())
+	claimed, err = repo.MarkInvocationRunning(
+		ctx,
+		invocation.InvocationID,
+		"retry-2",
+		time.Now().Add(time.Minute).UnixNano(),
+	)
 	if err != nil {
 		t.Fatalf("claim second: %v", err)
 	}
@@ -1183,7 +1218,13 @@ func TestReactionsRepository_MarkInvocationFailedRetriesThenFinalizesAndCapsErro
 		t.Fatal("expected second claim")
 	}
 
-	if err := repo.MarkInvocationFailed(ctx, invocation.InvocationID, "retry-2", "still failing", time.Now().Add(-time.Second).UnixNano()); err != nil {
+	if err := repo.MarkInvocationFailed(
+		ctx,
+		invocation.InvocationID,
+		"retry-2",
+		"still failing",
+		time.Now().Add(-time.Second).UnixNano(),
+	); err != nil {
 		t.Fatalf("mark second failed: %v", err)
 	}
 

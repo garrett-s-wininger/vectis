@@ -58,7 +58,12 @@ func TestServerAppliesSecurityHeaders(t *testing.T) {
 	assertSecurityHeader(t, rr, "Origin-Agent-Cluster", "?1")
 	assertSecurityHeader(t, rr, "X-Permitted-Cross-Domain-Policies", "none")
 	assertSecurityHeader(t, rr, "X-Download-Options", "noopen")
-	assertSecurityHeader(t, rr, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	assertSecurityHeader(
+		t,
+		rr,
+		"Content-Security-Policy",
+		"default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+	)
 	if got := rr.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
 	}
@@ -181,7 +186,10 @@ func TestSubmitExecutionRequiresAllowedProducerIdentityWhenConfigured(t *testing
 		t.Run(tt.name, func(t *testing.T) {
 			viper.Reset()
 			t.Cleanup(viper.Reset)
-			viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.internal/service/api"})
+			viper.Set(
+				"service_identity.cell_ingress_allowed_producer_identities",
+				[]string{"spiffe://vectis.internal/service/api"},
+			)
 
 			queue := mocks.NewMockQueueService()
 			srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
@@ -207,7 +215,10 @@ func TestSubmitExecutionRequiresAllowedProducerIdentityWhenConfigured(t *testing
 func TestProducerIdentityPolicyDoesNotBlockCellIngressHealth(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.internal/service/api"})
+	viper.Set(
+		"service_identity.cell_ingress_allowed_producer_identities",
+		[]string{"spiffe://vectis.internal/service/api"},
+	)
 
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
 	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
@@ -294,7 +305,8 @@ func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing
 		t.Fatalf("unexpected acceptance: %+v", got)
 	}
 
-	if got.TaskID != "run-1:root" || got.TaskKey != dal.RootTaskKey || got.TaskAttemptID != "run-1:root:attempt:2" || got.Attempt != 2 {
+	if got.TaskID != "run-1:root" || got.TaskKey != dal.RootTaskKey || got.TaskAttemptID != "run-1:root:attempt:2" ||
+		got.Attempt != 2 {
 		t.Fatalf("unexpected acceptance task identity: %+v", got)
 	}
 
@@ -303,7 +315,11 @@ func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing
 	}
 
 	if acceptances.failedExecutionID != "execution-1" || !strings.Contains(acceptances.failedMessage, "queue closed") {
-		t.Fatalf("expected enqueue failure marker, got execution=%q message=%q", acceptances.failedExecutionID, acceptances.failedMessage)
+		t.Fatalf(
+			"expected enqueue failure marker, got execution=%q message=%q",
+			acceptances.failedExecutionID,
+			acceptances.failedMessage,
+		)
 	}
 
 	if acceptances.enqueuedExecutionID != "" {
@@ -318,7 +334,10 @@ func TestExecutionAcceptanceRejectsEnvelopeDrift(t *testing.T) {
 	}
 
 	submission.Envelope.ExecutionID = "execution-other"
-	if _, err := executionAcceptance(submission); err == nil || !strings.Contains(err.Error(), "does not match request metadata") {
+	if _, err := executionAcceptance(
+		submission,
+	); err == nil ||
+		!strings.Contains(err.Error(), "does not match request metadata") {
 		t.Fatalf("executionAcceptance drift error = %v, want request metadata mismatch", err)
 	}
 }
@@ -719,7 +738,10 @@ type recordingAcceptanceStore struct {
 	failedMessage       string
 }
 
-func (s *recordingAcceptanceStore) AcceptExecution(ctx context.Context, acceptance dal.CellExecutionAcceptance) (bool, error) {
+func (s *recordingAcceptanceStore) AcceptExecution(
+	ctx context.Context,
+	acceptance dal.CellExecutionAcceptance,
+) (bool, error) {
 	if s.err != nil {
 		return false, s.err
 	}
@@ -732,16 +754,29 @@ func (s *recordingAcceptanceStore) snapshot() dal.CellExecutionAcceptance {
 	return s.acceptance
 }
 
-func (s *recordingAcceptanceStore) ListPendingQueueHandoffs(ctx context.Context, cutoffUnixNano int64, limit int) ([]dal.CellExecutionQueueHandoff, error) {
+func (s *recordingAcceptanceStore) ListPendingQueueHandoffs(
+	ctx context.Context,
+	cutoffUnixNano int64,
+	limit int,
+) ([]dal.CellExecutionQueueHandoff, error) {
 	return nil, nil
 }
 
-func (s *recordingAcceptanceStore) MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error {
+func (s *recordingAcceptanceStore) MarkEnqueued(
+	ctx context.Context,
+	executionID string,
+	enqueuedAtUnixNano int64,
+) error {
 	s.enqueuedExecutionID = executionID
 	return nil
 }
 
-func (s *recordingAcceptanceStore) MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error {
+func (s *recordingAcceptanceStore) MarkEnqueueFailed(
+	ctx context.Context,
+	executionID string,
+	attemptedAtUnixNano int64,
+	message string,
+) error {
 	s.failedExecutionID = executionID
 	s.failedMessage = message
 	return nil

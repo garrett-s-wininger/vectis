@@ -115,7 +115,12 @@ func TestAuthorityRegistersAndFetchesX509SVID(t *testing.T) {
 		t.Fatalf("ReleaseRegistration: %v", err)
 	}
 
-	if _, err := spire.FetchX509SVID(context.Background(), source, spiffeID); err == nil || !strings.Contains(err.Error(), "no SVIDs") {
+	if _, err := spire.FetchX509SVID(
+		context.Background(),
+		source,
+		spiffeID,
+	); err == nil ||
+		!strings.Contains(err.Error(), "no SVIDs") {
 		t.Fatalf("FetchX509SVID after release error = %v, want no SVIDs", err)
 	}
 }
@@ -133,7 +138,12 @@ func TestAuthoritySVIDResolvesEncryptedFSSecretOverGRPC(t *testing.T) {
 
 	root := t.TempDir()
 	key := []byte("0123456789abcdef0123456789abcdef")
-	if err := encryptedfs.WriteEncryptedFSSecretFile(root, "encryptedfs://team/token", []byte("secret-value"), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(
+		root,
+		"encryptedfs://team/token",
+		[]byte("secret-value"),
+		key,
+	); err != nil {
 		t.Fatalf("WriteEncryptedFSSecretFile: %v", err)
 	}
 
@@ -196,7 +206,8 @@ func TestAuthoritySVIDResolvesEncryptedFSSecretOverGRPC(t *testing.T) {
 	}
 
 	file := bundle.Files[0]
-	if file.ID != "token" || file.Path != "secrets/token" || string(file.Data) != "secret-value" || file.Mode != encryptedfs.DefaultFileMode {
+	if file.ID != "token" || file.Path != "secrets/token" || string(file.Data) != "secret-value" ||
+		file.Mode != encryptedfs.DefaultFileMode {
 		t.Fatalf("file = %+v", file)
 	}
 }
@@ -211,11 +222,20 @@ func TestAuthoritySVIDRejectsUnauthorizedSecretResolveOverGRPC(t *testing.T) {
 
 	spiffeID := "spiffe://" + cfg.TrustDomain + "/cell/local/namespace/root/job/demo/run/run-1/execution/execution-1"
 	svid := fetchRegisteredTestSVID(t, cfg, spiffeID)
-	wrongSVID := fetchRegisteredTestSVID(t, cfg, "spiffe://"+cfg.TrustDomain+"/cell/local/namespace/root/job/demo/run/run-1/execution/other")
+	wrongSVID := fetchRegisteredTestSVID(
+		t,
+		cfg,
+		"spiffe://"+cfg.TrustDomain+"/cell/local/namespace/root/job/demo/run/run-1/execution/other",
+	)
 
 	root := t.TempDir()
 	key := []byte("0123456789abcdef0123456789abcdef")
-	if err := encryptedfs.WriteEncryptedFSSecretFile(root, "encryptedfs://team/token", []byte("secret-value"), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(
+		root,
+		"encryptedfs://team/token",
+		[]byte("secret-value"),
+		key,
+	); err != nil {
 		t.Fatalf("WriteEncryptedFSSecretFile: %v", err)
 	}
 
@@ -224,7 +244,9 @@ func TestAuthoritySVIDRejectsUnauthorizedSecretResolveOverGRPC(t *testing.T) {
 		t.Fatalf("NewEncryptedFSProvider: %v", err)
 	}
 
-	policy, err := secretstore.NewAccessPolicy([]string{"namespace=root;job=demo;task=verify;ref=encryptedfs://team/token"})
+	policy, err := secretstore.NewAccessPolicy(
+		[]string{"namespace=root;job=demo;task=verify;ref=encryptedfs://team/token"},
+	)
 	if err != nil {
 		t.Fatalf("NewAccessPolicy: %v", err)
 	}
@@ -356,7 +378,12 @@ func fetchRegisteredTestSVID(t *testing.T, cfg Config, spiffeID string) spire.X5
 	return svid
 }
 
-func startTestSecretsService(t *testing.T, tlsMaterial *localpki.Material, clientCAFile string, server api.SecretsServiceServer) *bufconn.Listener {
+func startTestSecretsService(
+	t *testing.T,
+	tlsMaterial *localpki.Material,
+	clientCAFile string,
+	server api.SecretsServiceServer,
+) *bufconn.Listener {
 	t.Helper()
 
 	serverCert, err := tls.LoadX509KeyPair(tlsMaterial.ServerCert, tlsMaterial.ServerKey)
@@ -401,7 +428,12 @@ func startTestSecretsService(t *testing.T, tlsMaterial *localpki.Material, clien
 	return listener
 }
 
-func dialTestSecretsService(t *testing.T, caFile string, listener *bufconn.Listener, svid spire.X509SVID) *grpc.ClientConn {
+func dialTestSecretsService(
+	t *testing.T,
+	caFile string,
+	listener *bufconn.Listener,
+	svid spire.X509SVID,
+) *grpc.ClientConn {
 	t.Helper()
 
 	caPEM, err := os.ReadFile(caFile)
@@ -493,7 +525,10 @@ func testResolveRequest(claimToken, ref string) secretstore.ResolveRequest {
 
 type staticExecutionClaimValidator struct{}
 
-func (staticExecutionClaimValidator) ValidateActiveExecutionClaim(_ context.Context, runID, executionID, claimToken string) error {
+func (staticExecutionClaimValidator) ValidateActiveExecutionClaim(
+	_ context.Context,
+	runID, executionID, claimToken string,
+) error {
 	if runID != "run-1" || executionID != "execution-1" || claimToken != "claim-token" {
 		return os.ErrPermission
 	}
@@ -505,7 +540,11 @@ type staticExecutionScopeResolver struct {
 	scope secretstore.ExecutionScope
 }
 
-func (r staticExecutionScopeResolver) ResolveExecutionScope(context.Context, string, string) (secretstore.ExecutionScope, error) {
+func (r staticExecutionScopeResolver) ResolveExecutionScope(
+	context.Context,
+	string,
+	string,
+) (secretstore.ExecutionScope, error) {
 	return r.scope, nil
 }
 
@@ -513,10 +552,15 @@ func testConfig(t *testing.T) Config {
 	t.Helper()
 
 	if runtime.GOOS == "windows" {
-		t.Skip("local SPIFFE authority tests use Unix socket workload endpoints; go-spiffe requires npipe workload endpoints on Windows")
+		t.Skip(
+			"local SPIFFE authority tests use Unix socket workload endpoints; go-spiffe requires npipe workload endpoints on Windows",
+		)
 	}
 
-	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-spiffe-*") //nolint:usetesting // Keep SPIFFE runtime socket paths under a short temp root.
+	dir, err := os.MkdirTemp(
+		shortTempRoot(),
+		"vectis-spiffe-*",
+	) //nolint:usetesting // Keep SPIFFE runtime socket paths under a short temp root.
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}

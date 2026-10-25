@@ -62,7 +62,8 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 		t.Fatalf("HandleEvent: %v", err)
 	}
 
-	if !result.EventCreated || !result.RunCreated || !result.Dispatched || result.AlreadyDispatched || result.RunID == "" {
+	if !result.EventCreated || !result.RunCreated || !result.Dispatched || result.AlreadyDispatched ||
+		result.RunID == "" {
 		t.Fatalf("HandleEvent result = %+v", result)
 	}
 
@@ -114,11 +115,13 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 		t.Fatalf("list dispatch events: %v", err)
 	}
 
-	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt || dispatches[1].EventType != dal.DispatchEventSuccess {
+	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt ||
+		dispatches[1].EventType != dal.DispatchEventSuccess {
 		t.Fatalf("unexpected dispatch events: %+v", dispatches)
 	}
 
-	if dispatches[0].Source != dal.DispatchSourceSCMGerritStream || dispatches[1].Source != dal.DispatchSourceSCMGerritStream {
+	if dispatches[0].Source != dal.DispatchSourceSCMGerritStream ||
+		dispatches[1].Source != dal.DispatchSourceSCMGerritStream {
 		t.Fatalf("unexpected dispatch sources: %+v", dispatches)
 	}
 
@@ -155,7 +158,14 @@ func TestProcessorHandleEventDedupesAcrossSources(t *testing.T) {
 	pollerProcessor.Source = dal.DispatchSourceSCMPoller
 	pollerProcessor.SourceInstance = "scm-poller-a"
 
-	spec := dal.SCMPollTriggerSpec{TriggerID: triggerID, JobID: jobID, Provider: "gerrit", BaseURL: "http://gerrit.example.com", Project: "project", Branch: "master"}
+	spec := dal.SCMPollTriggerSpec{
+		TriggerID: triggerID,
+		JobID:     jobID,
+		Provider:  "gerrit",
+		BaseURL:   "http://gerrit.example.com",
+		Project:   "project",
+		Branch:    "master",
+	}
 	event := scm.Event{Key: "gerrit:server:project~master~Iabc:rev1", PayloadJSON: `{"change_id":"Iabc"}`}
 
 	first, err := processor.HandleEvent(ctx, spec, event)
@@ -172,7 +182,8 @@ func TestProcessorHandleEventDedupesAcrossSources(t *testing.T) {
 		t.Fatalf("first result = %+v", first)
 	}
 
-	if second.EventCreated || second.RunCreated || second.Dispatched || !second.AlreadyDispatched || second.RunID != first.RunID {
+	if second.EventCreated || second.RunCreated || second.Dispatched || !second.AlreadyDispatched ||
+		second.RunID != first.RunID {
 		t.Fatalf("second result = %+v, first=%+v", second, first)
 	}
 
@@ -202,11 +213,23 @@ func TestProcessorHandleEventDedupesAcrossSources(t *testing.T) {
 	if firstSource != dal.DispatchSourceSCMGerritStream || firstInstance != "gerrit-stream-a" ||
 		lastSource != dal.DispatchSourceSCMPoller || lastInstance != "scm-poller-a" ||
 		observationCount != 2 {
-		t.Fatalf("unexpected observation metadata: first=%s/%s last=%s/%s count=%d", firstSource, firstInstance, lastSource, lastInstance, observationCount)
+		t.Fatalf(
+			"unexpected observation metadata: first=%s/%s last=%s/%s count=%d",
+			firstSource,
+			firstInstance,
+			lastSource,
+			lastInstance,
+			observationCount,
+		)
 	}
 }
 
-func insertSCMTriggerTestSpec(t *testing.T, ctx context.Context, db *sql.DB, jobID, provider, baseURL, project, branch string) int64 {
+func insertSCMTriggerTestSpec(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	jobID, provider, baseURL, project, branch string,
+) int64 {
 	t.Helper()
 
 	result, err := db.ExecContext(ctx,

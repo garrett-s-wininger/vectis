@@ -367,7 +367,17 @@ func writeDispatchSummary(w io.Writer, summary []dispatchSummary) {
 	fmt.Fprintln(w, "dispatch_summary:")
 	for _, row := range summary {
 		lastAt := time.Unix(row.LastEventAt, 0).UTC().Format(time.RFC3339)
-		fmt.Fprintf(w, "  %s: accepted=%d attempts=%d successes=%d failures=%d last=%s at %s", row.Source, row.Accepted, row.Attempts, row.Successes, row.Failures, row.LastEventType, lastAt)
+		fmt.Fprintf(
+			w,
+			"  %s: accepted=%d attempts=%d successes=%d failures=%d last=%s at %s",
+			row.Source,
+			row.Accepted,
+			row.Attempts,
+			row.Successes,
+			row.Failures,
+			row.LastEventType,
+			lastAt,
+		)
 		if row.LastMessage != nil {
 			fmt.Fprintf(w, ": %s", *row.LastMessage)
 		}
@@ -421,7 +431,11 @@ func writeLatestFailedSecurityEvent(w io.Writer, event *executionSecurityEventRo
 		return
 	}
 
-	fmt.Fprintf(w, "latest_failed_security_event=%s\n", formatExecutionSecurityEvents([]executionSecurityEventRow{*event}))
+	fmt.Fprintf(
+		w,
+		"latest_failed_security_event=%s\n",
+		formatExecutionSecurityEvents([]executionSecurityEventRow{*event}),
+	)
 	fmt.Fprintln(w, "retry_guidance=fix_security_gate_before_retry_or_replay")
 }
 
@@ -430,7 +444,14 @@ func writeTaskDispatch(w io.Writer, td *taskDispatch) {
 		return
 	}
 
-	fmt.Fprintf(w, "task_dispatch: total=%d pending=%d failed=%d enqueued=%d", td.Total, td.Pending, td.Failed, td.Enqueued)
+	fmt.Fprintf(
+		w,
+		"task_dispatch: total=%d pending=%d failed=%d enqueued=%d",
+		td.Total,
+		td.Pending,
+		td.Failed,
+		td.Enqueued,
+	)
 	if td.UnknownState > 0 {
 		fmt.Fprintf(w, " unknown=%d", td.UnknownState)
 	}
@@ -442,8 +463,16 @@ func writeTaskDispatch(w io.Writer, td *taskDispatch) {
 	fmt.Fprintln(w)
 
 	for _, intent := range td.Intents {
-		fmt.Fprintf(w, "  %s execution=%s task=%s attempt=%s cell=%s enqueue_attempts=%d",
-			intent.State, intent.ExecutionID, intent.TaskID, intent.TaskAttemptID, intent.CellID, intent.EnqueueAttempts)
+		fmt.Fprintf(
+			w,
+			"  %s execution=%s task=%s attempt=%s cell=%s enqueue_attempts=%d",
+			intent.State,
+			intent.ExecutionID,
+			intent.TaskID,
+			intent.TaskAttemptID,
+			intent.CellID,
+			intent.EnqueueAttempts,
+		)
 
 		if intent.LastEnqueueAttemptAt != nil {
 			fmt.Fprintf(w, " last_attempt=%s", formatUnixNano(*intent.LastEnqueueAttemptAt))
@@ -1120,14 +1149,22 @@ func runListRuns(cmd *cobra.Command, args []string) {
 	}
 
 	since, _ := cmd.Flags().GetString("since")
-	runCLIError(listRunsForRepository(jobID, repositoryID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
+	runCLIError(
+		listRunsForRepository(jobID, repositoryID, runListLimit, runListCursor, since, runListCellID, os.Stdout),
+	)
 }
 
 func listRuns(jobID string, limit, cursor int, since string, cellID string, w io.Writer) error {
 	return listRunsForRepository(jobID, "", limit, cursor, since, cellID, w)
 }
 
-func listRunsForRepository(jobID, repositoryID string, limit, cursor int, since string, cellID string, w io.Writer) error {
+func listRunsForRepository(
+	jobID, repositoryID string,
+	limit, cursor int,
+	since string,
+	cellID string,
+	w io.Writer,
+) error {
 	path := fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID))
 	params := url.Values{}
 	setTrimmedQueryParam(params, "repository_id", repositoryID)
@@ -1138,7 +1175,14 @@ func listRunsPath(path string, limit, cursor int, since string, cellID string, w
 	return listRunsPathWithParams(path, nil, limit, cursor, since, cellID, w)
 }
 
-func listRunsPathWithParams(path string, params url.Values, limit, cursor int, since string, cellID string, w io.Writer) error {
+func listRunsPathWithParams(
+	path string,
+	params url.Values,
+	limit, cursor int,
+	since string,
+	cellID string,
+	w io.Writer,
+) error {
 	if params == nil {
 		params = url.Values{}
 	}
@@ -1228,8 +1272,20 @@ func writeRunListResult(w io.Writer, result runListResult) error {
 
 		if includeSource {
 			sourceID, sourcePath, sourceCommit := runListSourceColumns(r.Source)
-			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.RunID, r.RunIndex, owningCell, r.Status, sourceID, sourcePath, sourceCommit, created, started, finished)
+			fmt.Fprintf(
+				tw,
+				"%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.RunID,
+				r.RunIndex,
+				owningCell,
+				r.Status,
+				sourceID,
+				sourcePath,
+				sourceCommit,
+				created,
+				started,
+				finished,
+			)
 
 			continue
 		}
@@ -1367,7 +1423,11 @@ func markRunForRepair(runID, state, reason string, w io.Writer) error {
 		body = payload
 	}
 
-	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/repair/mark-%s", runID, state), bytes.NewReader(body))
+	req, err := newAPIRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/runs/%s/repair/mark-%s", runID, state),
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -1583,16 +1643,19 @@ func configureRunArtifactsListFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&runArtifactsLimit, "limit", 0, "Max artifacts to return (default 50)")
 	cmd.Flags().IntVar(&runArtifactsCursor, "cursor", 0, "Continue listing after this result cursor")
 	cmd.Flags().StringVar(&runArtifactsTaskID, "task-id", "", "Only list artifacts produced by this task")
-	cmd.Flags().StringVar(&runArtifactsAttemptID, "task-attempt-id", "", "Only list artifacts produced by this task attempt")
+	cmd.Flags().
+		StringVar(&runArtifactsAttemptID, "task-attempt-id", "", "Only list artifacts produced by this task attempt")
 	cmd.Flags().StringVar(&runArtifactsExecID, "execution-id", "", "Only list artifacts produced by this execution")
 }
 
 func configureRunArtifactsDownloadFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&runArtifactOutput, "output", "o", "", "Output file path, or '-' to write raw bytes to stdout")
+	cmd.Flags().
+		StringVarP(&runArtifactOutput, "output", "o", "", "Output file path, or '-' to write raw bytes to stdout")
 }
 
 func configureRunReplayFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&runReplayCellID, "cell", "", "Replay into this execution cell instead of the source run's cell")
+	cmd.Flags().
+		StringVar(&runReplayCellID, "cell", "", "Replay into this execution cell instead of the source run's cell")
 	cmd.Flags().StringVar(&runReplayIdemKey, "idempotency-key", "", "Idempotency key for safe replay request retries")
 }
 

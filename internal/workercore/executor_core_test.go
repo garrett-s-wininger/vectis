@@ -216,7 +216,12 @@ func TestExecutorCoreWarmCheckoutCacheParallelReportsFailures(t *testing.T) {
 	}
 
 	if result.Warmed != 0 || result.Changed != 0 || result.Unchanged != 0 {
-		t.Fatalf("warm counts = warmed %d changed %d unchanged %d, want all zero", result.Warmed, result.Changed, result.Unchanged)
+		t.Fatalf(
+			"warm counts = warmed %d changed %d unchanged %d, want all zero",
+			result.Warmed,
+			result.Changed,
+			result.Unchanged,
+		)
 	}
 
 	if len(result.Failures) != 3 {

@@ -288,8 +288,15 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 		t.Fatalf("definition version: got %d, want 7", env.DefinitionVersion)
 	}
 
-	if env.TaskID != "run-1:root" || env.TaskKey != dal.RootTaskKey || env.TaskAttemptID != "run-1:root:attempt:1" || env.TaskAttempt != 1 {
-		t.Fatalf("unexpected task identity: task=%q key=%q attempt_id=%q attempt=%d", env.TaskID, env.TaskKey, env.TaskAttemptID, env.TaskAttempt)
+	if env.TaskID != "run-1:root" || env.TaskKey != dal.RootTaskKey || env.TaskAttemptID != "run-1:root:attempt:1" ||
+		env.TaskAttempt != 1 {
+		t.Fatalf(
+			"unexpected task identity: task=%q key=%q attempt_id=%q attempt=%d",
+			env.TaskID,
+			env.TaskKey,
+			env.TaskAttemptID,
+			env.TaskAttempt,
+		)
 	}
 
 	if env.NamespacePath != "/teams/build" {

@@ -18,9 +18,21 @@ import (
 const spireServerRegistrationHintPrefix = "vectis:"
 
 type SPIREEntryClient interface {
-	BatchCreateEntry(ctx context.Context, in *entryv1.BatchCreateEntryRequest, opts ...grpc.CallOption) (*entryv1.BatchCreateEntryResponse, error)
-	BatchUpdateEntry(ctx context.Context, in *entryv1.BatchUpdateEntryRequest, opts ...grpc.CallOption) (*entryv1.BatchUpdateEntryResponse, error)
-	BatchDeleteEntry(ctx context.Context, in *entryv1.BatchDeleteEntryRequest, opts ...grpc.CallOption) (*entryv1.BatchDeleteEntryResponse, error)
+	BatchCreateEntry(
+		ctx context.Context,
+		in *entryv1.BatchCreateEntryRequest,
+		opts ...grpc.CallOption,
+	) (*entryv1.BatchCreateEntryResponse, error)
+	BatchUpdateEntry(
+		ctx context.Context,
+		in *entryv1.BatchUpdateEntryRequest,
+		opts ...grpc.CallOption,
+	) (*entryv1.BatchUpdateEntryResponse, error)
+	BatchDeleteEntry(
+		ctx context.Context,
+		in *entryv1.BatchDeleteEntryRequest,
+		opts ...grpc.CallOption,
+	) (*entryv1.BatchDeleteEntryResponse, error)
 }
 
 type SPIREServerRegistrar struct {
@@ -36,7 +48,10 @@ func WithSPIREServerX509SVIDTTL(ttl time.Duration) SPIREServerRegistrarOption {
 	}
 }
 
-func NewSPIREServerRegistrar(client SPIREEntryClient, opts ...SPIREServerRegistrarOption) (*SPIREServerRegistrar, error) {
+func NewSPIREServerRegistrar(
+	client SPIREEntryClient,
+	opts ...SPIREServerRegistrarOption,
+) (*SPIREServerRegistrar, error) {
 	if client == nil {
 		return nil, fmt.Errorf("spire: server entry client is required")
 	}
@@ -55,7 +70,10 @@ func NewSPIREServerRegistrar(client SPIREEntryClient, opts ...SPIREServerRegistr
 	return r, nil
 }
 
-func DialSPIREServerRegistrar(address string, opts ...SPIREServerRegistrarOption) (*SPIREServerRegistrar, func(), error) {
+func DialSPIREServerRegistrar(
+	address string,
+	opts ...SPIREServerRegistrarOption,
+) (*SPIREServerRegistrar, func(), error) {
 	if err := ValidateServerAPIAddress(address); err != nil {
 		return nil, nil, err
 	}
@@ -99,7 +117,10 @@ func ValidateServerAPIAddress(address string) error {
 	}
 
 	if u.RawQuery != "" || u.Fragment != "" || u.User != nil || u.Opaque != "" {
-		return fmt.Errorf("spire: server API address %q must not include userinfo, query, fragment, or opaque data", address)
+		return fmt.Errorf(
+			"spire: server API address %q must not include userinfo, query, fragment, or opaque data",
+			address,
+		)
 	}
 
 	return nil
@@ -119,7 +140,10 @@ func ParseSelector(raw string) (Selector, error) {
 	return normalizeSelector(Selector{Type: typ, Value: value})
 }
 
-func (r *SPIREServerRegistrar) EnsureRegistration(ctx context.Context, intent RegistrationIntent) (RegistrationResult, error) {
+func (r *SPIREServerRegistrar) EnsureRegistration(
+	ctx context.Context,
+	intent RegistrationIntent,
+) (RegistrationResult, error) {
 	if r == nil || r.client == nil {
 		return RegistrationResult{}, fmt.Errorf("spire: server registrar is not configured")
 	}
@@ -144,7 +168,10 @@ func (r *SPIREServerRegistrar) EnsureRegistration(ctx context.Context, intent Re
 
 	results := resp.GetResults()
 	if len(results) != 1 {
-		return RegistrationResult{}, fmt.Errorf("spire: create registration entry returned %d results, want 1", len(results))
+		return RegistrationResult{}, fmt.Errorf(
+			"spire: create registration entry returned %d results, want 1",
+			len(results),
+		)
 	}
 
 	result := results[0]
@@ -179,7 +206,10 @@ func (r *SPIREServerRegistrar) EnsureRegistration(ctx context.Context, intent Re
 
 		return RegistrationResult{Handle: handle, Created: false}, nil
 	default:
-		return RegistrationResult{}, fmt.Errorf("spire: create registration entry failed: %s", statusSummary(result.GetStatus(), code))
+		return RegistrationResult{}, fmt.Errorf(
+			"spire: create registration entry failed: %s",
+			statusSummary(result.GetStatus(), code),
+		)
 	}
 }
 
@@ -218,7 +248,11 @@ func (r *SPIREServerRegistrar) ReleaseRegistration(ctx context.Context, handle R
 	}
 }
 
-func (r *SPIREServerRegistrar) updateManagedEntry(ctx context.Context, intent RegistrationIntent, entryID string) (RegistrationHandle, error) {
+func (r *SPIREServerRegistrar) updateManagedEntry(
+	ctx context.Context,
+	intent RegistrationIntent,
+	entryID string,
+) (RegistrationHandle, error) {
 	entry, err := r.intentEntry(intent)
 	if err != nil {
 		return RegistrationHandle{}, err
@@ -237,12 +271,18 @@ func (r *SPIREServerRegistrar) updateManagedEntry(ctx context.Context, intent Re
 
 	results := resp.GetResults()
 	if len(results) != 1 {
-		return RegistrationHandle{}, fmt.Errorf("spire: update registration entry returned %d results, want 1", len(results))
+		return RegistrationHandle{}, fmt.Errorf(
+			"spire: update registration entry returned %d results, want 1",
+			len(results),
+		)
 	}
 
 	result := results[0]
 	if code := statusCode(result.GetStatus()); code != codes.OK {
-		return RegistrationHandle{}, fmt.Errorf("spire: update registration entry failed: %s", statusSummary(result.GetStatus(), code))
+		return RegistrationHandle{}, fmt.Errorf(
+			"spire: update registration entry failed: %s",
+			statusSummary(result.GetStatus(), code),
+		)
 	}
 
 	updated := result.GetEntry()

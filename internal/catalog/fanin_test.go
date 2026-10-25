@@ -71,7 +71,8 @@ func TestFanInProcessorCopiesPendingEventsToTarget(t *testing.T) {
 	}
 
 	got := targetPending[0]
-	if got.SourceCell != "pdx-b" || got.EventKey != sourceEvent.EventKey || got.EventType != cell.CatalogEventTypeExecutionStatus {
+	if got.SourceCell != "pdx-b" || got.EventKey != sourceEvent.EventKey ||
+		got.EventType != cell.CatalogEventTypeExecutionStatus {
 		t.Fatalf("unexpected target event: %+v", got)
 	}
 }
@@ -132,7 +133,13 @@ func TestFanInProcessorRecordsSourceMetrics(t *testing.T) {
 	sourceRepos := dal.NewSQLRepositoriesWithCellID(sourceDB, "iad-a")
 	targetRepos := dal.NewSQLRepositories(targetDB)
 
-	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-metrics", `{"id":"job-fanin-metrics","root":{"uses":"builtins/script"}}`, nil, "iad-a")
+	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(
+		ctx,
+		"job-fanin-metrics",
+		`{"id":"job-fanin-metrics","root":{"uses":"builtins/script"}}`,
+		nil,
+		"iad-a",
+	)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -145,9 +152,13 @@ func TestFanInProcessorRecordsSourceMetrics(t *testing.T) {
 	metrics := &recordingFanInMetrics{}
 	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
 		{
-			CellID:   "iad-a",
-			Events:   events,
-			Backfill: NewBackfillProcessor("iad-a", sourceRepos.CatalogStatusBackfill(), cell.NewCatalogEventPublisher("iad-a", events)),
+			CellID: "iad-a",
+			Events: events,
+			Backfill: NewBackfillProcessor(
+				"iad-a",
+				sourceRepos.CatalogStatusBackfill(),
+				cell.NewCatalogEventPublisher("iad-a", events),
+			),
 		},
 	})
 	processor.SetMetrics(metrics)
@@ -180,11 +191,13 @@ func TestFanInProcessorHonorsLimitAcrossSources(t *testing.T) {
 	sourceB := dal.NewSQLRepositories(sourceBDB)
 	target := dal.NewSQLRepositories(targetDB)
 
-	if _, _, err := sourceA.CatalogEvents().Record(ctx, "iad-a", "event-a", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"running"}`)); err != nil {
+	if _, _, err := sourceA.CatalogEvents().
+		Record(ctx, "iad-a", "event-a", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"running"}`)); err != nil {
 		t.Fatalf("record source A: %v", err)
 	}
 
-	if _, _, err := sourceB.CatalogEvents().Record(ctx, "pdx-b", "event-b", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-b","status":"running"}`)); err != nil {
+	if _, _, err := sourceB.CatalogEvents().
+		Record(ctx, "pdx-b", "event-b", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-b","status":"running"}`)); err != nil {
 		t.Fatalf("record source B: %v", err)
 	}
 
@@ -220,11 +233,13 @@ func TestFanInProcessorMarksSourceAppliedWhenTargetAlreadyHasEvent(t *testing.T)
 	targetRepos := dal.NewSQLRepositories(targetDB)
 	payload := []byte(`{"run_id":"run-a","status":"running"}`)
 
-	if _, _, err := sourceRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
+	if _, _, err := sourceRepos.CatalogEvents().
+		Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
 		t.Fatalf("record source event: %v", err)
 	}
 
-	if _, _, err := targetRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
+	if _, _, err := targetRepos.CatalogEvents().
+		Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
 		t.Fatalf("record target event: %v", err)
 	}
 
@@ -258,11 +273,13 @@ func TestFanInProcessorRejectsConflictingTargetEvent(t *testing.T) {
 	sourceRepos := dal.NewSQLRepositories(sourceDB)
 	targetRepos := dal.NewSQLRepositories(targetDB)
 
-	if _, _, err := sourceRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"running"}`)); err != nil {
+	if _, _, err := sourceRepos.CatalogEvents().
+		Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"running"}`)); err != nil {
 		t.Fatalf("record source event: %v", err)
 	}
 
-	if _, _, err := targetRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"failed"}`)); err != nil {
+	if _, _, err := targetRepos.CatalogEvents().
+		Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"failed"}`)); err != nil {
 		t.Fatalf("record conflicting target event: %v", err)
 	}
 
@@ -292,11 +309,13 @@ func TestFanInProcessorDoesNotAckSourceWhenTargetEventFailed(t *testing.T) {
 	targetRepos := dal.NewSQLRepositories(targetDB)
 	payload := []byte(`{"run_id":"run-a","status":"running"}`)
 
-	if _, _, err := sourceRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
+	if _, _, err := sourceRepos.CatalogEvents().
+		Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
 		t.Fatalf("record source event: %v", err)
 	}
 
-	targetEvent, _, err := targetRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload)
+	targetEvent, _, err := targetRepos.CatalogEvents().
+		Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload)
 	if err != nil {
 		t.Fatalf("record target event: %v", err)
 	}
@@ -331,7 +350,8 @@ func TestFanInProcessorFault_RetryAfterSourceMarkAppliedFailure(t *testing.T) {
 	targetRepos := dal.NewSQLRepositories(targetDB)
 	payload := []byte(`{"run_id":"run-a","status":"running"}`)
 
-	if _, _, err := sourceRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
+	if _, _, err := sourceRepos.CatalogEvents().
+		Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
 		t.Fatalf("record source event: %v", err)
 	}
 
@@ -438,7 +458,8 @@ func checkFanInDrainsUniqueSourceEvents(t *testing.T, raw []byte) error {
 			repos = sourceB
 		}
 
-		if _, _, err := repos.CatalogEvents().Record(ctx, event.sourceCell, event.eventKey, event.eventType, event.payload); err != nil {
+		if _, _, err := repos.CatalogEvents().
+			Record(ctx, event.sourceCell, event.eventKey, event.eventType, event.payload); err != nil {
 			return fmt.Errorf("record source event %s/%s: %w", event.sourceCell, event.eventKey, err)
 		}
 
@@ -546,7 +567,11 @@ func fanInPropertyLimit(raw []byte) int {
 	return 1 + int(raw[0]%4)
 }
 
-func assertFanInPropertySourceDrained(ctx context.Context, events dal.CatalogEventsRepository, sourceCell string) error {
+func assertFanInPropertySourceDrained(
+	ctx context.Context,
+	events dal.CatalogEventsRepository,
+	sourceCell string,
+) error {
 	pending, err := events.ListPending(ctx, 1)
 	if err != nil {
 		return fmt.Errorf("list source %s pending: %w", sourceCell, err)
@@ -566,7 +591,13 @@ func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 	sourceRepos := dal.NewSQLRepositoriesWithCellID(sourceDB, "iad-a")
 	targetRepos := dal.NewSQLRepositories(targetDB)
 
-	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-backfill", `{"id":"job-fanin-backfill","root":{"uses":"builtins/script"}}`, nil, "iad-a")
+	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(
+		ctx,
+		"job-fanin-backfill",
+		`{"id":"job-fanin-backfill","root":{"uses":"builtins/script"}}`,
+		nil,
+		"iad-a",
+	)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -578,9 +609,13 @@ func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 	events := sourceRepos.CatalogEvents()
 	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
 		{
-			CellID:   "iad-a",
-			Events:   events,
-			Backfill: NewBackfillProcessor("iad-a", sourceRepos.CatalogStatusBackfill(), cell.NewCatalogEventPublisher("iad-a", events)),
+			CellID: "iad-a",
+			Events: events,
+			Backfill: NewBackfillProcessor(
+				"iad-a",
+				sourceRepos.CatalogStatusBackfill(),
+				cell.NewCatalogEventPublisher("iad-a", events),
+			),
 		},
 	})
 
@@ -598,7 +633,8 @@ func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 		t.Fatalf("list target pending: %v", err)
 	}
 
-	if len(targetPending) != 1 || targetPending[0].EventKey != cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning) {
+	if len(targetPending) != 1 ||
+		targetPending[0].EventKey != cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning) {
 		t.Fatalf("unexpected target event after backfill: %+v", targetPending)
 	}
 }

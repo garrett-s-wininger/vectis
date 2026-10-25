@@ -54,22 +54,46 @@ func NewAsyncAuditorWithMetrics(repo Repository, logger *slog.Logger, metrics Me
 }
 
 // NewAsyncAuditorWithOptions creates an asynchronous auditor with configurable batch size and flush interval.
-func NewAsyncAuditorWithOptions(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration) *AsyncAuditor {
+func NewAsyncAuditorWithOptions(
+	repo Repository,
+	logger *slog.Logger,
+	batchSize int,
+	flushInterval time.Duration,
+) *AsyncAuditor {
 	return NewAsyncAuditorWithOptionsAndMetrics(repo, logger, batchSize, flushInterval, nil)
 }
 
 // NewAsyncAuditorWithOptionsAndMetrics creates an asynchronous auditor with configurable flushing and metrics.
-func NewAsyncAuditorWithOptionsAndMetrics(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration, metrics Metrics) *AsyncAuditor {
+func NewAsyncAuditorWithOptionsAndMetrics(
+	repo Repository,
+	logger *slog.Logger,
+	batchSize int,
+	flushInterval time.Duration,
+	metrics Metrics,
+) *AsyncAuditor {
 	return NewAsyncAuditorWithBufferAndMetrics(repo, logger, batchSize, flushInterval, 1000, metrics)
 }
 
 // NewAsyncAuditorWithBuffer creates an asynchronous auditor with full control over buffering.
-func NewAsyncAuditorWithBuffer(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration, bufferSize int) *AsyncAuditor {
+func NewAsyncAuditorWithBuffer(
+	repo Repository,
+	logger *slog.Logger,
+	batchSize int,
+	flushInterval time.Duration,
+	bufferSize int,
+) *AsyncAuditor {
 	return NewAsyncAuditorWithBufferAndMetrics(repo, logger, batchSize, flushInterval, bufferSize, nil)
 }
 
 // NewAsyncAuditorWithBufferAndMetrics creates an asynchronous auditor with full control over buffering and metrics.
-func NewAsyncAuditorWithBufferAndMetrics(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration, bufferSize int, metrics Metrics) *AsyncAuditor {
+func NewAsyncAuditorWithBufferAndMetrics(
+	repo Repository,
+	logger *slog.Logger,
+	batchSize int,
+	flushInterval time.Duration,
+	bufferSize int,
+	metrics Metrics,
+) *AsyncAuditor {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -144,7 +168,13 @@ func (a *AsyncAuditor) Log(ctx context.Context, event Event) error {
 				a.metrics.RecordFlushFailure(ctx, 1)
 			}
 
-			a.logger.Error("failed to synchronously persist durable best-effort audit event", "event_type", event.Type, "error", err)
+			a.logger.Error(
+				"failed to synchronously persist durable best-effort audit event",
+				"event_type",
+				event.Type,
+				"error",
+				err,
+			)
 		}
 
 		return nil

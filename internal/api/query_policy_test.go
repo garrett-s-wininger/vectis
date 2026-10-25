@@ -25,14 +25,23 @@ func TestRouteQueryMiddlewareRejectsUnexpectedQueryParameter(t *testing.T) {
 	assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidQueryParameter)
 	assertNoStore(t, rec)
 	if gotReason != securityReasonInvalidQueryParameter || gotStatus != http.StatusBadRequest {
-		t.Fatalf("recorded rejection = (%q, %d), want (%q, %d)", gotReason, gotStatus, securityReasonInvalidQueryParameter, http.StatusBadRequest)
+		t.Fatalf(
+			"recorded rejection = (%q, %d), want (%q, %d)",
+			gotReason,
+			gotStatus,
+			securityReasonInvalidQueryParameter,
+			http.StatusBadRequest,
+		)
 	}
 }
 
 func TestRouteQueryMiddlewareRejectsMalformedQuery(t *testing.T) {
-	handler := routeQueryMiddleware(routeQueryParams("limit"), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("handler should not be called")
-	}))
+	handler := routeQueryMiddleware(
+		routeQueryParams("limit"),
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("handler should not be called")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -44,9 +53,12 @@ func TestRouteQueryMiddlewareRejectsMalformedQuery(t *testing.T) {
 }
 
 func TestRouteQueryMiddlewareRejectsDuplicateQueryParameter(t *testing.T) {
-	handler := routeQueryMiddleware(routeQueryParams("limit"), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("handler should not be called")
-	}))
+	handler := routeQueryMiddleware(
+		routeQueryParams("limit"),
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("handler should not be called")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs?limit=10&limit=20", nil)
@@ -66,10 +78,13 @@ func TestRouteQueryMiddlewareAllowsDeclaredQueryParameters(t *testing.T) {
 	} {
 		t.Run(target, func(t *testing.T) {
 			called := false
-			handler := routeQueryMiddleware(routeQueryParams("cursor", "limit"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				called = true
-				w.WriteHeader(http.StatusNoContent)
-			}))
+			handler := routeQueryMiddleware(
+				routeQueryParams("cursor", "limit"),
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					called = true
+					w.WriteHeader(http.StatusNoContent)
+				}),
+			)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, target, nil)
@@ -114,7 +129,13 @@ func TestAPIServerRejectsUnexpectedQueryParameter(t *testing.T) {
 
 	assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidQueryParameter)
 	assertNoStore(t, rec)
-	requireSecurityRejection(t, metrics, securityReasonInvalidQueryParameter, "GET /api/v1/version", http.StatusBadRequest)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonInvalidQueryParameter,
+		"GET /api/v1/version",
+		http.StatusBadRequest,
+	)
 }
 
 func TestAPIServerRejectsQueryAllowedOnlyOnDifferentMethod(t *testing.T) {
@@ -128,5 +149,11 @@ func TestAPIServerRejectsQueryAllowedOnlyOnDifferentMethod(t *testing.T) {
 
 	assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidQueryParameter)
 	assertNoStore(t, rec)
-	requireSecurityRejection(t, metrics, securityReasonInvalidQueryParameter, "POST /api/v1/jobs", http.StatusBadRequest)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonInvalidQueryParameter,
+		"POST /api/v1/jobs",
+		http.StatusBadRequest,
+	)
 }

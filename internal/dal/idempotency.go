@@ -11,7 +11,10 @@ type SQLIdempotencyRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLIdempotencyRepository) Reserve(ctx context.Context, scope, key, requestHash string) (IdempotencyRecord, bool, error) {
+func (r *SQLIdempotencyRepository) Reserve(
+	ctx context.Context,
+	scope, key, requestHash string,
+) (IdempotencyRecord, bool, error) {
 	_, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`INSERT INTO idempotency_keys (scope, key, request_hash) VALUES (?, ?, ?)`),
 		scope,
@@ -29,8 +32,11 @@ func (r *SQLIdempotencyRepository) Reserve(ctx context.Context, scope, key, requ
 
 	var rec IdempotencyRecord
 	var response sql.NullString
-	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`SELECT scope, key, request_hash, response_json, resource_type, resource_id FROM idempotency_keys WHERE scope = ? AND key = ?`),
+	if err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			`SELECT scope, key, request_hash, response_json, resource_type, resource_id FROM idempotency_keys WHERE scope = ? AND key = ?`,
+		),
 		scope,
 		key,
 	).Scan(&rec.Scope, &rec.Key, &rec.RequestHash, &response, &rec.ResourceType, &rec.ResourceID); err != nil {
@@ -44,7 +50,10 @@ func (r *SQLIdempotencyRepository) Reserve(ctx context.Context, scope, key, requ
 	return rec, false, nil
 }
 
-func (r *SQLIdempotencyRepository) AttachResource(ctx context.Context, scope, key, resourceType, resourceID string) error {
+func (r *SQLIdempotencyRepository) AttachResource(
+	ctx context.Context,
+	scope, key, resourceType, resourceID string,
+) error {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.TrimSpace(resourceID)
 	if resourceType == "" || resourceID == "" {
@@ -75,8 +84,11 @@ func (r *SQLIdempotencyRepository) AttachResource(ctx context.Context, scope, ke
 }
 
 func (r *SQLIdempotencyRepository) Complete(ctx context.Context, scope, key, responseJSON string) error {
-	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE idempotency_keys SET response_json = ?, updated_at = CURRENT_TIMESTAMP WHERE scope = ? AND key = ?`),
+	_, err := r.db.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`UPDATE idempotency_keys SET response_json = ?, updated_at = CURRENT_TIMESTAMP WHERE scope = ? AND key = ?`,
+		),
 		responseJSON,
 		scope,
 		key,

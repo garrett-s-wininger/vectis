@@ -85,14 +85,62 @@ func TestLoadManifestIncludesVectisCommon(t *testing.T) {
 		}
 	}
 
-	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis.target", filepath.Join(artifactRoot, "systemd", "vectis.target"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis-db-migrate.service", filepath.Join(artifactRoot, "systemd", "vectis-db-migrate.service"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.service", filepath.Join(artifactRoot, "systemd", "vectis-retention-scheduled-cleanup.service"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.timer", filepath.Join(artifactRoot, "systemd", "vectis-retention-scheduled-cleanup.timer"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/lib/sysusers.d/vectis.conf", filepath.Join(artifactRoot, "sysusers.d", "vectis.conf"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/share/doc/vectis-common/examples/vectis.env.example", filepath.Join(artifactRoot, "env", "vectis.env.example"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/share/doc/vectis-common/examples/vectis-db-migrate.env.example", filepath.Join(artifactRoot, "env", "vectis-db-migrate.env.example"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/share/doc/vectis-common/examples/vectis-retention-scheduled-cleanup.env.example", filepath.Join(artifactRoot, "env", "vectis-retention-scheduled-cleanup.env.example"), 0o644)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/systemd/system/vectis.target",
+		filepath.Join(artifactRoot, "systemd", "vectis.target"),
+		0o644,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/systemd/system/vectis-db-migrate.service",
+		filepath.Join(artifactRoot, "systemd", "vectis-db-migrate.service"),
+		0o644,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.service",
+		filepath.Join(artifactRoot, "systemd", "vectis-retention-scheduled-cleanup.service"),
+		0o644,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.timer",
+		filepath.Join(artifactRoot, "systemd", "vectis-retention-scheduled-cleanup.timer"),
+		0o644,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/sysusers.d/vectis.conf",
+		filepath.Join(artifactRoot, "sysusers.d", "vectis.conf"),
+		0o644,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/share/doc/vectis-common/examples/vectis.env.example",
+		filepath.Join(artifactRoot, "env", "vectis.env.example"),
+		0o644,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/share/doc/vectis-common/examples/vectis-db-migrate.env.example",
+		filepath.Join(artifactRoot, "env", "vectis-db-migrate.env.example"),
+		0o644,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/share/doc/vectis-common/examples/vectis-retention-scheduled-cleanup.env.example",
+		filepath.Join(artifactRoot, "env", "vectis-retention-scheduled-cleanup.env.example"),
+		0o644,
+	)
 
 	for _, file := range pkg.Files {
 		if strings.HasPrefix(file.Destination, "/etc/vectis/") {
@@ -148,9 +196,27 @@ func TestLoadManifestIncludesVectisLocal(t *testing.T) {
 	}
 
 	requireResolvedFile(t, pkg, "/usr/bin/vectis-local", wrapper, 0o755)
-	requireResolvedFile(t, pkg, "/usr/lib/vectis-local/bin/vectis-local", filepath.Join(localBinDir, "vectis-local"), 0o755)
-	requireResolvedFile(t, pkg, "/usr/lib/vectis-local/bin/vectis-artifact", filepath.Join(localBinDir, "vectis-artifact"), 0o755)
-	requireResolvedFile(t, pkg, "/usr/lib/vectis-local/bin/vectis-worker-core", filepath.Join(localBinDir, "vectis-worker-core"), 0o755)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/vectis-local/bin/vectis-local",
+		filepath.Join(localBinDir, "vectis-local"),
+		0o755,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/vectis-local/bin/vectis-artifact",
+		filepath.Join(localBinDir, "vectis-artifact"),
+		0o755,
+	)
+	requireResolvedFile(
+		t,
+		pkg,
+		"/usr/lib/vectis-local/bin/vectis-worker-core",
+		filepath.Join(localBinDir, "vectis-worker-core"),
+		0o755,
+	)
 
 	for _, file := range pkg.Files {
 		if strings.HasPrefix(file.Destination, "/usr/lib/systemd/") {
@@ -200,8 +266,20 @@ func TestLoadManifestIncludesGeneratedServicePackage(t *testing.T) {
 			}
 
 			requireResolvedFile(t, pkg, "/usr/bin/"+packageID, "/tmp/"+packageID, 0o755)
-			requireResolvedFile(t, pkg, "/usr/lib/systemd/system/"+packageID+".service", filepath.Join(artifactRoot, "systemd", packageID+".service"), 0o644)
-			requireResolvedFile(t, pkg, "/usr/share/doc/"+packageID+"/examples/"+packageID+".env.example", filepath.Join(artifactRoot, "env", packageID+".env.example"), 0o644)
+			requireResolvedFile(
+				t,
+				pkg,
+				"/usr/lib/systemd/system/"+packageID+".service",
+				filepath.Join(artifactRoot, "systemd", packageID+".service"),
+				0o644,
+			)
+			requireResolvedFile(
+				t,
+				pkg,
+				"/usr/share/doc/"+packageID+"/examples/"+packageID+".env.example",
+				filepath.Join(artifactRoot, "env", packageID+".env.example"),
+				0o644,
+			)
 		})
 	}
 }

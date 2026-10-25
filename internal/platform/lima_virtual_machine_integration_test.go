@@ -21,7 +21,10 @@ func TestVirtualMachineIntegration_LimaProvider(t *testing.T) {
 		workspaceRoot = "."
 	}
 
-	workspace, err := os.MkdirTemp(workspaceRoot, ".vectis-lima-work-*") //nolint:usetesting // Honor caller-selected Lima workspace root.
+	workspace, err := os.MkdirTemp(
+		workspaceRoot,
+		".vectis-lima-work-*",
+	) //nolint:usetesting // Honor caller-selected Lima workspace root.
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
@@ -73,7 +76,12 @@ func TestVirtualMachineIntegration_LimaProvider(t *testing.T) {
 
 	if strings.TrimSpace(os.Getenv("VECTIS_TEST_LIMA_GUEST_WORKSPACE_ROOT")) == "" {
 		if _, err := os.Stat(filepath.Join(absWorkspace, "vectis-lima-marker")); err != nil {
-			t.Fatalf("expected Lima command to write marker through writable mounted workspace: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+			t.Fatalf(
+				"expected Lima command to write marker through writable mounted workspace: %v\nstdout:\n%s\nstderr:\n%s",
+				err,
+				stdout,
+				stderr,
+			)
 		}
 
 		return

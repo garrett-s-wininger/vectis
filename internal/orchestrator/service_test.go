@@ -67,7 +67,13 @@ func TestServiceClaimExecutionSerializesConcurrentClaims(t *testing.T) {
 			defer wg.Done()
 			<-start
 
-			claim, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, fmt.Sprintf("worker-%d", i), clock.Now().Add(time.Minute))
+			claim, err := svc.ClaimExecution(
+				ctx,
+				loaded.RunID,
+				loaded.Root.ExecutionID,
+				fmt.Sprintf("worker-%d", i),
+				clock.Now().Add(time.Minute),
+			)
 			if err != nil {
 				errCh <- err
 				return
@@ -91,7 +97,13 @@ func TestServiceClaimExecutionSerializesConcurrentClaims(t *testing.T) {
 		t.Fatalf("claimed executions: got %d, want 1", got)
 	}
 
-	duplicate, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "late-worker", clock.Now().Add(time.Minute))
+	duplicate, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"late-worker",
+		clock.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("duplicate claim: %v", err)
 	}
@@ -112,7 +124,13 @@ func TestServiceClaimExecutionRejectsLeaseTakeover(t *testing.T) {
 		t.Fatalf("load run: %v", err)
 	}
 
-	first, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-a", clock.Now().Add(time.Second))
+	first, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-a",
+		clock.Now().Add(time.Second),
+	)
 	if err != nil {
 		t.Fatalf("claim first: %v", err)
 	}
@@ -122,7 +140,13 @@ func TestServiceClaimExecutionRejectsLeaseTakeover(t *testing.T) {
 	}
 
 	clock.Advance(2 * time.Second)
-	second, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-b", clock.Now().Add(time.Minute))
+	second, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-b",
+		clock.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("claim second: %v", err)
 	}
@@ -131,7 +155,19 @@ func TestServiceClaimExecutionRejectsLeaseTakeover(t *testing.T) {
 		t.Fatalf("expected expired lease takeover to be rejected: first=%+v second=%+v", first, second)
 	}
 
-	if _, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-a", first.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !errors.Is(err, dal.ErrConflict) {
+	if _, err := svc.CompleteExecutionByClaim(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-a",
+		first.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	); !errors.Is(
+		err,
+		dal.ErrConflict,
+	) {
 		t.Fatalf("expired completion error: got %v, want conflict", err)
 	}
 }
@@ -147,7 +183,13 @@ func TestServiceListPendingExcludesExpiredRunningClaims(t *testing.T) {
 		t.Fatalf("load run: %v", err)
 	}
 
-	claim, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-a", clock.Now().Add(time.Second))
+	claim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-a",
+		clock.Now().Add(time.Second),
+	)
 	if err != nil {
 		t.Fatalf("claim root: %v", err)
 	}
@@ -205,7 +247,13 @@ func TestServiceLoadRunUsesProvidedRootExecutionRecord(t *testing.T) {
 		t.Fatalf("root execution id: got %q", loaded.Root.ExecutionID)
 	}
 
-	claim, err := svc.ClaimExecution(ctx, loaded.RunID, "custom-root-execution", "worker-a", clock.Now().Add(time.Minute))
+	claim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		"custom-root-execution",
+		"worker-a",
+		clock.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("claim custom root: %v", err)
 	}
@@ -236,12 +284,27 @@ func TestServiceLoadRunIsIdempotent(t *testing.T) {
 		t.Fatalf("load run: %v", err)
 	}
 
-	rootClaim, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", clock.Now().Add(time.Minute))
+	rootClaim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-root",
+		clock.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("claim root: %v", err)
 	}
 
-	result, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	result, err := svc.CompleteExecutionByClaim(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-root",
+		rootClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete root: %v", err)
 	}
@@ -256,11 +319,19 @@ func TestServiceLoadRunIsIdempotent(t *testing.T) {
 	}
 
 	if again.Root.ExecutionID != loaded.Root.ExecutionID {
-		t.Fatalf("root changed across idempotent load: first=%q second=%q", loaded.Root.ExecutionID, again.Root.ExecutionID)
+		t.Fatalf(
+			"root changed across idempotent load: first=%q second=%q",
+			loaded.Root.ExecutionID,
+			again.Root.ExecutionID,
+		)
 	}
 
 	if len(again.Pending) != 1 || again.Pending[0].ExecutionID != result.Children[0].ExecutionID {
-		t.Fatalf("idempotent load should return current pending child, got %+v want %s", again.Pending, result.Children[0].ExecutionID)
+		t.Fatalf(
+			"idempotent load should return current pending child, got %+v want %s",
+			again.Pending,
+			result.Children[0].ExecutionID,
+		)
 	}
 }
 
@@ -304,7 +375,16 @@ func TestServiceLoadRunHydratesExecutionSnapshots(t *testing.T) {
 		t.Fatalf("expected hydrated child claim: %+v", claim)
 	}
 
-	result, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, child.ExecutionID, "worker-child", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	result, err := svc.CompleteExecutionByClaim(
+		ctx,
+		loaded.RunID,
+		child.ExecutionID,
+		"worker-child",
+		claim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete hydrated child: %v", err)
 	}
@@ -453,17 +533,33 @@ func TestServiceCompleteExecutionActivatesChildrenInMemory(t *testing.T) {
 		t.Fatalf("load run: %v", err)
 	}
 
-	rootClaim, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", clock.Now().Add(time.Minute))
+	rootClaim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-root",
+		clock.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("claim root: %v", err)
 	}
 
-	rootResult, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	rootResult, err := svc.CompleteExecutionByClaim(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-root",
+		rootClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete root: %v", err)
 	}
 
-	if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || rootResult.Activated != 1 || len(rootResult.Children) != 1 {
+	if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || rootResult.Activated != 1 ||
+		len(rootResult.Children) != 1 {
 		t.Fatalf("root result: %+v", rootResult)
 	}
 
@@ -472,12 +568,27 @@ func TestServiceCompleteExecutionActivatesChildrenInMemory(t *testing.T) {
 	}
 
 	child := rootResult.Children[0]
-	childClaim, err := svc.ClaimExecution(ctx, loaded.RunID, child.ExecutionID, "worker-child", clock.Now().Add(time.Minute))
+	childClaim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		child.ExecutionID,
+		"worker-child",
+		clock.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("claim child: %v", err)
 	}
 
-	childResult, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, child.ExecutionID, "worker-child", childClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	childResult, err := svc.CompleteExecutionByClaim(
+		ctx,
+		loaded.RunID,
+		child.ExecutionID,
+		"worker-child",
+		childClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete child: %v", err)
 	}
@@ -501,10 +612,22 @@ func TestServiceCompleteExecutionHonorsSequenceReadiness(t *testing.T) {
 		RunID:    "run-sequence-readiness",
 		RootUses: "builtins/sequence",
 		Tasks: []orchestrator.TaskSpec{
-			{TaskKey: "build", ParentTaskKey: dal.RootTaskKey, Name: "build", CellID: "iad-a", Uses: "builtins/parallel"},
+			{
+				TaskKey:       "build",
+				ParentTaskKey: dal.RootTaskKey,
+				Name:          "build",
+				CellID:        "iad-a",
+				Uses:          "builtins/parallel",
+			},
 			{TaskKey: "compile", ParentTaskKey: "build", Name: "compile", CellID: "iad-a", Uses: "builtins/script"},
 			{TaskKey: "test", ParentTaskKey: "build", Name: "test", CellID: "iad-a", Uses: "builtins/script"},
-			{TaskKey: "deploy", ParentTaskKey: dal.RootTaskKey, Name: "deploy", CellID: "iad-a", Uses: "builtins/script"},
+			{
+				TaskKey:       "deploy",
+				ParentTaskKey: dal.RootTaskKey,
+				Name:          "deploy",
+				CellID:        "iad-a",
+				Uses:          "builtins/script",
+			},
 		},
 	})
 
@@ -521,7 +644,13 @@ func TestServiceCompleteExecutionHonorsSequenceReadiness(t *testing.T) {
 	assertPendingTaskKeys(t, ctx, svc, loaded.RunID, "build")
 
 	deploy := orchestratorTestRecord(loaded.RunID, "deploy", dal.RootTaskKey, "deploy", "iad-a")
-	if claim, err := svc.ClaimExecution(ctx, loaded.RunID, deploy.ExecutionID, "worker-deploy-early", clock.Now().Add(time.Minute)); err != nil {
+	if claim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		deploy.ExecutionID,
+		"worker-deploy-early",
+		clock.Now().Add(time.Minute),
+	); err != nil {
 		t.Fatalf("claim early deploy: %v", err)
 	} else if claim.Claimed {
 		t.Fatalf("deploy should not be claimable before build subtree succeeds: %+v", claim)
@@ -545,7 +674,13 @@ func TestServiceCompleteExecutionHonorsSequenceReadiness(t *testing.T) {
 	assertResultTaskKeys(t, compileResult.Children, "test")
 	assertPendingTaskKeys(t, ctx, svc, loaded.RunID, "test")
 
-	if claim, err := svc.ClaimExecution(ctx, loaded.RunID, deploy.ExecutionID, "worker-deploy-still-early", clock.Now().Add(time.Minute)); err != nil {
+	if claim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		deploy.ExecutionID,
+		"worker-deploy-still-early",
+		clock.Now().Add(time.Minute),
+	); err != nil {
 		t.Fatalf("claim deploy before test: %v", err)
 	} else if claim.Claimed {
 		t.Fatalf("deploy should not be claimable before test succeeds: %+v", claim)
@@ -587,21 +722,49 @@ func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *test
 		t.Fatalf("load run: %v", err)
 	}
 
-	rootClaim, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", clock.Now().Add(time.Minute))
+	rootClaim, err := svc.ClaimExecution(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-root",
+		clock.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("claim root: %v", err)
 	}
 
-	rootResult, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	rootResult, err := svc.CompleteExecutionByClaim(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-root",
+		rootClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete root: %v", err)
 	}
 
-	if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || rootResult.Activated != 1 || len(rootResult.Children) != 1 {
+	if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || rootResult.Activated != 1 ||
+		len(rootResult.Children) != 1 {
 		t.Fatalf("root result: %+v", rootResult)
 	}
 
-	if _, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !errors.Is(err, dal.ErrConflict) {
+	if _, err := svc.CompleteExecutionByClaim(
+		ctx,
+		loaded.RunID,
+		loaded.Root.ExecutionID,
+		"worker-root",
+		rootClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	); !errors.Is(
+		err,
+		dal.ErrConflict,
+	) {
 		t.Fatalf("expected duplicate completion conflict, got %v", err)
 	}
 
@@ -615,7 +778,15 @@ func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *test
 	}
 }
 
-func claimAndCompleteForTest(t *testing.T, ctx context.Context, svc *orchestrator.Service, clock *manualClock, runID string, record dal.TaskExecutionRecord, owner string) dal.ExecutionFinalizationResult {
+func claimAndCompleteForTest(
+	t *testing.T,
+	ctx context.Context,
+	svc *orchestrator.Service,
+	clock *manualClock,
+	runID string,
+	record dal.TaskExecutionRecord,
+	owner string,
+) dal.ExecutionFinalizationResult {
 	t.Helper()
 
 	claim, err := svc.ClaimExecution(ctx, runID, record.ExecutionID, owner, clock.Now().Add(time.Minute))
@@ -627,7 +798,16 @@ func claimAndCompleteForTest(t *testing.T, ctx context.Context, svc *orchestrato
 		t.Fatalf("expected claim for %s: %+v", record.TaskKey, claim)
 	}
 
-	result, err := svc.CompleteExecutionByClaim(ctx, runID, record.ExecutionID, owner, claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	result, err := svc.CompleteExecutionByClaim(
+		ctx,
+		runID,
+		record.ExecutionID,
+		owner,
+		claim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete %s: %v", record.TaskKey, err)
 	}

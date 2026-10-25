@@ -63,8 +63,14 @@ func TestBuildLocalTopology_DefaultCell(t *testing.T) {
 		t.Fatalf("cell DB: got %q", cell.CellDB)
 	}
 
-	if cell.QueuePort != config.QueuePort() || cell.SecretsPort != config.SecretsPort() || cell.CellIngressPort != config.CellIngressPort() {
-		t.Fatalf("default ports: queue=%d secrets=%d ingress=%d", cell.QueuePort, cell.SecretsPort, cell.CellIngressPort)
+	if cell.QueuePort != config.QueuePort() || cell.SecretsPort != config.SecretsPort() ||
+		cell.CellIngressPort != config.CellIngressPort() {
+		t.Fatalf(
+			"default ports: queue=%d secrets=%d ingress=%d",
+			cell.QueuePort,
+			cell.SecretsPort,
+			cell.CellIngressPort,
+		)
 	}
 }
 
@@ -408,7 +414,10 @@ func TestLocalSPIFFEBuildsEnvAndCombinedClientCA(t *testing.T) {
 		}
 	}
 
-	if !hasEnv(cfg.Env, "VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS=unix:uid:501,unix:gid:20,unix:path:/usr/local/bin/vectis-worker") {
+	if !hasEnv(
+		cfg.Env,
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS=unix:uid:501,unix:gid:20,unix:path:/usr/local/bin/vectis-worker",
+	) {
 		t.Fatalf("registration selectors env mismatch: %v", cfg.Env)
 	}
 }
@@ -450,7 +459,8 @@ func TestEmbeddedLocalSPIFFEConfigDefaults(t *testing.T) {
 		t.Fatalf("runtime dir = %q", cfg.RuntimeDir)
 	}
 
-	if cfg.ServerSocket != filepath.Join(cfg.RuntimeDir, "registration.sock") || cfg.AgentSocket != filepath.Join(cfg.RuntimeDir, "workload.sock") {
+	if cfg.ServerSocket != filepath.Join(cfg.RuntimeDir, "registration.sock") ||
+		cfg.AgentSocket != filepath.Join(cfg.RuntimeDir, "workload.sock") {
 		t.Fatalf("sockets = %q %q", cfg.ServerSocket, cfg.AgentSocket)
 	}
 }
@@ -505,7 +515,10 @@ func TestEmbeddedLocalSPIFFEConfigSkipsPlaintextGRPC(t *testing.T) {
 
 func TestStartEmbeddedLocalSPIFFEStartsAuthority(t *testing.T) {
 	resetLocalTestConfig(t)
-	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-spiffe-*") //nolint:usetesting // Keep embedded SPIFFE runtime sockets under a short temp root.
+	dir, err := os.MkdirTemp(
+		shortTempRoot(),
+		"vectis-spiffe-*",
+	) //nolint:usetesting // Keep embedded SPIFFE runtime sockets under a short temp root.
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
@@ -984,12 +997,22 @@ func TestLocalServices_SimpleProfileHealthPortsUseEnvOverrides(t *testing.T) {
 
 func TestLocalDiscoveryRegistryEnv(t *testing.T) {
 	resetLocalTestConfig(t)
-	if got := localDiscoveryRegistryEnv(localProfileSimple); !reflect.DeepEqual(got, []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:8082"}) {
+	if got := localDiscoveryRegistryEnv(
+		localProfileSimple,
+	); !reflect.DeepEqual(
+		got,
+		[]string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:8082"},
+	) {
 		t.Fatalf("default simple discovery env = %v", got)
 	}
 
 	t.Setenv("VECTIS_REGISTRY_PORT", "18082")
-	if got := localDiscoveryRegistryEnv(localProfileSimple); !reflect.DeepEqual(got, []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:18082"}) {
+	if got := localDiscoveryRegistryEnv(
+		localProfileSimple,
+	); !reflect.DeepEqual(
+		got,
+		[]string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:18082"},
+	) {
 		t.Fatalf("overridden simple discovery env = %v", got)
 	}
 }
@@ -1114,7 +1137,11 @@ func TestValidateUIDevAssetsDirRequiresPackageJSON(t *testing.T) {
 
 func TestValidateUIDevAssetsDirAcceptsUIPackage(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"dev":"vite"}}`), 0o600); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "package.json"),
+		[]byte(`{"scripts":{"dev":"vite"}}`),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
 

@@ -70,9 +70,13 @@ type sourceRepositoryObjectStoreMetricRecord struct {
 func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 	m := otel.Meter("vectis/source")
 
-	syncs, err := m.Int64Counter("vectis_source_repository_syncs_total",
-		metric.WithDescription("Total source repository sync attempts by trigger, repository kind, checkout mode, outcome, and reason"),
-		metric.WithUnit("{sync}"))
+	syncs, err := m.Int64Counter(
+		"vectis_source_repository_syncs_total",
+		metric.WithDescription(
+			"Total source repository sync attempts by trigger, repository kind, checkout mode, outcome, and reason",
+		),
+		metric.WithUnit("{sync}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_source_repository_syncs_total: %w", err)
 	}
@@ -85,9 +89,13 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		return nil, fmt.Errorf("vectis_source_repository_sync_duration_seconds: %w", err)
 	}
 
-	refHydrations, err := m.Int64Counter("vectis_source_ref_hydrations_total",
-		metric.WithDescription("Total managed source ref hydration attempts by repository kind, checkout mode, outcome, reason, tier, and cache state"),
-		metric.WithUnit("{hydration}"))
+	refHydrations, err := m.Int64Counter(
+		"vectis_source_ref_hydrations_total",
+		metric.WithDescription(
+			"Total managed source ref hydration attempts by repository kind, checkout mode, outcome, reason, tier, and cache state",
+		),
+		metric.WithUnit("{hydration}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_source_ref_hydrations_total: %w", err)
 	}
@@ -100,9 +108,13 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		return nil, fmt.Errorf("vectis_source_ref_hydration_duration_seconds: %w", err)
 	}
 
-	objectStorePressure, err := m.Int64ObservableGauge("vectis_source_repository_object_store_pressure",
-		metric.WithDescription("Latest source repository Git object-store pressure classification as 0=ok, 1=warning, 2=critical"),
-		metric.WithUnit("{level}"))
+	objectStorePressure, err := m.Int64ObservableGauge(
+		"vectis_source_repository_object_store_pressure",
+		metric.WithDescription(
+			"Latest source repository Git object-store pressure classification as 0=ok, 1=warning, 2=critical",
+		),
+		metric.WithUnit("{level}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_source_repository_object_store_pressure: %w", err)
 	}
@@ -136,9 +148,13 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		return nil, fmt.Errorf("vectis_source_repository_object_store_hydrated_refs: %w", err)
 	}
 
-	objectStoreWarnings, err := m.Int64ObservableGauge("vectis_source_repository_object_store_warnings",
-		metric.WithDescription("Latest source repository Git object-store warning conditions; each active warning is observed as 1"),
-		metric.WithUnit("{warning}"))
+	objectStoreWarnings, err := m.Int64ObservableGauge(
+		"vectis_source_repository_object_store_warnings",
+		metric.WithDescription(
+			"Latest source repository Git object-store warning conditions; each active warning is observed as 1",
+		),
+		metric.WithUnit("{warning}"),
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf("vectis_source_repository_object_store_warnings: %w", err)
@@ -174,7 +190,11 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 	return metrics, nil
 }
 
-func (m *SourceSyncMetrics) RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration) {
+func (m *SourceSyncMetrics) RecordSourceRepositorySync(
+	ctx context.Context,
+	trigger, sourceKind, checkoutMode, outcome, reason string,
+	d time.Duration,
+) {
 	if m == nil {
 		return
 	}
@@ -184,7 +204,11 @@ func (m *SourceSyncMetrics) RecordSourceRepositorySync(ctx context.Context, trig
 	m.syncDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
 }
 
-func (m *SourceSyncMetrics) RecordSourceRefHydration(ctx context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, d time.Duration) {
+func (m *SourceSyncMetrics) RecordSourceRefHydration(
+	ctx context.Context,
+	sourceKind, checkoutMode, outcome, reason, tier, cacheState string,
+	d time.Duration,
+) {
 	if m == nil {
 		return
 	}
@@ -194,7 +218,14 @@ func (m *SourceSyncMetrics) RecordSourceRefHydration(ctx context.Context, source
 	m.refHydrationDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
 }
 
-func (m *SourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects, hydratedRefs int, warnings []SourceRepositoryObjectStoreWarning) {
+func (m *SourceSyncMetrics) RecordSourceRepositoryObjectStore(
+	_ context.Context,
+	repositoryID, sourceKind, checkoutMode, pressure string,
+	packFiles int,
+	packBytes int64,
+	looseObjects, hydratedRefs int,
+	warnings []SourceRepositoryObjectStoreWarning,
+) {
 	if m == nil {
 		return
 	}
@@ -308,7 +339,9 @@ func sourceSyncMetricAttributes(trigger, sourceKind, checkoutMode, outcome, reas
 	}
 }
 
-func sourceRefHydrationMetricAttributes(sourceKind, checkoutMode, outcome, reason, tier, cacheState string) []attribute.KeyValue {
+func sourceRefHydrationMetricAttributes(
+	sourceKind, checkoutMode, outcome, reason, tier, cacheState string,
+) []attribute.KeyValue {
 	sourceKind = sourceSyncMetricLabel(sourceKind, "unknown")
 	checkoutMode = sourceSyncMetricLabel(checkoutMode, "unknown")
 	outcome = sourceSyncMetricLabel(outcome, SourceSyncOutcomeFailed)
@@ -334,7 +367,9 @@ func sourceRepositoryObjectStoreMetricAttributes(repositoryID, sourceKind, check
 	}
 }
 
-func normalizeSourceRepositoryObjectStoreMetricWarnings(in []SourceRepositoryObjectStoreWarning) []SourceRepositoryObjectStoreWarning {
+func normalizeSourceRepositoryObjectStoreMetricWarnings(
+	in []SourceRepositoryObjectStoreWarning,
+) []SourceRepositoryObjectStoreWarning {
 	if len(in) == 0 {
 		return nil
 	}

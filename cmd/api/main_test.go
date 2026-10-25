@@ -41,7 +41,10 @@ type recordingSourceCredentialSecretsResolver struct {
 	err    error
 }
 
-func (r *recordingSourceCredentialSecretsResolver) Resolve(_ context.Context, req secrets.ResolveRequest) (secrets.Bundle, error) {
+func (r *recordingSourceCredentialSecretsResolver) Resolve(
+	_ context.Context,
+	req secrets.ResolveRequest,
+) (secrets.Bundle, error) {
 	r.req = req
 	if r.err != nil {
 		return secrets.Bundle{}, r.err
@@ -50,7 +53,11 @@ func (r *recordingSourceCredentialSecretsResolver) Resolve(_ context.Context, re
 	return r.bundle, nil
 }
 
-func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
+func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(
+	_ context.Context,
+	trigger, sourceKind, checkoutMode, outcome, reason string,
+	_ time.Duration,
+) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -135,7 +142,8 @@ func TestWarnIfProcessLocalAPICache(t *testing.T) {
 	}
 
 	warnIfProcessLocalAPICache(logger, config.APICacheBackendMemory, true)
-	if got := buf.String(); !strings.Contains(got, "api.cache.backend=memory") || !strings.Contains(got, "process-local") {
+	if got := buf.String(); !strings.Contains(got, "api.cache.backend=memory") ||
+		!strings.Contains(got, "process-local") {
 		t.Fatalf("warning = %q, want process-local memory cache warning", got)
 	}
 }
@@ -398,7 +406,12 @@ func TestReconcileConfiguredSourceSchedules_CreatesAndUpdates(t *testing.T) {
 	}
 
 	oldNextRun := time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC)
-	if _, err := db.ExecContext(ctx, "UPDATE cron_trigger_specs SET next_run_at = ? WHERE id = ?", oldNextRun.Format(time.RFC3339), got.ID); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		"UPDATE cron_trigger_specs SET next_run_at = ? WHERE id = ?",
+		oldNextRun.Format(time.RFC3339),
+		got.ID,
+	); err != nil {
 		t.Fatalf("force disabled next_run_at: %v", err)
 	}
 
@@ -428,7 +441,11 @@ func TestReconcileConfiguredSourceSchedules_CreatesAndUpdates(t *testing.T) {
 	}
 
 	if !got.NextRunAt.After(oldNextRun) {
-		t.Fatalf("expected re-enabled schedule to compute a fresh next_run_at after %v, got %v", oldNextRun, got.NextRunAt)
+		t.Fatalf(
+			"expected re-enabled schedule to compute a fresh next_run_at after %v, got %v",
+			oldNextRun,
+			got.NextRunAt,
+		)
 	}
 }
 
@@ -608,14 +625,20 @@ func TestSyncConfiguredSourceRepositories_SyncsEnabledRepositories(t *testing.T)
 
 	calls := 0
 	metrics := &recordingSourceSyncMetrics{}
-	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
-		calls++
-		if rec.RepositoryID != "vectis-local" || syncRef != "main" {
-			t.Fatalf("sync input mismatch: rec=%+v syncRef=%q", rec, syncRef)
-		}
+	err := syncConfiguredSourceRepositoriesWithStatus(
+		ctx,
+		repos,
+		nil,
+		func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+			calls++
+			if rec.RepositoryID != "vectis-local" || syncRef != "main" {
+				t.Fatalf("sync input mismatch: rec=%+v syncRef=%q", rec, syncRef)
+			}
 
-		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
-	}, metrics)
+			return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
+		},
+		metrics,
+	)
 
 	if err != nil {
 		t.Fatalf("sync: %v", err)
@@ -639,7 +662,13 @@ func TestSyncConfiguredSourceRepositories_SyncsEnabledRepositories(t *testing.T)
 		t.Fatalf("sync result mismatch: %+v", got)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerStartup, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+	if !metrics.has(
+		observability.SourceSyncTriggerStartup,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeExternal,
+		observability.SourceSyncOutcomeSucceeded,
+		observability.SourceSyncReasonNone,
+	) {
 		t.Fatalf("missing startup success source sync metric: %+v", metrics.records)
 	}
 }
@@ -667,13 +696,19 @@ func TestSyncConfiguredSourceRepositories_PersistsFailure(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(_ context.Context, _ dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
-		if syncRef != "HEAD" {
-			t.Fatalf("syncRef=%q, want HEAD", syncRef)
-		}
+	err := syncConfiguredSourceRepositoriesWithStatus(
+		ctx,
+		repos,
+		nil,
+		func(_ context.Context, _ dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+			if syncRef != "HEAD" {
+				t.Fatalf("syncRef=%q, want HEAD", syncRef)
+			}
 
-		return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
-	}, nil)
+			return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
+		},
+		nil,
+	)
 
 	if err == nil {
 		t.Fatal("expected startup sync failure")
@@ -716,10 +751,16 @@ func TestSyncConfiguredSourceRepositories_PersistsFailureAfterCanceledSyncContex
 	}
 
 	syncCtx, cancel := context.WithCancel(baseCtx)
-	err := syncConfiguredSourceRepositoriesWithStatus(syncCtx, repos, nil, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
-		cancel()
-		return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "context deadline exceeded"}
-	}, nil)
+	err := syncConfiguredSourceRepositoriesWithStatus(
+		syncCtx,
+		repos,
+		nil,
+		func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
+			cancel()
+			return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "context deadline exceeded"}
+		},
+		nil,
+	)
 
 	if err == nil {
 		t.Fatal("expected startup sync failure")
@@ -761,10 +802,16 @@ func TestSyncConfiguredSourceRepositories_SkipsDisabledRepositories(t *testing.T
 	}
 
 	calls := 0
-	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
-		calls++
-		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
-	}, nil)
+	err := syncConfiguredSourceRepositoriesWithStatus(
+		ctx,
+		repos,
+		nil,
+		func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
+			calls++
+			return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
+		},
+		nil,
+	)
 
 	if err != nil {
 		t.Fatalf("sync disabled: %v", err)
@@ -808,12 +855,19 @@ func TestConfiguredSourceRepositoryGitCredentialsRequireResolver(t *testing.T) {
 		t.Fatalf("unexpected credential status: %+v", status)
 	}
 
-	status = configuredSourceRepositoryRefHydratorWithCredentialResolver(nil)(context.Background(), dal.SourceRepositoryRecord{
-		RepositoryID:  "private-repo",
-		CheckoutPath:  "/work/private",
-		CheckoutMode:  dal.SourceCheckoutModeManaged,
-		CredentialRef: "encryptedfs://git/private-repo",
-	}, "feature/new", "")
+	status = configuredSourceRepositoryRefHydratorWithCredentialResolver(
+		nil,
+	)(
+		context.Background(),
+		dal.SourceRepositoryRecord{
+			RepositoryID:  "private-repo",
+			CheckoutPath:  "/work/private",
+			CheckoutMode:  dal.SourceCheckoutModeManaged,
+			CredentialRef: "encryptedfs://git/private-repo",
+		},
+		"feature/new",
+		"",
+	)
 
 	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
 		t.Fatalf("unexpected ref hydrator credential status: %+v", status)
@@ -875,7 +929,12 @@ func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.
 	}
 
 	ref := "encryptedfs://git/private-repo"
-	if err := encryptedfs.WriteEncryptedFSSecretFile(root, ref, []byte(`{"username":"oauth2","token":"ghp_private"}`), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(
+		root,
+		ref,
+		[]byte(`{"username":"oauth2","token":"ghp_private"}`),
+		key,
+	); err != nil {
 		t.Fatalf("write encrypted source credential: %v", err)
 	}
 
@@ -905,7 +964,14 @@ func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.
 
 	sshRef := "encryptedfs://git/private-repo-ssh"
 	sshPrivateKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----"
-	if err := encryptedfs.WriteEncryptedFSSecretFile(root, sshRef, []byte(`{"ssh_private_key":"-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----","known_hosts":"git.example ssh-ed25519 AAAA"}`), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(
+		root,
+		sshRef,
+		[]byte(
+			`{"ssh_private_key":"-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----","known_hosts":"git.example ssh-ed25519 AAAA"}`,
+		),
+		key,
+	); err != nil {
 		t.Fatalf("write encrypted source SSH credential: %v", err)
 	}
 
@@ -955,14 +1021,20 @@ func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *
 
 	calls := make([]string, 0, 2)
 	metrics := &recordingSourceSyncMetrics{}
-	err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
-		calls = append(calls, rec.RepositoryID)
-		if rec.RepositoryID == "bad-repo" {
-			return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
-		}
+	err := syncConfiguredSourceRepositoriesPeriodicCycle(
+		ctx,
+		repos,
+		nil,
+		func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
+			calls = append(calls, rec.RepositoryID)
+			if rec.RepositoryID == "bad-repo" {
+				return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
+			}
 
-		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "good123"}
-	}, metrics)
+			return sourcepkg.GitCheckoutStatus{ResolvedCommit: "good123"}
+		},
+		metrics,
+	)
 
 	if err == nil {
 		t.Fatal("expected periodic sync cycle to report failed repository")
@@ -990,11 +1062,23 @@ func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *
 		t.Fatalf("good repository sync mismatch: %+v", good)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerPeriodic, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeFailed, "git_fetch_failed") {
+	if !metrics.has(
+		observability.SourceSyncTriggerPeriodic,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeExternal,
+		observability.SourceSyncOutcomeFailed,
+		"git_fetch_failed",
+	) {
 		t.Fatalf("missing periodic failure source sync metric: %+v", metrics.records)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerPeriodic, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+	if !metrics.has(
+		observability.SourceSyncTriggerPeriodic,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeExternal,
+		observability.SourceSyncOutcomeSucceeded,
+		observability.SourceSyncReasonNone,
+	) {
 		t.Fatalf("missing periodic success source sync metric: %+v", metrics.records)
 	}
 }
@@ -1039,10 +1123,16 @@ func TestSyncConfiguredSourceRepositoriesPeriodicCycle_SkipsRecentFailures(t *te
 	}
 
 	calls := make([]string, 0, 1)
-	if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
-		calls = append(calls, rec.RepositoryID)
-		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
-	}, nil); err != nil {
+	if err := syncConfiguredSourceRepositoriesPeriodicCycle(
+		ctx,
+		repos,
+		nil,
+		func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
+			calls = append(calls, rec.RepositoryID)
+			return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
+		},
+		nil,
+	); err != nil {
 		t.Fatalf("periodic sync cycle: %v", err)
 	}
 
@@ -1089,22 +1179,30 @@ func TestSyncConfiguredSourceRepositoryRecords_RespectsMaxConcurrency(t *testing
 	var mu sync.Mutex
 	active := 0
 	maxActive := 0
-	if err := syncConfiguredSourceRepositoryRecords(ctx, repos, nil, records, 2, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
-		mu.Lock()
-		active++
-		if active > maxActive {
-			maxActive = active
-		}
-		mu.Unlock()
+	if err := syncConfiguredSourceRepositoryRecords(
+		ctx,
+		repos,
+		nil,
+		records,
+		2,
+		func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
+			mu.Lock()
+			active++
+			if active > maxActive {
+				maxActive = active
+			}
+			mu.Unlock()
 
-		time.Sleep(20 * time.Millisecond)
+			time.Sleep(20 * time.Millisecond)
 
-		mu.Lock()
-		active--
-		mu.Unlock()
+			mu.Lock()
+			active--
+			mu.Unlock()
 
-		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
-	}, nil); err != nil {
+			return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
+		},
+		nil,
+	); err != nil {
 		t.Fatalf("periodic sync records: %v", err)
 	}
 

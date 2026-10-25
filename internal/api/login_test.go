@@ -108,7 +108,8 @@ func TestLogin_endToEnd(t *testing.T) {
 		}
 
 		var loginTokenRows int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE label = 'login'`).Scan(&loginTokenRows); err != nil {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE label = 'login'`).
+			Scan(&loginTokenRows); err != nil {
 			t.Fatalf("count login api tokens: %v", err)
 		}
 
@@ -331,7 +332,8 @@ func TestLogin_externalProvider(t *testing.T) {
 		}
 
 		var passwordAuthEnabled bool
-		if err := db.QueryRow(`SELECT password_auth_enabled FROM local_users WHERE username = 'alice'`).Scan(&passwordAuthEnabled); err != nil {
+		if err := db.QueryRow(`SELECT password_auth_enabled FROM local_users WHERE username = 'alice'`).
+			Scan(&passwordAuthEnabled); err != nil {
 			t.Fatalf("query alice password_auth_enabled: %v", err)
 		}
 
@@ -429,7 +431,14 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 			"password": "ldap-secret",
 		}, http.StatusUnauthorized)
 
-		if _, err := s.authRepo.LinkExternalIdentity(context.Background(), localUserID, "ldap", "uid=dana,ou=people,dc=example,dc=org", "dana", ""); err != nil {
+		if _, err := s.authRepo.LinkExternalIdentity(
+			context.Background(),
+			localUserID,
+			"ldap",
+			"uid=dana,ou=people,dc=example,dc=org",
+			"dana",
+			"",
+		); err != nil {
 			t.Fatalf("LinkExternalIdentity: %v", err)
 		}
 
@@ -455,7 +464,12 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 			t.Fatal(err)
 		}
 
-		localUserID, err := s.authRepo.CreateLocalUserWithPasswordAuth(context.Background(), "dana", string(passHash), false)
+		localUserID, err := s.authRepo.CreateLocalUserWithPasswordAuth(
+			context.Background(),
+			"dana",
+			string(passHash),
+			false,
+		)
 		if err != nil {
 			t.Fatalf("CreateLocalUserWithPasswordAuth: %v", err)
 		}
@@ -464,7 +478,14 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 			t.Fatalf("EnsureAuthProvider: %v", err)
 		}
 
-		if _, err := s.authRepo.LinkExternalIdentity(context.Background(), localUserID, "ldap", "uid=dana,ou=people,dc=example,dc=org", "dana", ""); err != nil {
+		if _, err := s.authRepo.LinkExternalIdentity(
+			context.Background(),
+			localUserID,
+			"ldap",
+			"uid=dana,ou=people,dc=example,dc=org",
+			"dana",
+			"",
+		); err != nil {
 			t.Fatalf("LinkExternalIdentity: %v", err)
 		}
 
@@ -542,7 +563,8 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 		}
 
 		var renamedUsers int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM local_users WHERE username = 'alice-renamed'`).Scan(&renamedUsers); err != nil {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM local_users WHERE username = 'alice-renamed'`).
+			Scan(&renamedUsers); err != nil {
 			t.Fatalf("count renamed users: %v", err)
 		}
 
@@ -974,7 +996,11 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("logout with cross-site fetch metadata should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf(
+			"logout with cross-site fetch metadata should be forbidden, got code=%d body=%s",
+			rec.Code,
+			rec.Body.String(),
+		)
 	}
 
 	rec = httptest.NewRecorder()
@@ -1003,17 +1029,45 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 		t.Fatalf("logout should clear session cookies, got %+v", rec.Result().Cookies())
 	}
 
-	if got := countSecurityRejections(metrics, securityReasonCSRFTokenRequired, "POST /api/v1/logout", http.StatusForbidden); got != 2 {
+	if got := countSecurityRejections(
+		metrics,
+		securityReasonCSRFTokenRequired,
+		"POST /api/v1/logout",
+		http.StatusForbidden,
+	); got != 2 {
 		t.Fatalf("csrf token rejection count=%d, want 2 in %+v", got, metrics.Records())
 	}
 
-	if got := countSecurityRejections(metrics, securityReasonCSRFOriginForbidden, "POST /api/v1/logout", http.StatusForbidden); got != 1 {
+	if got := countSecurityRejections(
+		metrics,
+		securityReasonCSRFOriginForbidden,
+		"POST /api/v1/logout",
+		http.StatusForbidden,
+	); got != 1 {
 		t.Fatalf("csrf origin rejection count=%d, want 1 in %+v", got, metrics.Records())
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonCORSOriginForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
-	requireSecurityRejection(t, metrics, securityReasonCSRFFetchMetadataBlocked, "POST /api/v1/logout", http.StatusForbidden)
-	requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonCORSOriginForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonCSRFFetchMetadataBlocked,
+		"POST /api/v1/logout",
+		http.StatusForbidden,
+	)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonFetchMetadataForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
 }
 
 func TestCookieSessionAuth_idleExpiry(t *testing.T) {
@@ -1143,7 +1197,13 @@ func TestLogin_usernameThrottle(t *testing.T) {
 		t.Fatal("expected Retry-After header")
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonRateLimitExceeded, "POST /api/v1/login", http.StatusTooManyRequests)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonRateLimitExceeded,
+		"POST /api/v1/login",
+		http.StatusTooManyRequests,
+	)
 }
 
 func TestCookieSessionAuth_doesNotAcceptAPITokenCookie(t *testing.T) {
@@ -1180,7 +1240,11 @@ func TestCookieSessionAuth_doesNotAcceptAPITokenCookie(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: setupOut.APIToken})
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("api token presented as a session cookie should be rejected, got code=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf(
+			"api token presented as a session cookie should be rejected, got code=%d body=%s",
+			rec.Code,
+			rec.Body.String(),
+		)
 	}
 }
 
@@ -1279,7 +1343,11 @@ func (r *conflictDisabledAuthRepo) CreateLocalUser(ctx context.Context, username
 	return r.CreateLocalUserWithPasswordAuth(ctx, username, passwordHash, true)
 }
 
-func (r *conflictDisabledAuthRepo) CreateLocalUserWithPasswordAuth(ctx context.Context, username, passwordHash string, passwordAuthEnabled bool) (int64, error) {
+func (r *conflictDisabledAuthRepo) CreateLocalUserWithPasswordAuth(
+	ctx context.Context,
+	username, passwordHash string,
+	passwordAuthEnabled bool,
+) (int64, error) {
 	id, err := r.AuthRepository.CreateLocalUserWithPasswordAuth(ctx, username, passwordHash, passwordAuthEnabled)
 	if err != nil {
 		return 0, err

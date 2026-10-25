@@ -99,7 +99,10 @@ func TestConfigBindsEnv(t *testing.T) {
 	}
 
 	cfg := ConfigFromViper(v)
-	if cfg.ProviderID != "env-ldap" || cfg.URL != "ldap://ldap.env:389" || cfg.BaseDN != "dc=env,dc=example" || cfg.SubjectAttribute != "objectGUID" || cfg.AutoLinkUsers || !cfg.AutoCreateUsers {
+	if cfg.ProviderID != "env-ldap" || cfg.URL != "ldap://ldap.env:389" || cfg.BaseDN != "dc=env,dc=example" ||
+		cfg.SubjectAttribute != "objectGUID" ||
+		cfg.AutoLinkUsers ||
+		!cfg.AutoCreateUsers {
 		t.Fatalf("unexpected env config: %+v", cfg)
 	}
 }

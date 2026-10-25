@@ -156,7 +156,12 @@ func validateShellLogChunk(session TaskSession, chunk *api.LogChunk) error {
 	}
 
 	if gotRunID != wantRunID {
-		return status.Errorf(codes.InvalidArgument, "worker core log chunk run_id %q does not match session run_id %q", gotRunID, wantRunID)
+		return status.Errorf(
+			codes.InvalidArgument,
+			"worker core log chunk run_id %q does not match session run_id %q",
+			gotRunID,
+			wantRunID,
+		)
 	}
 
 	return nil
@@ -239,7 +244,12 @@ func (s *ShellServer) session(sessionID string) (TaskSession, error) {
 	return session, nil
 }
 
-func receiveArtifactData(ctx context.Context, stream api.WorkerCoreShellService_PublishArtifactServer, first []byte, writer *io.PipeWriter) error {
+func receiveArtifactData(
+	ctx context.Context,
+	stream api.WorkerCoreShellService_PublishArtifactServer,
+	first []byte,
+	writer *io.PipeWriter,
+) error {
 	closeWith := func(err error) error {
 		if err != nil {
 			_ = writer.CloseWithError(err)

@@ -185,7 +185,9 @@ func TestPreferForwarderLogClientStampsAssignedShard(t *testing.T) {
 		t.Fatalf("stream logs for run: %v", err)
 	}
 
-	if err := stream.Send(&api.LogChunk{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("hello")}); err != nil {
+	if err := stream.Send(
+		&api.LogChunk{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("hello")},
+	); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 

@@ -91,7 +91,8 @@ func TestBackupInventoryJSONIncludesRedactedLocalEvidence(t *testing.T) {
 		t.Fatalf("default database local path = %q, want %q", inventory.Database.Roles[0].LocalPath, dbPath)
 	}
 
-	if inventory.Database.Roles[0].Schema.CurrentVersion == nil || inventory.Database.Roles[0].Schema.Dirty == nil || *inventory.Database.Roles[0].Schema.Dirty {
+	if inventory.Database.Roles[0].Schema.CurrentVersion == nil || inventory.Database.Roles[0].Schema.Dirty == nil ||
+		*inventory.Database.Roles[0].Schema.Dirty {
 		t.Fatalf("default database schema = %+v", inventory.Database.Roles[0].Schema)
 	}
 
@@ -110,7 +111,8 @@ func TestBackupInventoryJSONIncludesRedactedLocalEvidence(t *testing.T) {
 	}
 
 	secrets := backupPathsByID(inventory.SecretStores)
-	if secrets["secrets.encryptedfs.root"].Path != secretRoot || secrets["secrets.encryptedfs.key_file"].Path != keyFile {
+	if secrets["secrets.encryptedfs.root"].Path != secretRoot ||
+		secrets["secrets.encryptedfs.key_file"].Path != keyFile {
 		t.Fatalf("secret stores = %+v", inventory.SecretStores)
 	}
 
@@ -171,18 +173,72 @@ func TestBackupManifestAggregatesInventoryFiles(t *testing.T) {
 			{Service: "artifact", InstanceID: "artifact-a", Source: "test"},
 		},
 		LocalState: []backupPathInventory{
-			{ID: "queue.persistence", Kind: "directory", Path: filepath.Join(root, "queue"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
-			{ID: "log.storage", Kind: "directory", Path: filepath.Join(root, "log"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
-			{ID: "artifact.storage", Kind: "directory", Path: filepath.Join(root, "artifact"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+			{
+				ID:       "queue.persistence",
+				Kind:     "directory",
+				Path:     filepath.Join(root, "queue"),
+				Source:   "test",
+				Enabled:  true,
+				Exists:   true,
+				IsDir:    true,
+				Readable: true,
+			},
+			{
+				ID:       "log.storage",
+				Kind:     "directory",
+				Path:     filepath.Join(root, "log"),
+				Source:   "test",
+				Enabled:  true,
+				Exists:   true,
+				IsDir:    true,
+				Readable: true,
+			},
+			{
+				ID:       "artifact.storage",
+				Kind:     "directory",
+				Path:     filepath.Join(root, "artifact"),
+				Source:   "test",
+				Enabled:  true,
+				Exists:   true,
+				IsDir:    true,
+				Readable: true,
+			},
 		},
 		SecretStores: []backupPathInventory{
-			{ID: "secrets.encryptedfs.root", Kind: "directory", Path: filepath.Join(root, "secrets"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+			{
+				ID:       "secrets.encryptedfs.root",
+				Kind:     "directory",
+				Path:     filepath.Join(root, "secrets"),
+				Source:   "test",
+				Enabled:  true,
+				Exists:   true,
+				IsDir:    true,
+				Readable: true,
+			},
 		},
 		TLSFiles: []backupPathInventory{
-			{ID: "grpc.cert_file", Kind: "file", Path: filepath.Join(root, "tls", "grpc.crt"), Source: "test", Enabled: true, Exists: true, IsFile: true, Readable: true},
+			{
+				ID:       "grpc.cert_file",
+				Kind:     "file",
+				Path:     filepath.Join(root, "tls", "grpc.crt"),
+				Source:   "test",
+				Enabled:  true,
+				Exists:   true,
+				IsFile:   true,
+				Readable: true,
+			},
 		},
 		ConfigPaths: []backupPathInventory{
-			{ID: "deploy.config_dir", Kind: "directory", Path: filepath.Join(root, "deploy"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+			{
+				ID:       "deploy.config_dir",
+				Kind:     "directory",
+				Path:     filepath.Join(root, "deploy"),
+				Source:   "test",
+				Enabled:  true,
+				Exists:   true,
+				IsDir:    true,
+				Readable: true,
+			},
 		},
 	}
 
@@ -252,7 +308,8 @@ func TestBackupManifestAggregatesInventoryFiles(t *testing.T) {
 		t.Fatalf("manifest verification = %+v", result)
 	}
 
-	if result.ExpectationSource != "expected.json" || result.Summary.ExpectedInventorySources != 1 || result.Summary.ExpectedInstances != 3 {
+	if result.ExpectationSource != "expected.json" || result.Summary.ExpectedInventorySources != 1 ||
+		result.Summary.ExpectedInstances != 3 {
 		t.Fatalf("expected topology summary = %+v", result)
 	}
 }
@@ -269,13 +326,56 @@ func TestBackupManifestVerificationReportsMissingRequiredPath(t *testing.T) {
 			{Source: "host-a.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "sqlite3"},
 		},
 		DatabaseRoles: []backupManifestDatabaseRole{
-			{InventorySource: "host-a.json", Role: "default", Driver: "sqlite3", DSN: "sqlite.db", LocalPath: "sqlite.db", Schema: backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty}},
+			{
+				InventorySource: "host-a.json",
+				Role:            "default",
+				Driver:          "sqlite3",
+				DSN:             "sqlite.db",
+				LocalPath:       "sqlite.db",
+				Schema:          backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty},
+			},
 		},
 		RequiredPaths: []backupManifestPath{
-			{InventorySource: "host-a.json", Category: "database", ID: "database.default", Kind: "file", Path: "sqlite.db", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "local_state", ID: "queue.persistence", Kind: "directory", Path: "/missing/queue", Enabled: true, Exists: false, Readable: false},
-			{InventorySource: "host-a.json", Category: "local_state", ID: "log.storage", Kind: "directory", Path: "/var/lib/vectis/log", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "local_state", ID: "artifact.storage", Kind: "directory", Path: "/var/lib/vectis/artifact", Enabled: true, Exists: true, Readable: true},
+			{
+				InventorySource: "host-a.json",
+				Category:        "database",
+				ID:              "database.default",
+				Kind:            "file",
+				Path:            "sqlite.db",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "local_state",
+				ID:              "queue.persistence",
+				Kind:            "directory",
+				Path:            "/missing/queue",
+				Enabled:         true,
+				Exists:          false,
+				Readable:        false,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "local_state",
+				ID:              "log.storage",
+				Kind:            "directory",
+				Path:            "/var/lib/vectis/log",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "local_state",
+				ID:              "artifact.storage",
+				Kind:            "directory",
+				Path:            "/var/lib/vectis/artifact",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
 		},
 	}
 
@@ -314,7 +414,14 @@ func TestBackupManifestVerificationReportsMissingExpectedTopology(t *testing.T) 
 			{Source: "host-a.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "sqlite3"},
 		},
 		DatabaseRoles: []backupManifestDatabaseRole{
-			{InventorySource: "host-a.json", Role: "default", Driver: "sqlite3", DSN: "sqlite.db", LocalPath: "sqlite.db", Schema: backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty}},
+			{
+				InventorySource: "host-a.json",
+				Role:            "default",
+				Driver:          "sqlite3",
+				DSN:             "sqlite.db",
+				LocalPath:       "sqlite.db",
+				Schema:          backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty},
+			},
 		},
 		Instances: []backupManifestInstance{
 			{InventorySource: "host-a.json", Service: "queue", InstanceID: "queue-a"},
@@ -322,13 +429,76 @@ func TestBackupManifestVerificationReportsMissingExpectedTopology(t *testing.T) 
 			{InventorySource: "host-a.json", Service: "artifact", InstanceID: "artifact-a"},
 		},
 		RequiredPaths: []backupManifestPath{
-			{InventorySource: "host-a.json", Category: "database", ID: "database.default", Kind: "file", Path: "sqlite.db", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "local_state", ID: "queue.persistence", Kind: "directory", Path: "/var/lib/vectis/queue", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "local_state", ID: "log.storage", Kind: "directory", Path: "/var/lib/vectis/log", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "local_state", ID: "artifact.storage", Kind: "directory", Path: "/var/lib/vectis/artifact", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "secret_stores", ID: "secrets.encryptedfs.root", Kind: "directory", Path: "/var/lib/vectis/secrets", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "tls_files", ID: "grpc.cert_file", Kind: "file", Path: "/etc/vectis/tls/grpc.crt", Enabled: true, Exists: true, Readable: true},
-			{InventorySource: "host-a.json", Category: "config_paths", ID: "deploy.config_dir", Kind: "directory", Path: "/etc/vectis/deploy", Enabled: true, Exists: true, Readable: true},
+			{
+				InventorySource: "host-a.json",
+				Category:        "database",
+				ID:              "database.default",
+				Kind:            "file",
+				Path:            "sqlite.db",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "local_state",
+				ID:              "queue.persistence",
+				Kind:            "directory",
+				Path:            "/var/lib/vectis/queue",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "local_state",
+				ID:              "log.storage",
+				Kind:            "directory",
+				Path:            "/var/lib/vectis/log",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "local_state",
+				ID:              "artifact.storage",
+				Kind:            "directory",
+				Path:            "/var/lib/vectis/artifact",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "secret_stores",
+				ID:              "secrets.encryptedfs.root",
+				Kind:            "directory",
+				Path:            "/var/lib/vectis/secrets",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "tls_files",
+				ID:              "grpc.cert_file",
+				Kind:            "file",
+				Path:            "/etc/vectis/tls/grpc.crt",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
+			{
+				InventorySource: "host-a.json",
+				Category:        "config_paths",
+				ID:              "deploy.config_dir",
+				Kind:            "directory",
+				Path:            "/etc/vectis/deploy",
+				Enabled:         true,
+				Exists:          true,
+				Readable:        true,
+			},
 		},
 	}
 	expected := backupExpectedTopology{
@@ -378,9 +548,28 @@ func TestBackupManifestVerificationAcceptsMatchingStorageReports(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
 	reportPaths := []string{
-		writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute))),
-		writeBackupJSONFile(t, root, "logs.report.json", backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute))),
-		writeBackupJSONFile(t, root, "artifact.report.json", backupStorageReportForTest(storageverify.SurfaceArtifact, "/var/lib/vectis/artifact", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(
+			t,
+			root,
+			"queue.report.json",
+			backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute)),
+		),
+		writeBackupJSONFile(
+			t,
+			root,
+			"logs.report.json",
+			backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute)),
+		),
+		writeBackupJSONFile(
+			t,
+			root,
+			"artifact.report.json",
+			backupStorageReportForTest(
+				storageverify.SurfaceArtifact,
+				"/var/lib/vectis/artifact",
+				now.Add(-5*time.Minute),
+			),
+		),
 	}
 
 	var buf bytes.Buffer
@@ -397,7 +586,8 @@ func TestBackupManifestVerificationAcceptsMatchingStorageReports(t *testing.T) {
 		t.Fatalf("verification result = %+v", result)
 	}
 
-	if result.Summary.StorageReports != 3 || result.Summary.StorageReportsVerified != 3 || result.Summary.StoragePathsRequired != 3 {
+	if result.Summary.StorageReports != 3 || result.Summary.StorageReportsVerified != 3 ||
+		result.Summary.StoragePathsRequired != 3 {
 		t.Fatalf("storage summary = %+v", result.Summary)
 	}
 
@@ -414,7 +604,12 @@ func TestBackupManifestVerificationRequiresStorageReportsForAllStoragePaths(t *t
 
 	root := t.TempDir()
 	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
-	reportPath := writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute)))
+	reportPath := writeBackupJSONFile(
+		t,
+		root,
+		"queue.report.json",
+		backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute)),
+	)
 
 	var buf bytes.Buffer
 	err := writeBackupManifestVerification(&buf, manifestPath, "", []string{reportPath}, time.Hour, now)
@@ -449,9 +644,28 @@ func TestBackupRestoreValidationIncludesVerifiedManifestAndSmokeRun(t *testing.T
 	root := t.TempDir()
 	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
 	reportPaths := []string{
-		writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute))),
-		writeBackupJSONFile(t, root, "logs.report.json", backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute))),
-		writeBackupJSONFile(t, root, "artifact.report.json", backupStorageReportForTest(storageverify.SurfaceArtifact, "/var/lib/vectis/artifact", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(
+			t,
+			root,
+			"queue.report.json",
+			backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute)),
+		),
+		writeBackupJSONFile(
+			t,
+			root,
+			"logs.report.json",
+			backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute)),
+		),
+		writeBackupJSONFile(
+			t,
+			root,
+			"artifact.report.json",
+			backupStorageReportForTest(
+				storageverify.SurfaceArtifact,
+				"/var/lib/vectis/artifact",
+				now.Add(-5*time.Minute),
+			),
+		),
 	}
 
 	opts := backupRestoreValidationOptions{
@@ -486,11 +700,14 @@ func TestBackupRestoreValidationIncludesVerifiedManifestAndSmokeRun(t *testing.T
 		t.Fatalf("validation metadata = %+v", validation)
 	}
 
-	if validation.Verification.Status != backupManifestStatusOK || validation.Verification.Summary.StorageReportsVerified != 3 {
+	if validation.Verification.Status != backupManifestStatusOK ||
+		validation.Verification.Summary.StorageReportsVerified != 3 {
 		t.Fatalf("validation verification = %+v", validation.Verification)
 	}
 
-	if validation.SmokeRun.RunID != "run-restore" || validation.SmokeRun.RunIndex != 7 || validation.SmokeRun.Status != "succeeded" || !validation.SmokeRun.Passed {
+	if validation.SmokeRun.RunID != "run-restore" || validation.SmokeRun.RunIndex != 7 ||
+		validation.SmokeRun.Status != "succeeded" ||
+		!validation.SmokeRun.Passed {
 		t.Fatalf("validation smoke run = %+v", validation.SmokeRun)
 	}
 }
@@ -500,7 +717,12 @@ func TestBackupRestoreValidationRejectsFailedSmokeRun(t *testing.T) {
 
 	now := time.Date(2026, 6, 28, 17, 30, 0, 0, time.UTC)
 	root := t.TempDir()
-	manifestPath := writeBackupJSONFile(t, root, "manifest.json", retentionBackupManifestForTest(now.Add(-30*time.Minute).Format(time.RFC3339)))
+	manifestPath := writeBackupJSONFile(
+		t,
+		root,
+		"manifest.json",
+		retentionBackupManifestForTest(now.Add(-30*time.Minute).Format(time.RFC3339)),
+	)
 
 	var buf bytes.Buffer
 	err := writeBackupRestoreValidation(&buf, backupRestoreValidationOptions{
@@ -527,7 +749,8 @@ func TestBackupRestoreValidationRejectsFailedSmokeRun(t *testing.T) {
 		t.Fatalf("validation verification = %+v", validation.Verification)
 	}
 
-	if validation.SmokeRun.RunID != "run-failed" || validation.SmokeRun.Status != "failed" || validation.SmokeRun.Passed {
+	if validation.SmokeRun.RunID != "run-failed" || validation.SmokeRun.Status != "failed" ||
+		validation.SmokeRun.Passed {
 		t.Fatalf("validation smoke run = %+v", validation.SmokeRun)
 	}
 
@@ -540,13 +763,23 @@ func TestBackupRestoreValidationRequiresSmokeRun(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 
 	root := t.TempDir()
-	manifestPath := writeBackupJSONFile(t, root, "manifest.json", retentionBackupManifestForTest(time.Date(2026, 6, 28, 17, 0, 0, 0, time.UTC).Format(time.RFC3339)))
+	manifestPath := writeBackupJSONFile(
+		t,
+		root,
+		"manifest.json",
+		retentionBackupManifestForTest(time.Date(2026, 6, 28, 17, 0, 0, 0, time.UTC).Format(time.RFC3339)),
+	)
 
 	var buf bytes.Buffer
-	err := writeBackupRestoreValidation(&buf, backupRestoreValidationOptions{ManifestPath: manifestPath}, time.Now().UTC(), func(runID string) (runDetail, error) {
-		t.Fatalf("fetch run should not be called")
-		return runDetail{}, nil
-	})
+	err := writeBackupRestoreValidation(
+		&buf,
+		backupRestoreValidationOptions{ManifestPath: manifestPath},
+		time.Now().UTC(),
+		func(runID string) (runDetail, error) {
+			t.Fatalf("fetch run should not be called")
+			return runDetail{}, nil
+		},
+	)
 
 	if err == nil || !strings.Contains(err.Error(), "--smoke-run is required") {
 		t.Fatalf("restore validation error = %v", err)
@@ -606,7 +839,12 @@ func TestBackupPodmanExpectedTopologyHA(t *testing.T) {
 		SchemaVersion: backupManifestSchemaVersion,
 		GeneratedAt:   "2026-06-28T13:00:00Z",
 		Inventories: []backupManifestInventory{
-			{Source: "podman.inventory.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "pgx"},
+			{
+				Source:         "podman.inventory.json",
+				GeneratedAt:    "2026-06-28T12:00:00Z",
+				Version:        "test",
+				DatabaseDriver: "pgx",
+			},
 		},
 	}
 
@@ -652,7 +890,11 @@ func TestBackupPodmanExpectedTopologyHA(t *testing.T) {
 		Readable:        true,
 	})
 
-	result := verifyBackupManifest(manifest, &backupExpectedTopologyInput{Source: "podman-expected.json", Expectations: expected}, time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC))
+	result := verifyBackupManifest(
+		manifest,
+		&backupExpectedTopologyInput{Source: "podman-expected.json", Expectations: expected},
+		time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC),
+	)
 	if result.Status != backupManifestStatusOK || len(result.Errors) != 0 {
 		t.Fatalf("podman expected topology verification = %+v", result)
 	}
@@ -744,7 +986,12 @@ func TestBackupLinuxExpectedTopology(t *testing.T) {
 		SchemaVersion: backupManifestSchemaVersion,
 		GeneratedAt:   "2026-06-28T13:00:00Z",
 		Inventories: []backupManifestInventory{
-			{Source: "linux.inventory.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "pgx"},
+			{
+				Source:         "linux.inventory.json",
+				GeneratedAt:    "2026-06-28T12:00:00Z",
+				Version:        "test",
+				DatabaseDriver: "pgx",
+			},
 		},
 	}
 
@@ -780,7 +1027,11 @@ func TestBackupLinuxExpectedTopology(t *testing.T) {
 		})
 	}
 
-	result := verifyBackupManifest(manifest, &backupExpectedTopologyInput{Source: "linux-expected.json", Expectations: expected}, time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC))
+	result := verifyBackupManifest(
+		manifest,
+		&backupExpectedTopologyInput{Source: "linux-expected.json", Expectations: expected},
+		time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC),
+	)
 	if result.Status != backupManifestStatusOK || len(result.Errors) != 0 {
 		t.Fatalf("linux expected topology verification = %+v", result)
 	}

@@ -127,7 +127,12 @@ func TestE2EPodmanSecretsExample(t *testing.T) {
 	}
 
 	if !strings.Contains(logs.stdout, "Run "+run.RunID+" finished successfully.") {
-		t.Fatalf("logs did not include completion line for %s\nstdout:\n%s\nstderr:\n%s", run.RunID, logs.stdout, logs.stderr)
+		t.Fatalf(
+			"logs did not include completion line for %s\nstdout:\n%s\nstderr:\n%s",
+			run.RunID,
+			logs.stdout,
+			logs.stderr,
+		)
 	}
 }
 
@@ -222,7 +227,11 @@ func requirePodmanImages(t *testing.T, ctx context.Context) {
 	}
 
 	if len(missing) > 0 {
-		skipOrFatal(t, "missing Podman images: %s; run mage imagesComponents and pre-pull external images, or set VECTIS_E2E_ALLOW_IMAGE_PULL=true", strings.Join(missing, ", "))
+		skipOrFatal(
+			t,
+			"missing Podman images: %s; run mage imagesComponents and pre-pull external images, or set VECTIS_E2E_ALLOW_IMAGE_PULL=true",
+			strings.Join(missing, ", "),
+		)
 	}
 }
 
@@ -250,7 +259,11 @@ func preparePodmanResources(t *testing.T, ctx context.Context) {
 	}
 
 	if len(existing) > 0 {
-		skipOrFatal(t, "existing Podman Vectis resources found: %s; set VECTIS_E2E_PODMAN_RESET=true to let the e2e test remove and recreate them", strings.Join(existing, ", "))
+		skipOrFatal(
+			t,
+			"existing Podman Vectis resources found: %s; set VECTIS_E2E_PODMAN_RESET=true to let the e2e test remove and recreate them",
+			strings.Join(existing, ", "),
+		)
 	}
 }
 
@@ -359,7 +372,14 @@ func submitSecretsExample(t *testing.T, ctx context.Context, root string, env []
 	return out
 }
 
-func waitForRunStatus(t *testing.T, ctx context.Context, root string, env []string, cli, runID string, timeout time.Duration) runShowResult {
+func waitForRunStatus(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+	env []string,
+	cli, runID string,
+	timeout time.Duration,
+) runShowResult {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
@@ -399,7 +419,14 @@ func runStatusTerminal(status string) bool {
 	}
 }
 
-func runCommand(ctx context.Context, dir string, env []string, stdin io.Reader, name string, args ...string) (commandResult, error) {
+func runCommand(
+	ctx context.Context,
+	dir string,
+	env []string,
+	stdin io.Reader,
+	name string,
+	args ...string,
+) (commandResult, error) {
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- e2e harness controls command names/args.
 	if dir != "" {
 		cmd.Dir = dir
@@ -420,10 +447,23 @@ func runCommand(ctx context.Context, dir string, env []string, stdin io.Reader, 
 	result := commandResult{stdout: stdout.String(), stderr: stderr.String()}
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return result, fmt.Errorf("%s %s timed out: stdout=%q stderr=%q", name, strings.Join(args, " "), result.stdout, result.stderr)
+			return result, fmt.Errorf(
+				"%s %s timed out: stdout=%q stderr=%q",
+				name,
+				strings.Join(args, " "),
+				result.stdout,
+				result.stderr,
+			)
 		}
 
-		return result, fmt.Errorf("%s %s failed: %w\nstdout:\n%s\nstderr:\n%s", name, strings.Join(args, " "), err, result.stdout, result.stderr)
+		return result, fmt.Errorf(
+			"%s %s failed: %w\nstdout:\n%s\nstderr:\n%s",
+			name,
+			strings.Join(args, " "),
+			err,
+			result.stdout,
+			result.stderr,
+		)
 	}
 
 	return result, nil

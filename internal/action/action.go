@@ -80,7 +80,12 @@ type CheckoutCacheScopeProvider interface {
 }
 
 type CheckoutCacheRefFetcher interface {
-	FetchRefspecs(ctx context.Context, remoteURL, workspace string, refspecs []string, logger interfaces.Logger) (bool, error)
+	FetchRefspecs(
+		ctx context.Context,
+		remoteURL, workspace string,
+		refspecs []string,
+		logger interfaces.Logger,
+	) (bool, error)
 }
 
 type CheckoutCacheCloser interface {
@@ -301,7 +306,10 @@ func (s *ExecutionState) ApplyNodeIsolation(node *api.Node) (func(), error) {
 
 	if s.ProcessExecutorResolver == nil {
 		if requested != "" && effective != IsolationHost {
-			return nil, fmt.Errorf("isolation level %q requested but no process executor resolver is configured", requested)
+			return nil, fmt.Errorf(
+				"isolation level %q requested but no process executor resolver is configured",
+				requested,
+			)
 		}
 
 		s.Isolation = effective

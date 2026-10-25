@@ -113,11 +113,20 @@ func dialUnixGRPC(ctx context.Context, socketPath, targetName string) (*grpc.Cli
 	return conn, nil
 }
 
-func NewUnixCoreServer(socketPath string, core api.WorkerCoreServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
+func NewUnixCoreServer(
+	socketPath string,
+	core api.WorkerCoreServiceServer,
+	opts ...grpc.ServerOption,
+) (*grpc.Server, net.Listener, error) {
 	return NewUnixCoreServerContext(context.Background(), socketPath, core, opts...)
 }
 
-func NewUnixCoreServerContext(ctx context.Context, socketPath string, core api.WorkerCoreServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
+func NewUnixCoreServerContext(
+	ctx context.Context,
+	socketPath string,
+	core api.WorkerCoreServiceServer,
+	opts ...grpc.ServerOption,
+) (*grpc.Server, net.Listener, error) {
 	socketPath = strings.TrimSpace(socketPath)
 	if socketPath == "" {
 		return nil, nil, fmt.Errorf("worker core socket path is required")
@@ -151,11 +160,20 @@ func NewUnixCoreServerContext(ctx context.Context, socketPath string, core api.W
 	return server, ln, nil
 }
 
-func NewUnixShellServer(socketPath string, shell api.WorkerCoreShellServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
+func NewUnixShellServer(
+	socketPath string,
+	shell api.WorkerCoreShellServiceServer,
+	opts ...grpc.ServerOption,
+) (*grpc.Server, net.Listener, error) {
 	return NewUnixShellServerContext(context.Background(), socketPath, shell, opts...)
 }
 
-func NewUnixShellServerContext(ctx context.Context, socketPath string, shell api.WorkerCoreShellServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
+func NewUnixShellServerContext(
+	ctx context.Context,
+	socketPath string,
+	shell api.WorkerCoreShellServiceServer,
+	opts ...grpc.ServerOption,
+) (*grpc.Server, net.Listener, error) {
 	socketPath = strings.TrimSpace(socketPath)
 	if socketPath == "" {
 		return nil, nil, fmt.Errorf("worker core shell socket path is required")

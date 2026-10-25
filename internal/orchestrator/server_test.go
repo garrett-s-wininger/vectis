@@ -114,7 +114,9 @@ func TestGRPCServiceClaimComplete(t *testing.T) {
 		t.Fatalf("complete root: %v", err)
 	}
 
-	if completed.GetOutcome() != string(dal.ExecutionFinalizationOutcomeContinued) || len(completed.GetChildren()) != 1 || completed.GetActivated() != 1 {
+	if completed.GetOutcome() != string(dal.ExecutionFinalizationOutcomeContinued) ||
+		len(completed.GetChildren()) != 1 ||
+		completed.GetActivated() != 1 {
 		t.Fatalf("complete root result: %+v", completed)
 	}
 

@@ -62,22 +62,41 @@ type countingExecutionChoreographer struct {
 	loads int
 }
 
-func (c *countingExecutionChoreographer) LoadRun(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
+func (c *countingExecutionChoreographer) LoadRun(
+	ctx context.Context,
+	j *api.Job,
+	env *cell.ExecutionEnvelope,
+	snapshots []orchestrator.TaskExecutionSnapshot,
+) error {
 	c.mu.Lock()
 	c.loads++
 	c.mu.Unlock()
 	return c.inner.LoadRun(ctx, j, env, snapshots)
 }
 
-func (c *countingExecutionChoreographer) ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (c *countingExecutionChoreographer) ClaimAndStartExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	return c.inner.ClaimAndStartExecution(ctx, env, owner, leaseUntil)
 }
 
-func (c *countingExecutionChoreographer) RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error {
+func (c *countingExecutionChoreographer) RenewExecutionLease(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	return c.inner.RenewExecutionLease(ctx, env, owner, claimToken, leaseUntil)
 }
 
-func (c *countingExecutionChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (c *countingExecutionChoreographer) CompleteExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	return c.inner.CompleteExecution(ctx, env, owner, claimToken, status, failureCode, reason)
 }
 
@@ -102,7 +121,12 @@ func (r workerDescriptorResolver) ResolveDescriptor(uses string) (actionregistry
 	return descriptor, nil
 }
 
-func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository, j *api.Job, runID string) *cell.ExecutionEnvelope {
+func attachPendingExecutionEnvelopeForTest(
+	t *testing.T,
+	runs dal.RunsRepository,
+	j *api.Job,
+	runID string,
+) *cell.ExecutionEnvelope {
 	t.Helper()
 
 	dispatch, err := runs.GetPendingExecution(context.Background(), runID)
@@ -376,7 +400,10 @@ type recordingCheckoutCacheWarmer struct {
 	err      error
 }
 
-func (w *recordingCheckoutCacheWarmer) WarmCheckoutCache(_ context.Context, req workercore.WarmCheckoutCacheRequest) (workercore.WarmCheckoutCacheResult, error) {
+func (w *recordingCheckoutCacheWarmer) WarmCheckoutCache(
+	_ context.Context,
+	req workercore.WarmCheckoutCacheRequest,
+) (workercore.WarmCheckoutCacheResult, error) {
 	w.requests = append(w.requests, req)
 	return w.result, w.err
 }
@@ -385,7 +412,10 @@ type blockingCheckoutCacheWarmer struct {
 	err error
 }
 
-func (w *blockingCheckoutCacheWarmer) WarmCheckoutCache(ctx context.Context, _ workercore.WarmCheckoutCacheRequest) (workercore.WarmCheckoutCacheResult, error) {
+func (w *blockingCheckoutCacheWarmer) WarmCheckoutCache(
+	ctx context.Context,
+	_ workercore.WarmCheckoutCacheRequest,
+) (workercore.WarmCheckoutCacheResult, error) {
 	<-ctx.Done()
 	w.err = ctx.Err()
 	return workercore.WarmCheckoutCacheResult{}, w.err
@@ -559,10 +589,20 @@ func TestWorkerMirrorsHotStateSecretExecutionClaim(t *testing.T) {
 	}
 
 	if secretStore.LastMirroredExecID != "execution-secret" || secretStore.LastMirroredToken != "claim-secret" {
-		t.Fatalf("secret execution mirror = id %q token %q", secretStore.LastMirroredExecID, secretStore.LastMirroredToken)
+		t.Fatalf(
+			"secret execution mirror = id %q token %q",
+			secretStore.LastMirroredExecID,
+			secretStore.LastMirroredToken,
+		)
 	}
 
-	if err := secretWorker.renewMirroredExecutionClaim(ctx, secretJob, secretEnv, "claim-secret", leaseUntil.Add(time.Minute)); err != nil {
+	if err := secretWorker.renewMirroredExecutionClaim(
+		ctx,
+		secretJob,
+		secretEnv,
+		"claim-secret",
+		leaseUntil.Add(time.Minute),
+	); err != nil {
 		t.Fatalf("renew secret mirrored claim: %v", err)
 	}
 
@@ -594,7 +634,13 @@ func TestWorkerMirrorsHotStateSecretExecutionClaim(t *testing.T) {
 		t.Fatalf("plain hot-state execution should not mirror, got %q", plainStore.LastMirroredExecID)
 	}
 
-	if err := plainWorker.renewMirroredExecutionClaim(ctx, &api.Job{}, plainEnv, "claim-plain", leaseUntil.Add(time.Minute)); err != nil {
+	if err := plainWorker.renewMirroredExecutionClaim(
+		ctx,
+		&api.Job{},
+		plainEnv,
+		"claim-plain",
+		leaseUntil.Add(time.Minute),
+	); err != nil {
 		t.Fatalf("renew plain mirrored claim: %v", err)
 	}
 
@@ -626,7 +672,13 @@ func TestWorkerMirrorsHotStateSecretExecutionClaim(t *testing.T) {
 		t.Fatalf("root hot-state execution should not mirror, got %q", rootStore.LastMirroredExecID)
 	}
 
-	if err := rootWorker.renewMirroredExecutionClaim(ctx, &api.Job{}, rootEnv, "claim-root", leaseUntil.Add(time.Minute)); err != nil {
+	if err := rootWorker.renewMirroredExecutionClaim(
+		ctx,
+		&api.Job{},
+		rootEnv,
+		"claim-root",
+		leaseUntil.Add(time.Minute),
+	); err != nil {
 		t.Fatalf("renew root hot-state mirrored claim: %v", err)
 	}
 
@@ -650,7 +702,13 @@ func TestWorkerMirrorsHotStateSecretExecutionClaim(t *testing.T) {
 		t.Fatalf("SQL execution mirror = id %q token %q", sqlStore.LastMirroredExecID, sqlStore.LastMirroredToken)
 	}
 
-	if err := sqlWorker.renewMirroredExecutionClaim(ctx, &api.Job{}, rootEnv, "claim-sql", leaseUntil.Add(time.Minute)); err != nil {
+	if err := sqlWorker.renewMirroredExecutionClaim(
+		ctx,
+		&api.Job{},
+		rootEnv,
+		"claim-sql",
+		leaseUntil.Add(time.Minute),
+	); err != nil {
 		t.Fatalf("renew SQL mirrored claim: %v", err)
 	}
 
@@ -703,8 +761,16 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 						Ports: map[string]*api.NodePort{
 							"branches": {
 								Nodes: []*api.Node{
-									{Id: workerStrp("secret-lane"), Uses: &script, With: workerFastScriptInputsForTest("echo secret")},
-									{Id: workerStrp("plain-lane"), Uses: &script, With: workerFastScriptInputsForTest("echo plain")},
+									{
+										Id:   workerStrp("secret-lane"),
+										Uses: &script,
+										With: workerFastScriptInputsForTest("echo secret"),
+									},
+									{
+										Id:   workerStrp("plain-lane"),
+										Uses: &script,
+										With: workerFastScriptInputsForTest("echo plain"),
+									},
 								},
 							},
 						},
@@ -734,7 +800,8 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 
 	for _, taskKey := range []string{"fanout-control", "secret-lane"} {
 		var rows int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, taskKey).Scan(&rows); err != nil {
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, taskKey).
+			Scan(&rows); err != nil {
 			t.Fatalf("count task %s: %v", taskKey, err)
 		}
 
@@ -744,7 +811,8 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 	}
 
 	var plainRows int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, "plain-lane").Scan(&plainRows); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, "plain-lane").
+		Scan(&plainRows); err != nil {
 		t.Fatalf("count plain task: %v", err)
 	}
 
@@ -752,7 +820,13 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 		t.Fatalf("plain hot-state sibling rows = %d, want 0", plainRows)
 	}
 
-	if err := runs.MirrorExecutionClaim(ctx, env.ExecutionID, "worker-secret-path", "claim-secret", time.Now().Add(time.Minute)); err != nil {
+	if err := runs.MirrorExecutionClaim(
+		ctx,
+		env.ExecutionID,
+		"worker-secret-path",
+		"claim-secret",
+		time.Now().Add(time.Minute),
+	); err != nil {
 		t.Fatalf("mirror prepared secret claim: %v", err)
 	}
 }
@@ -878,7 +952,8 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 		t.Fatalf("files = %+v", files)
 	}
 
-	if resolver.req.RunID != "run-1" || resolver.req.ExecutionID != "execution-1" || resolver.req.ExecutionClaimToken != "claim-1" {
+	if resolver.req.RunID != "run-1" || resolver.req.ExecutionID != "execution-1" ||
+		resolver.req.ExecutionClaimToken != "claim-1" {
 		t.Fatalf("request identity = %+v", resolver.req)
 	}
 
@@ -886,7 +961,8 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 		t.Fatalf("request workload = %+v, want SPIFFE ID %q", resolver.req.Workload, workload.SPIFFEID)
 	}
 
-	if len(resolver.req.Secrets) != 2 || resolver.req.Secrets[0].ID != "global" || resolver.req.Secrets[1].ID != "npm-token" {
+	if len(resolver.req.Secrets) != 2 || resolver.req.Secrets[0].ID != "global" ||
+		resolver.req.Secrets[1].ID != "npm-token" {
 		t.Fatalf("request secrets = %+v", resolver.req.Secrets)
 	}
 
@@ -895,10 +971,14 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 		t.Fatalf("security events: got %d want 1: %+v", len(events), events)
 	}
 	event := events[0]
-	if event.RunID != "run-1" || event.TaskID != "run-1:build" || event.TaskAttemptID != "run-1:build:attempt:1" || event.ExecutionID != "execution-1" {
+	if event.RunID != "run-1" || event.TaskID != "run-1:build" || event.TaskAttemptID != "run-1:build:attempt:1" ||
+		event.ExecutionID != "execution-1" {
 		t.Fatalf("security event identity = %+v", event)
 	}
-	if event.EventType != dal.ExecutionSecurityEventSecretResolution || event.Outcome != observability.SecretsResolveOutcomeSuccess || event.Reason != observability.SecretsResolveReasonOK || event.Provider != "encryptedfs" {
+	if event.EventType != dal.ExecutionSecurityEventSecretResolution ||
+		event.Outcome != observability.SecretsResolveOutcomeSuccess ||
+		event.Reason != observability.SecretsResolveReasonOK ||
+		event.Provider != "encryptedfs" {
 		t.Fatalf("security event result = %+v", event)
 	}
 	if event.SecretCount == nil || *event.SecretCount != 2 || event.FileCount == nil || *event.FileCount != 1 {
@@ -963,7 +1043,8 @@ func TestWorkerResolveExecutionSecretsUsesWorkloadResolverFactory(t *testing.T) 
 		t.Fatalf("files = %+v", files)
 	}
 
-	if resolver.req.Workload == nil || resolver.req.Workload.SPIFFEID != workload.SPIFFEID || resolver.req.ExecutionClaimToken != "claim-1" {
+	if resolver.req.Workload == nil || resolver.req.Workload.SPIFFEID != workload.SPIFFEID ||
+		resolver.req.ExecutionClaimToken != "claim-1" {
 		t.Fatalf("resolver request = %+v", resolver.req)
 	}
 }
@@ -1063,7 +1144,11 @@ type recordingExecutionClaimStore struct {
 	executionClaimTokens []string
 }
 
-func (s *recordingExecutionClaimStore) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (s *recordingExecutionClaimStore) TryClaimExecution(
+	ctx context.Context,
+	executionID, owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	claim, err := s.RunsRepository.TryClaimExecution(ctx, executionID, owner, leaseUntil)
 
 	s.mu.Lock()
@@ -1076,7 +1161,11 @@ func (s *recordingExecutionClaimStore) TryClaimExecution(ctx context.Context, ex
 	return claim, err
 }
 
-func (s *recordingExecutionClaimStore) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+func (s *recordingExecutionClaimStore) RenewExecutionLease(
+	ctx context.Context,
+	executionID, owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	err := s.RunsRepository.RenewExecutionLease(ctx, executionID, owner, claimToken, leaseUntil)
 	s.mu.Lock()
 	s.renewedExecutions = append(s.renewedExecutions, executionID)
@@ -1104,7 +1193,11 @@ type recordingCatalogEventsRepository struct {
 	events []recordedCatalogEvent
 }
 
-func (r *recordingCatalogEventsRepository) Record(ctx context.Context, sourceCell, eventKey, eventType string, payload []byte) (dal.CatalogEventRecord, bool, error) {
+func (r *recordingCatalogEventsRepository) Record(
+	ctx context.Context,
+	sourceCell, eventKey, eventType string,
+	payload []byte,
+) (dal.CatalogEventRecord, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1128,7 +1221,10 @@ func (r *recordingCatalogEventsRepository) Record(ctx context.Context, sourceCel
 	}, true, nil
 }
 
-func (r *recordingCatalogEventsRepository) ListPending(ctx context.Context, limit int) ([]dal.CatalogEventRecord, error) {
+func (r *recordingCatalogEventsRepository) ListPending(
+	ctx context.Context,
+	limit int,
+) ([]dal.CatalogEventRecord, error) {
 	return nil, nil
 }
 
@@ -1148,7 +1244,9 @@ func (r *recordingCatalogEventsRepository) Summary(ctx context.Context) (dal.Cat
 	return dal.CatalogEventSummary{}, nil
 }
 
-func (r *recordingCatalogEventsRepository) SummaryBySource(ctx context.Context) ([]dal.CatalogEventSourceSummary, error) {
+func (r *recordingCatalogEventsRepository) SummaryBySource(
+	ctx context.Context,
+) ([]dal.CatalogEventSourceSummary, error) {
 	return nil, nil
 }
 
@@ -1166,7 +1264,11 @@ func (r *recordingCatalogEventsRepository) countByKey(eventKey string) int {
 	return count
 }
 
-func (s *flakyFinalizeRunsStore) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+func (s *flakyFinalizeRunsStore) RenewExecutionLease(
+	ctx context.Context,
+	executionID, owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	s.mu.Lock()
 	if s.renewFailuresLeft > 0 {
 		s.renewFailuresLeft--
@@ -1190,7 +1292,10 @@ func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, failu
 	return s.RunsRepository.MarkRunFailed(ctx, runID, failureCode, reason)
 }
 
-func (s *flakyFinalizeRunsStore) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (s *flakyFinalizeRunsStore) CompleteExecutionAndFinalizeRunByClaim(
+	ctx context.Context,
+	executionID, owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	s.mu.Lock()
 	switch status {
 	case dal.ExecutionStatusSucceeded:
@@ -1208,10 +1313,21 @@ func (s *flakyFinalizeRunsStore) CompleteExecutionAndFinalizeRunByClaim(ctx cont
 	}
 	s.mu.Unlock()
 
-	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
+	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(
+		ctx,
+		executionID,
+		owner,
+		claimToken,
+		status,
+		failureCode,
+		reason,
+	)
 }
 
-func (s *flakyFinalizeRunsStore) ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+func (s *flakyFinalizeRunsStore) ApplyTerminalExecutionSnapshot(
+	ctx context.Context,
+	update dal.TerminalExecutionSnapshotUpdate,
+) error {
 	s.mu.Lock()
 	switch update.Outcome {
 	case dal.ExecutionFinalizationOutcomeRunSucceeded:
@@ -1226,7 +1342,9 @@ func (s *flakyFinalizeRunsStore) ApplyTerminalExecutionSnapshot(ctx context.Cont
 			s.mu.Unlock()
 			return fmt.Errorf("finalize failed: %w", sql.ErrConnDone)
 		}
-	case dal.ExecutionFinalizationOutcomeContinued, dal.ExecutionFinalizationOutcomeWaiting, dal.ExecutionFinalizationOutcomeRunCancelled:
+	case dal.ExecutionFinalizationOutcomeContinued,
+		dal.ExecutionFinalizationOutcomeWaiting,
+		dal.ExecutionFinalizationOutcomeRunCancelled:
 	}
 	s.mu.Unlock()
 
@@ -1253,13 +1371,24 @@ type blockingSuccessStore struct {
 	once    sync.Once
 }
 
-func (s *blockingSuccessStore) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (s *blockingSuccessStore) CompleteExecutionAndFinalizeRunByClaim(
+	ctx context.Context,
+	executionID, owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	if status == dal.ExecutionStatusSucceeded {
 		s.once.Do(func() { close(s.entered) })
 		<-s.release
 	}
 
-	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
+	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(
+		ctx,
+		executionID,
+		owner,
+		claimToken,
+		status,
+		failureCode,
+		reason,
+	)
 }
 
 type restartOnCompleteChoreographer struct {
@@ -1283,7 +1412,12 @@ func newRestartOnCompleteChoreographer(t cleanupTestingT) *restartOnCompleteChor
 	return c
 }
 
-func (c *restartOnCompleteChoreographer) LoadRun(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
+func (c *restartOnCompleteChoreographer) LoadRun(
+	ctx context.Context,
+	j *api.Job,
+	env *cell.ExecutionEnvelope,
+	snapshots []orchestrator.TaskExecutionSnapshot,
+) error {
 	spec, err := orchestrator.RunSpecFromJobAndEnvelope(j, env)
 	if err != nil {
 		return err
@@ -1300,21 +1434,35 @@ func (c *restartOnCompleteChoreographer) LoadRun(ctx context.Context, j *api.Job
 	return err
 }
 
-func (c *restartOnCompleteChoreographer) ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (c *restartOnCompleteChoreographer) ClaimAndStartExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	c.mu.Lock()
 	service := c.service
 	c.mu.Unlock()
 	return service.ClaimExecution(ctx, env.RunID, env.ExecutionID, owner, leaseUntil)
 }
 
-func (c *restartOnCompleteChoreographer) RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error {
+func (c *restartOnCompleteChoreographer) RenewExecutionLease(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	c.mu.Lock()
 	service := c.service
 	c.mu.Unlock()
 	return service.RenewExecutionLease(ctx, env.RunID, env.ExecutionID, owner, claimToken, leaseUntil)
 }
 
-func (c *restartOnCompleteChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (c *restartOnCompleteChoreographer) CompleteExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	c.mu.Lock()
 	c.completeTokens = append(c.completeTokens, claimToken)
 	if !c.restarted {
@@ -1327,7 +1475,16 @@ func (c *restartOnCompleteChoreographer) CompleteExecution(ctx context.Context, 
 	service := c.service
 	c.mu.Unlock()
 
-	return service.CompleteExecutionByClaim(ctx, env.RunID, env.ExecutionID, owner, claimToken, status, failureCode, reason)
+	return service.CompleteExecutionByClaim(
+		ctx,
+		env.RunID,
+		env.ExecutionID,
+		owner,
+		claimToken,
+		status,
+		failureCode,
+		reason,
+	)
 }
 
 func (c *restartOnCompleteChoreographer) RequiresDurableTaskRows() bool {
@@ -1430,7 +1587,8 @@ func TestLeaseRenewalLoop_RenewsExecutionLease(t *testing.T) {
 		t.Fatalf("expected run status running after execution claim, got %q", status)
 	}
 
-	if err := db.QueryRowContext(ctx, `SELECT lease_until FROM segment_executions WHERE execution_id = ?`, dispatch.ExecutionID).Scan(&leaseUntil); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT lease_until FROM segment_executions WHERE execution_id = ?`, dispatch.ExecutionID).
+		Scan(&leaseUntil); err != nil {
 		t.Fatalf("query execution lease: %v", err)
 	}
 	if leaseUntil <= time.Now().Unix() {
@@ -1538,7 +1696,8 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 	deadline := time.Now().Add(workerRunStartTimeoutForTest())
 	for {
 		var status string
-		if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+			Scan(&status); err != nil {
 			t.Fatalf("query run status: %v", err)
 		}
 
@@ -1661,7 +1820,11 @@ func TestWorkerRunTaskExecution_UploadArtifactFailureFinalizesRunFailedAndClears
 	}
 
 	if runLeaseOwner.Valid || runLeaseUntil.Valid {
-		t.Fatalf("expected run lease cleared after artifact failure, got owner=%v until=%v", runLeaseOwner, runLeaseUntil)
+		t.Fatalf(
+			"expected run lease cleared after artifact failure, got owner=%v until=%v",
+			runLeaseOwner,
+			runLeaseUntil,
+		)
 	}
 
 	var executionStatus string
@@ -1681,7 +1844,12 @@ func TestWorkerRunTaskExecution_UploadArtifactFailureFinalizesRunFailedAndClears
 	}
 
 	if executionLeaseOwner.Valid || executionLeaseUntil.Valid || claimToken.Valid {
-		t.Fatalf("expected execution claim cleared after artifact failure, got owner=%v until=%v token=%v", executionLeaseOwner, executionLeaseUntil, claimToken)
+		t.Fatalf(
+			"expected execution claim cleared after artifact failure, got owner=%v until=%v token=%v",
+			executionLeaseOwner,
+			executionLeaseUntil,
+			claimToken,
+		)
 	}
 
 	if _, err := repos.Artifacts().GetByRunAndName(ctx, runID, "coverage"); !dal.IsNotFound(err) {
@@ -1784,7 +1952,12 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 	}
 
 	if !acceptedAt.Valid || !startedAt.Valid || !finishedAt.Valid {
-		t.Fatalf("expected accepted_at, started_at, and finished_at to be set; got accepted=%v started=%v finished=%v", acceptedAt, startedAt, finishedAt)
+		t.Fatalf(
+			"expected accepted_at, started_at, and finished_at to be set; got accepted=%v started=%v finished=%v",
+			acceptedAt,
+			startedAt,
+			finishedAt,
+		)
 	}
 
 	events, err := repos.CatalogEvents().ListPending(ctx, 10)
@@ -1796,10 +1969,19 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 		key       string
 		eventType string
 	}{
-		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted), eventType: cell.CatalogEventTypeExecutionStatus},
+		{
+			key:       cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted),
+			eventType: cell.CatalogEventTypeExecutionStatus,
+		},
 		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), eventType: cell.CatalogEventTypeRunStatus},
-		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusRunning), eventType: cell.CatalogEventTypeExecutionStatus},
-		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusSucceeded), eventType: cell.CatalogEventTypeExecutionStatus},
+		{
+			key:       cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusRunning),
+			eventType: cell.CatalogEventTypeExecutionStatus,
+		},
+		{
+			key:       cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusSucceeded),
+			eventType: cell.CatalogEventTypeExecutionStatus,
+		},
 		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusSucceeded), eventType: cell.CatalogEventTypeRunStatus},
 	}
 
@@ -1886,7 +2068,12 @@ func TestWorkerTryClaimExecution_RejectsExpiredReclaimAfterInitialClaim(t *testi
 	}
 
 	if claimed || secondToken != "" {
-		t.Fatalf("expected expired execution reclaim to be rejected, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
+		t.Fatalf(
+			"expected expired execution reclaim to be rejected, claimed=%v first=%q second=%q",
+			claimed,
+			firstToken,
+			secondToken,
+		)
 	}
 
 	acceptedKey := cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted)
@@ -2195,7 +2382,8 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -2250,7 +2438,8 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	if got := choreographer.LoadCount(); got != 1 {
 		t.Fatalf("hot-state child should claim without LoadRun; count got %d, want 1", got)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status after child: %v", err)
 	}
 
@@ -2259,7 +2448,8 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	var taskRows int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ?`, runID).Scan(&taskRows); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ?`, runID).
+		Scan(&taskRows); err != nil {
 		t.Fatalf("count run tasks: %v", err)
 	}
 
@@ -2354,7 +2544,8 @@ func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailu
 	}
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -2444,7 +2635,8 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 	w.handleJob(req)
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -2518,7 +2710,10 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 
 	jobID := "job-worker-task-failure-order"
 	failureScript := failingScriptForTest()
-	def := fmt.Sprintf(`{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/script","with":{"script":%q}}}`, failureScript)
+	def := fmt.Sprintf(
+		`{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/script","with":{"script":%q}}}`,
+		failureScript,
+	)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2572,7 +2767,8 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 
 	var runStatus string
 	var failureReason sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus, &failureReason); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus, &failureReason); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -2580,12 +2776,14 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 		t.Fatalf("run status after failed task: got %q, want %q", runStatus, dal.RunStatusFailed)
 	}
 
-	if !failureReason.Valid || (!strings.Contains(failureReason.String, "command failed") && !strings.Contains(failureReason.String, "exit status")) {
+	if !failureReason.Valid ||
+		(!strings.Contains(failureReason.String, "command failed") && !strings.Contains(failureReason.String, "exit status")) {
 		t.Fatalf("failure reason should describe command failure, got %+v", failureReason)
 	}
 
 	var executionStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).Scan(&executionStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).
+		Scan(&executionStatus); err != nil {
 		t.Fatalf("query execution status: %v", err)
 	}
 
@@ -2717,7 +2915,8 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 
 	var runStatus string
 	var failureReason sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus, &failureReason); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus, &failureReason); err != nil {
 		t.Fatalf("query canceled run: %v", err)
 	}
 
@@ -2730,7 +2929,8 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 	}
 
 	var executionStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).Scan(&executionStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).
+		Scan(&executionStatus); err != nil {
 		t.Fatalf("query execution status: %v", err)
 	}
 
@@ -2887,7 +3087,8 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 	}
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -2963,7 +3164,8 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	}
 
 	var childRowsBefore int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).Scan(&childRowsBefore); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).
+		Scan(&childRowsBefore); err != nil {
 		t.Fatalf("count child task rows before execution: %v", err)
 	}
 
@@ -3026,7 +3228,12 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	}
 
 	if childTask == nil || childTask.Status != dal.TaskStatusSucceeded {
-		t.Fatalf("child task durable state after terminal snapshot: got %+v in tasks=%+v, want %q", childTask, tasks, dal.TaskStatusSucceeded)
+		t.Fatalf(
+			"child task durable state after terminal snapshot: got %+v in tasks=%+v, want %q",
+			childTask,
+			tasks,
+			dal.TaskStatusSucceeded,
+		)
 	}
 
 	if len(childTask.Attempts) != 1 || childTask.Attempts[0].ExecutionStatus != dal.ExecutionStatusSucceeded {
@@ -3034,7 +3241,8 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	}
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 	if runStatus != dal.RunStatusSucceeded {
@@ -3048,7 +3256,8 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 
 	var terminalSnapshotEvents int
 	for _, event := range events {
-		if event.EventType == cell.CatalogEventTypeTerminalSnapshot && event.EventKey == cell.CatalogTerminalSnapshotEventKey(runID) {
+		if event.EventType == cell.CatalogEventTypeTerminalSnapshot &&
+			event.EventKey == cell.CatalogTerminalSnapshotEventKey(runID) {
 			terminalSnapshotEvents++
 		}
 	}
@@ -3121,7 +3330,12 @@ func TestWorkerPrepareRunForExecutionUsesActionResolverForPlannedTasks(t *testin
 	}
 	dispatch.DefinitionHash = "test-definition-hash"
 
-	env, err := cell.AttachExecutionEnvelopeWithActions(&api.JobRequest{Job: j}, dispatch, time.Now().UnixNano(), resolver)
+	env, err := cell.AttachExecutionEnvelopeWithActions(
+		&api.JobRequest{Job: j},
+		dispatch,
+		time.Now().UnixNano(),
+		resolver,
+	)
 	if err != nil {
 		t.Fatalf("attach execution envelope: %v", err)
 	}
@@ -3164,14 +3378,26 @@ func TestWorkerFinalizeAbortedTaskRunByExecutionClaim_CancelsRun(t *testing.T) {
 	}
 
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
-	outcome := w.finalizeAbortedTaskRunByExecutionClaim(ctx, nil, newExecutionClaimState("execution-claim-token"), dal.CancelReasonAPI, env)
+	outcome := w.finalizeAbortedTaskRunByExecutionClaim(
+		ctx,
+		nil,
+		newExecutionClaimState("execution-claim-token"),
+		dal.CancelReasonAPI,
+		env,
+	)
 	span.End()
 	if outcome != observability.WorkerOutcomeAborted {
 		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeAborted)
 	}
 
-	if runs.LastFinalizedExecID != "execution-root" || runs.LastExecutionOwner != "worker-a" || runs.LastFinalizedStatus != dal.ExecutionStatusAborted {
-		t.Fatalf("finalized execution call mismatch: exec=%q owner=%q status=%q", runs.LastFinalizedExecID, runs.LastExecutionOwner, runs.LastFinalizedStatus)
+	if runs.LastFinalizedExecID != "execution-root" || runs.LastExecutionOwner != "worker-a" ||
+		runs.LastFinalizedStatus != dal.ExecutionStatusAborted {
+		t.Fatalf(
+			"finalized execution call mismatch: exec=%q owner=%q status=%q",
+			runs.LastFinalizedExecID,
+			runs.LastExecutionOwner,
+			runs.LastFinalizedStatus,
+		)
 	}
 
 	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionAborted)
@@ -3248,7 +3474,10 @@ func TestWorkerHandleJob_RunlessDeliveryIsMalformed(t *testing.T) {
 	}
 
 	if logClient.GetStreamCount() != 0 {
-		t.Fatalf("expected job execution to not start after runless delivery, got %d log streams", logClient.GetStreamCount())
+		t.Fatalf(
+			"expected job execution to not start after runless delivery, got %d log streams",
+			logClient.GetStreamCount(),
+		)
 	}
 
 	if got := workerMetrics.LifecyclePhase(); got != observability.WorkerPhaseIdle {
@@ -3334,7 +3563,10 @@ func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 	}
 
 	if logClient.GetStreamCount() != 0 {
-		t.Fatalf("expected job execution to not start after missing envelope, got %d log streams", logClient.GetStreamCount())
+		t.Fatalf(
+			"expected job execution to not start after missing envelope, got %d log streams",
+			logClient.GetStreamCount(),
+		)
 	}
 }
 
@@ -3418,7 +3650,10 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 	}
 
 	if logClient.GetStreamCount() != 0 {
-		t.Fatalf("expected job execution not to start without execution claim, got %d log streams", logClient.GetStreamCount())
+		t.Fatalf(
+			"expected job execution not to start without execution claim, got %d log streams",
+			logClient.GetStreamCount(),
+		)
 	}
 
 	var runStatus string
@@ -3535,7 +3770,10 @@ func TestWorkerRunTaskExecution_MirroredExpiredDispatchDoesNotOrphan(t *testing.
 	}
 
 	if logClient.GetStreamCount() != 0 {
-		t.Fatalf("expected job execution not to start after expired dispatch, got %d log streams", logClient.GetStreamCount())
+		t.Fatalf(
+			"expected job execution not to start after expired dispatch, got %d log streams",
+			logClient.GetStreamCount(),
+		)
 	}
 }
 
@@ -3597,7 +3835,8 @@ func TestWorkerRunTaskExecution_AckTransientThenSuccess_Completes(t *testing.T) 
 	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query final status: %v", err)
 	}
 
@@ -3698,7 +3937,10 @@ func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(
 	}
 
 	if logClient.GetStreamCount() != 0 {
-		t.Fatalf("expected job execution to not start after persistent ack failure, got %d log streams", logClient.GetStreamCount())
+		t.Fatalf(
+			"expected job execution to not start after persistent ack failure, got %d log streams",
+			logClient.GetStreamCount(),
+		)
 	}
 }
 
@@ -3758,7 +4000,8 @@ func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(
 	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query final status: %v", err)
 	}
 
@@ -3910,7 +4153,8 @@ func TestWorkerRunTaskExecution_DurableFinalizationFailurePreventsSuccess(t *tes
 	}
 
 	var runStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -4140,7 +4384,8 @@ func TestWorkerRunTaskExecution_RenewExecutionLeaseTransientStoreFailure_StillSu
 	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query final status: %v", err)
 	}
 	if statusVal != "succeeded" {
@@ -4234,7 +4479,8 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, retryEnv)
 
 	var statusVal string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query final status: %v", err)
 	}
 
@@ -4305,7 +4551,8 @@ func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrpha
 	}
 
 	var statusVal string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
@@ -4315,15 +4562,28 @@ func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrpha
 
 	joinedInfo := strings.Join(logger.GetInfoCalls(), "\n")
 	if strings.Contains(joinedInfo, "Job completed successfully") {
-		t.Fatalf("should not log successful completion when run finalize exhausted; info logs: %v", logger.GetInfoCalls())
+		t.Fatalf(
+			"should not log successful completion when run finalize exhausted; info logs: %v",
+			logger.GetInfoCalls(),
+		)
 	}
 
 	expiredLease := time.Now().Add(-1 * time.Minute).Unix()
-	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET lease_until = ? WHERE run_id = ?`, expiredLease, runID); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		`UPDATE job_runs SET lease_until = ? WHERE run_id = ?`,
+		expiredLease,
+		runID,
+	); err != nil {
 		t.Fatalf("force lease expiry: %v", err)
 	}
 
-	if _, err := db.ExecContext(ctx, `UPDATE segment_executions SET lease_until = ? WHERE execution_id = ?`, expiredLease, env.ExecutionID); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		`UPDATE segment_executions SET lease_until = ? WHERE execution_id = ?`,
+		expiredLease,
+		env.ExecutionID,
+	); err != nil {
 		t.Fatalf("force execution lease expiry: %v", err)
 	}
 
@@ -4336,7 +4596,8 @@ func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrpha
 		t.Fatalf("expected orphan sweep to include run %s, got %+v", runID, orphaned)
 	}
 
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query status after orphan sweep: %v", err)
 	}
 
@@ -4446,7 +4707,8 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 	}
 
 	var statusVal string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query final status: %v", err)
 	}
 
@@ -4673,7 +4935,8 @@ func TestWorkerCancelCoreTaskSendsExecutionIdentity(t *testing.T) {
 
 	select {
 	case req := <-core.cancelled:
-		if req.SessionID != "execution-1" || req.RunID != "run-1" || req.TaskKey != "root" || req.Reason != "remote request" {
+		if req.SessionID != "execution-1" || req.RunID != "run-1" || req.TaskKey != "root" ||
+			req.Reason != "remote request" {
 			t.Fatalf("cancel request = %#v", req)
 		}
 	case <-time.After(time.Second):
@@ -4715,7 +4978,11 @@ func TestWorkerRunTaskExecution_WorkerCoreCancelledResultCancelsRun(t *testing.T
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
 		core: errorWorkerCore{
-			err: workercore.NewTaskResultError(api.RunOutcome_RUN_OUTCOME_UNKNOWN, workersdk.ReasonCancelled, "cancelled in external runner"),
+			err: workercore.NewTaskResultError(
+				api.RunOutcome_RUN_OUTCOME_UNKNOWN,
+				workersdk.ReasonCancelled,
+				"cancelled in external runner",
+			),
 		},
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
@@ -4760,7 +5027,8 @@ func TestWorkerRunTaskExecution_WorkerCoreCancelledResultCancelsRun(t *testing.T
 		t.Fatalf("failure code: got %q, want empty", failureCode)
 	}
 
-	if !failureReason.Valid || !strings.Contains(failureReason.String, workersdk.ReasonCancelled) || !strings.Contains(failureReason.String, "cancelled in external runner") {
+	if !failureReason.Valid || !strings.Contains(failureReason.String, workersdk.ReasonCancelled) ||
+		!strings.Contains(failureReason.String, "cancelled in external runner") {
 		t.Fatalf("failure reason = %v, want worker core cancellation detail", failureReason)
 	}
 
@@ -4799,7 +5067,11 @@ func TestWorkerRunTaskExecution_WorkerCoreUnknownResultOrphansRun(t *testing.T) 
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
 		core: errorWorkerCore{
-			err: workercore.NewTaskResultError(api.RunOutcome_RUN_OUTCOME_UNKNOWN, workersdk.ReasonExternalUnavailable, "jenkins unavailable"),
+			err: workercore.NewTaskResultError(
+				api.RunOutcome_RUN_OUTCOME_UNKNOWN,
+				workersdk.ReasonExternalUnavailable,
+				"jenkins unavailable",
+			),
 		},
 		store:         runs,
 		choreographer: newLocalOrchestratorChoreographer(t),
@@ -4850,7 +5122,8 @@ func TestWorkerRunTaskExecution_WorkerCoreUnknownResultOrphansRun(t *testing.T) 
 		t.Fatalf("orphan reason = %v, want %q", orphanReason, dal.OrphanReasonWorkerCoreUnknown)
 	}
 
-	if !failureReason.Valid || !strings.Contains(failureReason.String, workersdk.ReasonExternalUnavailable) || !strings.Contains(failureReason.String, "jenkins unavailable") {
+	if !failureReason.Valid || !strings.Contains(failureReason.String, workersdk.ReasonExternalUnavailable) ||
+		!strings.Contains(failureReason.String, "jenkins unavailable") {
 		t.Fatalf("failure reason = %v, want worker core unknown detail", failureReason)
 	}
 }
@@ -4866,7 +5139,13 @@ func TestWorkerRunTaskExecution_RemoteWorkerCoreUnavailableOrphansRun(t *testing
 		t.Fatalf("create run: %v", err)
 	}
 
-	coreErr := fmt.Errorf("remote worker core execute task: %w", status.Error(codes.Unavailable, `closing transport due to: connection error: desc = "error reading from server: EOF", received prior goaway: code: NO_ERROR, debug data: "graceful_stop"`))
+	coreErr := fmt.Errorf(
+		"remote worker core execute task: %w",
+		status.Error(
+			codes.Unavailable,
+			`closing transport due to: connection error: desc = "error reading from server: EOF", received prior goaway: code: NO_ERROR, debug data: "graceful_stop"`,
+		),
+	)
 	w := &worker{
 		ctx:           context.Background(),
 		runCtx:        context.Background(),
@@ -4928,7 +5207,8 @@ func TestWorkerRunTaskExecution_RemoteWorkerCoreUnavailableOrphansRun(t *testing
 		t.Fatalf("orphan reason = %v, want %q", orphanReason, dal.OrphanReasonWorkerCoreUnknown)
 	}
 
-	if !failureReason.Valid || !strings.Contains(failureReason.String, "remote worker core execute task") || !strings.Contains(failureReason.String, "graceful_stop") {
+	if !failureReason.Valid || !strings.Contains(failureReason.String, "remote worker core execute task") ||
+		!strings.Contains(failureReason.String, "graceful_stop") {
 		t.Fatalf("failure reason = %v, want worker core unavailable detail", failureReason)
 	}
 }
@@ -5023,7 +5303,8 @@ func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
 	}
 
 	var statusVal string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal); err != nil {
 		t.Fatalf("query durable-canceled run: %v", err)
 	}
 
@@ -5453,7 +5734,10 @@ type recordingSPIFFERegistrar struct {
 	releaseErr error
 }
 
-func (r *recordingSPIFFERegistrar) EnsureRegistration(_ context.Context, intent spire.RegistrationIntent) (spire.RegistrationResult, error) {
+func (r *recordingSPIFFERegistrar) EnsureRegistration(
+	_ context.Context,
+	intent spire.RegistrationIntent,
+) (spire.RegistrationResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -5658,7 +5942,12 @@ func TestEnsureExecutionSPIFFERegistrationRequiresTrustedInputs(t *testing.T) {
 				tt.configure(&w)
 			}
 
-			_, registered, err := w.ensureExecutionSPIFFERegistration(context.Background(), tt.identity, tt.env, expiresAt)
+			_, registered, err := w.ensureExecutionSPIFFERegistration(
+				context.Background(),
+				tt.identity,
+				tt.env,
+				expiresAt,
+			)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("ensureExecutionSPIFFERegistration error = %v, want nil", err)
@@ -5753,7 +6042,12 @@ func TestLeaseRenewalLoopRenewsSPIFFERegistration(t *testing.T) {
 		},
 	}
 
-	initialHandle, registered, err := w.ensureExecutionSPIFFERegistration(ctx, identity, env, time.Now().Add(time.Minute))
+	initialHandle, registered, err := w.ensureExecutionSPIFFERegistration(
+		ctx,
+		identity,
+		env,
+		time.Now().Add(time.Minute),
+	)
 	if err != nil {
 		t.Fatalf("initial ensureExecutionSPIFFERegistration: %v", err)
 	}
@@ -5771,7 +6065,16 @@ func TestLeaseRenewalLoopRenewsSPIFFERegistration(t *testing.T) {
 	execCtx := t.Context()
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
-	go w.leaseRenewalLoop(execCtx, runID, nil, env, newExecutionClaimState(claim.ClaimToken), registration, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(
+		execCtx,
+		runID,
+		nil,
+		env,
+		newExecutionClaimState(claim.ClaimToken),
+		registration,
+		stopRenew,
+		doneRenew,
+	)
 
 	time.Sleep(30 * time.Millisecond)
 	close(stopRenew)

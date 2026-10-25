@@ -142,7 +142,16 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17}, nil, nil, nil, nil, nil)
+	printRetentionReport(
+		&buf,
+		report,
+		retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
 
 	out := buf.String()
 	for _, want := range []string{
@@ -207,10 +216,21 @@ func TestRetentionCleanupDefaultsFromConfig(t *testing.T) {
 		got.BackupStorageMaxAge != 30*time.Minute ||
 		got.AuditExportMaxAge != 45*time.Minute ||
 		got.HoldReviewMaxAge != 15*time.Minute {
-		t.Fatalf("retention evidence freshness defaults = backup %s storage %s audit %s hold %s", got.BackupMaxAge, got.BackupStorageMaxAge, got.AuditExportMaxAge, got.HoldReviewMaxAge)
+		t.Fatalf(
+			"retention evidence freshness defaults = backup %s storage %s audit %s hold %s",
+			got.BackupMaxAge,
+			got.BackupStorageMaxAge,
+			got.AuditExportMaxAge,
+			got.HoldReviewMaxAge,
+		)
 	}
 	if !got.RequireBackup || !got.RequireAuditExport || !got.RequireHoldReview {
-		t.Fatalf("retention required gates = backup %t audit %t hold %t, want true true true", got.RequireBackup, got.RequireAuditExport, got.RequireHoldReview)
+		t.Fatalf(
+			"retention required gates = backup %t audit %t hold %t, want true true true",
+			got.RequireBackup,
+			got.RequireAuditExport,
+			got.RequireHoldReview,
+		)
 	}
 }
 
@@ -266,7 +286,8 @@ func TestTriggerJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 			t.Errorf("decode body: %v", err)
 		}
 
-		if body.RepositoryID != "vectis" || body.Ref != "feature/source" || body.Path != ".vectis/jobs/custom.json" || body.CellID != "pdx-b" {
+		if body.RepositoryID != "vectis" || body.Ref != "feature/source" || body.Path != ".vectis/jobs/custom.json" ||
+			body.CellID != "pdx-b" {
 			t.Errorf("trigger body mismatch: %+v", body)
 		}
 
@@ -277,8 +298,13 @@ func TestTriggerJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 			"run_index":          7,
 			"definition_version": 1,
 			"definition_hash":    "hash",
-			"source":             map[string]any{"repository_id": "vectis", "requested_ref": "feature/source", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
-			"repository_sync":    map[string]any{"status": "succeeded", "ref": "main"},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "feature/source",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/custom.json",
+			},
+			"repository_sync": map[string]any{"status": "succeeded", "ref": "main"},
 		})
 	})
 
@@ -346,8 +372,13 @@ func TestTriggerJob_jsonOutputIncludesRepositorySync(t *testing.T) {
 			"run_index":          7,
 			"definition_version": 1,
 			"definition_hash":    "hash",
-			"source":             map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/build.json"},
-			"repository_sync":    map[string]any{"status": "failed", "ref": "main"},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/build.json",
+			},
+			"repository_sync": map[string]any{"status": "failed", "ref": "main"},
 		})
 	})
 
@@ -473,7 +504,12 @@ func TestTriggerSourceJob_sendsOptionsAndIdempotencyKey(t *testing.T) {
 			"run_index":          7,
 			"definition_version": 1,
 			"definition_hash":    "hash",
-			"source":             map[string]any{"repository_id": "vectis", "requested_ref": "feature/source", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "feature/source",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/custom.json",
+			},
 		})
 	})
 
@@ -519,7 +555,8 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "5" || q.Get("cursor") != ".vectis/jobs/previous.json" {
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "5" ||
+			q.Get("cursor") != ".vectis/jobs/previous.json" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -716,22 +753,36 @@ func TestGetSource_sendsRequestAndPrintsRepository(t *testing.T) {
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"repository_id":              "vectis",
-			"namespace":                  "/team-a",
-			"source_kind":                "local_checkout",
-			"checkout_path":              "/srv/vectis/source",
-			"checkout_mode":              "managed",
-			"authoring_mode":             "local_commit",
-			"worker_cache_mode":          "persistent",
-			"authoring":                  map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
-			"canonical_url":              "https://git.example.com/acme/vectis.git",
-			"fallback_remote_urls":       []string{"https://tier1.example.com/acme/vectis.git", "https://github.com/acme/vectis.git"},
-			"worker_cache_warm_refspecs": []string{"+refs/heads/main:refs/heads/main", "+refs/changes/*:refs/changes/*"},
-			"default_ref":                "main",
-			"credential_ref":             "git-creds",
-			"declared":                   true,
-			"enabled":                    true,
-			"sync":                       map[string]any{"status": "succeeded", "ref": "main", "commit": "0123456789abcdef"},
+			"repository_id":     "vectis",
+			"namespace":         "/team-a",
+			"source_kind":       "local_checkout",
+			"checkout_path":     "/srv/vectis/source",
+			"checkout_mode":     "managed",
+			"authoring_mode":    "local_commit",
+			"worker_cache_mode": "persistent",
+			"authoring": map[string]any{
+				"mode":              "local_commit",
+				"write_definitions": true,
+				"local_commits":     true,
+			},
+			"canonical_url": "https://git.example.com/acme/vectis.git",
+			"fallback_remote_urls": []string{
+				"https://tier1.example.com/acme/vectis.git",
+				"https://github.com/acme/vectis.git",
+			},
+			"worker_cache_warm_refspecs": []string{
+				"+refs/heads/main:refs/heads/main",
+				"+refs/changes/*:refs/changes/*",
+			},
+			"default_ref":    "main",
+			"credential_ref": "git-creds",
+			"declared":       true,
+			"enabled":        true,
+			"sync": map[string]any{
+				"status": "succeeded",
+				"ref":    "main",
+				"commit": "0123456789abcdef",
+			},
 		})
 	})
 
@@ -1099,8 +1150,24 @@ func TestListSourceSchedules_sendsRepositoryPathAndQuietOutput(t *testing.T) {
 			"namespace":     "/",
 			"repository_id": "vectis",
 			"schedules": []map[string]any{
-				{"schedule_id": "nightly-build", "repository_id": "vectis", "job_id": "build", "cron_spec": "30 8 * * *", "next_run_at": "2026-05-01T08:30:00Z", "path": ".vectis/jobs/build.json", "enabled": true},
-				{"schedule_id": "hourly-test", "repository_id": "vectis", "job_id": "test", "cron_spec": "0 * * * *", "next_run_at": "2026-05-01T09:00:00Z", "path": ".vectis/jobs/test.json", "enabled": false},
+				{
+					"schedule_id":   "nightly-build",
+					"repository_id": "vectis",
+					"job_id":        "build",
+					"cron_spec":     "30 8 * * *",
+					"next_run_at":   "2026-05-01T08:30:00Z",
+					"path":          ".vectis/jobs/build.json",
+					"enabled":       true,
+				},
+				{
+					"schedule_id":   "hourly-test",
+					"repository_id": "vectis",
+					"job_id":        "test",
+					"cron_spec":     "0 * * * *",
+					"next_run_at":   "2026-05-01T09:00:00Z",
+					"path":          ".vectis/jobs/test.json",
+					"enabled":       false,
+				},
 			},
 		})
 	})
@@ -1146,7 +1213,8 @@ func TestSetSourceScheduleOverride_sendsBodyAndPrintsResult(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 
-		if body.Ref != "hotfix/build" || body.Path != ".vectis/jobs/build-hotfix.json" || body.Reason != "production hotfix" {
+		if body.Ref != "hotfix/build" || body.Path != ".vectis/jobs/build-hotfix.json" ||
+			body.Reason != "production hotfix" {
 			t.Fatalf("override body mismatch: %+v", body)
 		}
 
@@ -1427,20 +1495,30 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"repository_id":              "vectis",
-			"namespace":                  "/",
-			"source_kind":                "local_checkout",
-			"checkout_mode":              "managed",
-			"authoring_mode":             "local_commit",
-			"worker_cache_mode":          "persistent",
-			"authoring":                  map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
-			"canonical_url":              "https://git.example.com/acme/vectis.git",
-			"fallback_remote_urls":       []string{"https://tier1.example.com/acme/vectis.git", "https://github.com/acme/vectis.git"},
-			"worker_cache_warm_refspecs": []string{"+refs/heads/main:refs/heads/main", "+refs/changes/*:refs/changes/*"},
-			"default_ref":                "main",
-			"credential_ref":             "git-creds",
-			"enabled":                    false,
-			"sync":                       map[string]any{"status": "never"},
+			"repository_id":     "vectis",
+			"namespace":         "/",
+			"source_kind":       "local_checkout",
+			"checkout_mode":     "managed",
+			"authoring_mode":    "local_commit",
+			"worker_cache_mode": "persistent",
+			"authoring": map[string]any{
+				"mode":              "local_commit",
+				"write_definitions": true,
+				"local_commits":     true,
+			},
+			"canonical_url": "https://git.example.com/acme/vectis.git",
+			"fallback_remote_urls": []string{
+				"https://tier1.example.com/acme/vectis.git",
+				"https://github.com/acme/vectis.git",
+			},
+			"worker_cache_warm_refspecs": []string{
+				"+refs/heads/main:refs/heads/main",
+				"+refs/changes/*:refs/changes/*",
+			},
+			"default_ref":    "main",
+			"credential_ref": "git-creds",
+			"enabled":        false,
+			"sync":           map[string]any{"status": "never"},
 		})
 	})
 
@@ -1549,18 +1627,26 @@ func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 			"authoring_mode":             "local_commit",
 			"worker_cache_mode":          "persistent",
 			"worker_cache_warm_refspecs": []string{"+refs/heads/main:refs/heads/main"},
-			"authoring":                  map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
-			"credential_ref":             "git-creds",
-			"checkout_path":              "/srv/vectis/source",
-			"path_exists":                true,
-			"path_is_directory":          true,
-			"git_repository":             true,
-			"work_tree_path":             "/srv/vectis/source",
-			"head_ref":                   "main",
-			"default_ref":                "main",
-			"default_ref_resolved":       true,
-			"resolved_commit":            "0123456789abcdef",
-			"sync":                       map[string]any{"status": "succeeded", "ref": "main", "commit": "0123456789abcdef"},
+			"authoring": map[string]any{
+				"mode":              "local_commit",
+				"write_definitions": true,
+				"local_commits":     true,
+			},
+			"credential_ref":       "git-creds",
+			"checkout_path":        "/srv/vectis/source",
+			"path_exists":          true,
+			"path_is_directory":    true,
+			"git_repository":       true,
+			"work_tree_path":       "/srv/vectis/source",
+			"head_ref":             "main",
+			"default_ref":          "main",
+			"default_ref_resolved": true,
+			"resolved_commit":      "0123456789abcdef",
+			"sync": map[string]any{
+				"status": "succeeded",
+				"ref":    "main",
+				"commit": "0123456789abcdef",
+			},
 		})
 	})
 
@@ -1610,7 +1696,12 @@ func TestListSourceBranches_sendsQueryAndPrintsBranches(t *testing.T) {
 			"limit":         3,
 			"truncated":     true,
 			"branches": []map[string]any{
-				{"name": "feature/source", "ref": "refs/remotes/origin/feature/source", "commit": "0123456789abcdef", "remote": "origin"},
+				{
+					"name":   "feature/source",
+					"ref":    "refs/remotes/origin/feature/source",
+					"commit": "0123456789abcdef",
+					"remote": "origin",
+				},
 			},
 		})
 	})
@@ -1660,7 +1751,9 @@ func TestListSourceTree_sendsQueryAndPrintsEntries(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("ref") != "main" || q.Get("path") != ".vectis" || q.Get("limit") != "10" || q.Get("cursor") != ".vectis/previous" || q.Get("recursive") != "true" {
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis" || q.Get("limit") != "10" ||
+			q.Get("cursor") != ".vectis/previous" ||
+			q.Get("recursive") != "true" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -1672,8 +1765,21 @@ func TestListSourceTree_sendsQueryAndPrintsEntries(t *testing.T) {
 			"recursive":       true,
 			"limit":           10,
 			"entries": []map[string]any{
-				{"path": ".vectis/jobs", "name": "jobs", "type": "tree", "mode": "040000", "object_sha": "abcdef0123456789"},
-				{"path": ".vectis/jobs/build.json", "name": "build.json", "type": "blob", "mode": "100644", "object_sha": "fedcba9876543210", "size_bytes": 120},
+				{
+					"path":       ".vectis/jobs",
+					"name":       "jobs",
+					"type":       "tree",
+					"mode":       "040000",
+					"object_sha": "abcdef0123456789",
+				},
+				{
+					"path":       ".vectis/jobs/build.json",
+					"name":       "build.json",
+					"type":       "blob",
+					"mode":       "100644",
+					"object_sha": "fedcba9876543210",
+					"size_bytes": 120,
+				},
 			},
 		})
 	})
@@ -1721,7 +1827,8 @@ func TestListSourceDefinitions_sendsQueryAndPrintsDefinitions(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "7" || q.Get("cursor") != ".vectis/jobs/previous.json" {
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "7" ||
+			q.Get("cursor") != ".vectis/jobs/previous.json" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -1732,7 +1839,12 @@ func TestListSourceDefinitions_sendsQueryAndPrintsDefinitions(t *testing.T) {
 			"path":            ".vectis/jobs",
 			"limit":           7,
 			"definitions": []map[string]any{
-				{"path": ".vectis/jobs/build.json", "name": "build.json", "blob_sha": "abcdef0123456789", "size_bytes": 98},
+				{
+					"path":       ".vectis/jobs/build.json",
+					"name":       "build.json",
+					"blob_sha":   "abcdef0123456789",
+					"size_bytes": 98,
+				},
 			},
 		})
 	})
@@ -1893,7 +2005,11 @@ func TestWriteSourceJob_sendsOptionsAndPrintsProvenance(t *testing.T) {
 	})
 
 	definitionPath := filepath.Join(t.TempDir(), "build.json")
-	if err := os.WriteFile(definitionPath, []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(
+		definitionPath,
+		[]byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`),
+		0o600,
+	); err != nil {
 		t.Fatalf("write definition fixture: %v", err)
 	}
 
@@ -1971,7 +2087,8 @@ func TestListSourceRuns_sendsQueryAndPrintsRuns(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("limit") != "5" || q.Get("cursor") != "12" || q.Get("since") != "2026-01-01" || q.Get("cell_id") != "pdx-b" {
+		if q.Get("limit") != "5" || q.Get("cursor") != "12" || q.Get("since") != "2026-01-01" ||
+			q.Get("cell_id") != "pdx-b" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -2183,7 +2300,11 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || !result.Cells[0].Ready || result.Cells[0].TaskContinuationPending != 2 || result.Cells[0].TaskFinalizationPending != 1 || result.Cells[0].CatalogTotal != 5 || len(result.Cells[0].Checks) != 1 {
+	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || !result.Cells[0].Ready ||
+		result.Cells[0].TaskContinuationPending != 2 ||
+		result.Cells[0].TaskFinalizationPending != 1 ||
+		result.Cells[0].CatalogTotal != 5 ||
+		len(result.Cells[0].Checks) != 1 {
 		t.Fatalf("unexpected cells status JSON: %+v", result)
 	}
 }
@@ -2207,7 +2328,11 @@ func TestRunJob_sendsIdempotencyKey(t *testing.T) {
 	t.Cleanup(func() { runCellID = oldCell })
 
 	jobPath := filepath.Join(t.TempDir(), "job.json")
-	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"echo hi"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(
+		jobPath,
+		[]byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"echo hi"}}}`),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2248,7 +2373,11 @@ func TestRunJob_sendsTargetCell(t *testing.T) {
 	t.Cleanup(func() { runCellID = oldCell })
 
 	jobPath := filepath.Join(t.TempDir(), "job.json")
-	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"echo hi"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(
+		jobPath,
+		[]byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"echo hi"}}}`),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2376,7 +2505,12 @@ func TestResetTargetsSkipsCoveredAndDisabledStoragePaths(t *testing.T) {
 	covered := filepath.Join(dataDir, "vectis", "log-forwarder", "spool")
 	for _, target := range targets {
 		if target == covered {
-			t.Fatalf("covered spool target %q should be omitted when %q is already reset; targets=%v", covered, filepath.Join(dataDir, "vectis"), targets)
+			t.Fatalf(
+				"covered spool target %q should be omitted when %q is already reset; targets=%v",
+				covered,
+				filepath.Join(dataDir, "vectis"),
+				targets,
+			)
 		}
 		if target == "" {
 			t.Fatalf("empty queue persistence env should not add an empty target; targets=%v", targets)
@@ -2481,7 +2615,12 @@ type podmanSmokeTestResult struct {
 	RunStatus string
 }
 
-func runPodmanSecretsSmokeTestStep(ctx context.Context, jobBody []byte, timeout time.Duration, runner testCommandRunner) (podmanSmokeTestResult, error) {
+func runPodmanSecretsSmokeTestStep(
+	ctx context.Context,
+	jobBody []byte,
+	timeout time.Duration,
+	runner testCommandRunner,
+) (podmanSmokeTestResult, error) {
 	if timeout <= 0 {
 		return podmanSmokeTestResult{}, fmt.Errorf("timeout must be positive")
 	}
@@ -2491,7 +2630,11 @@ func runPodmanSecretsSmokeTestStep(ctx context.Context, jobBody []byte, timeout 
 
 	if _, stderr, err := testSeedPodmanExampleSecret(ctx, runner); err != nil {
 		if strings.TrimSpace(stderr) != "" {
-			return podmanSmokeTestResult{}, fmt.Errorf("seed podman smoke secret: %w: %s", err, strings.TrimSpace(stderr))
+			return podmanSmokeTestResult{}, fmt.Errorf(
+				"seed podman smoke secret: %w: %s",
+				err,
+				strings.TrimSpace(stderr),
+			)
 		}
 
 		return podmanSmokeTestResult{}, fmt.Errorf("seed podman smoke secret: %w", err)
@@ -2508,7 +2651,11 @@ func runPodmanSecretsSmokeTestStep(ctx context.Context, jobBody []byte, timeout 
 	}
 
 	if !testRunStatusSucceeded(run.Status) {
-		return podmanSmokeTestResult{}, fmt.Errorf("podman secrets smoke run %s finished with status %s", submitted.RunID, run.Status)
+		return podmanSmokeTestResult{}, fmt.Errorf(
+			"podman secrets smoke run %s finished with status %s",
+			submitted.RunID,
+			run.Status,
+		)
 	}
 
 	return podmanSmokeTestResult{
@@ -2584,12 +2731,15 @@ func TestSeedPodmanExampleSecretUsesPodVolumesAndPlaintext(t *testing.T) {
 	var gotName, gotStdin string
 	var gotArgs []string
 
-	stdout, stderr, err := testSeedPodmanExampleSecret(context.Background(), func(ctx context.Context, name string, args []string, stdin string) (string, string, error) {
-		gotName = name
-		gotArgs = append([]string(nil), args...)
-		gotStdin = stdin
-		return "seeded\n", "", nil
-	})
+	stdout, stderr, err := testSeedPodmanExampleSecret(
+		context.Background(),
+		func(ctx context.Context, name string, args []string, stdin string) (string, string, error) {
+			gotName = name
+			gotArgs = append([]string(nil), args...)
+			gotStdin = stdin
+			return "seeded\n", "", nil
+		},
+	)
 
 	if err != nil {
 		t.Fatal(err)
@@ -2688,16 +2838,21 @@ func TestRunPodmanSmokeSecretsSeedsSubmitsAndWaits(t *testing.T) {
 	})
 
 	var commandRan bool
-	result, err := runPodmanSecretsSmokeTestStep(context.Background(), loadPodmanSecretsSmokeExample(t), time.Second, func(ctx context.Context, name string, args []string, stdin string) (string, string, error) {
-		commandRan = true
-		if name != "podman" {
-			t.Errorf("command name=%q", name)
-		}
-		if stdin != testPodmanSmokeSecretPlaintext {
-			t.Errorf("stdin=%q", stdin)
-		}
-		return "", "", nil
-	})
+	result, err := runPodmanSecretsSmokeTestStep(
+		context.Background(),
+		loadPodmanSecretsSmokeExample(t),
+		time.Second,
+		func(ctx context.Context, name string, args []string, stdin string) (string, string, error) {
+			commandRan = true
+			if name != "podman" {
+				t.Errorf("command name=%q", name)
+			}
+			if stdin != testPodmanSmokeSecretPlaintext {
+				t.Errorf("stdin=%q", stdin)
+			}
+			return "", "", nil
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2710,7 +2865,8 @@ func TestRunPodmanSmokeSecretsSeedsSubmitsAndWaits(t *testing.T) {
 		t.Fatalf("unexpected API requests: %v", requestedPaths)
 	}
 
-	if result.SecretRef != testPodmanSmokeSecretRef || result.RunID != "run-1" || result.RunIndex != 7 || result.RunStatus != "succeeded" {
+	if result.SecretRef != testPodmanSmokeSecretRef || result.RunID != "run-1" || result.RunIndex != 7 ||
+		result.RunStatus != "succeeded" {
 		t.Fatalf("unexpected smoke result: %+v", result)
 	}
 }
@@ -2741,17 +2897,42 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 
 	requireHostPort(t, findContainer(t, pod, "api-2"), 8180)
 	assertEnv(t, findContainer(t, pod, "queue-2"), "VECTIS_QUEUE_INSTANCE_ID", "queue-2")
-	assertEnv(t, findContainer(t, pod, "queue-2"), "VECTIS_QUEUE_PERSISTENCE_DIR", "/data/vectis/queue/local-ha/queue-2")
+	assertEnv(
+		t,
+		findContainer(t, pod, "queue-2"),
+		"VECTIS_QUEUE_PERSISTENCE_DIR",
+		"/data/vectis/queue/local-ha/queue-2",
+	)
 	assertEnv(t, findContainer(t, pod, "log-2"), "VECTIS_LOG_STORAGE_DIR", "/data/vectis/jobs/log-2")
 	assertEnv(t, findContainer(t, pod, "artifact-2"), "VECTIS_ARTIFACT_STORAGE_DIR", "/data/vectis/artifact/artifact-2")
 	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
 	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_METRICS_PORT", "9087")
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_METRICS_PORT", "9182")
-	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker-core"),
+		"VECTIS_WORKER_CORE_SOCKET",
+		"/run/vectis/worker-core/worker-core.sock",
+	)
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_METRICS_PORT", "9092")
-	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
-	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-shell.sock")
-	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-2-shell.sock")
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker"),
+		"VECTIS_WORKER_CORE_SOCKET",
+		"/run/vectis/worker-core/worker-core.sock",
+	)
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker"),
+		"VECTIS_WORKER_CORE_SHELL_SOCKET",
+		"/run/vectis/worker-core/worker-shell.sock",
+	)
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker-2"),
+		"VECTIS_WORKER_CORE_SHELL_SOCKET",
+		"/run/vectis/worker-core/worker-2-shell.sock",
+	)
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_SECRETS_ADDRESS", "127.0.0.1:8090")
 	assertEnv(t, findContainer(t, pod, "cron-2"), "VECTIS_CRON_INSTANCE_ID", "cron-2")
 	assertEnv(t, findContainer(t, pod, "reconciler-2"), "VECTIS_RECONCILER_METRICS_PORT", "9185")
@@ -2806,17 +2987,47 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 	assertEnv(t, findContainer(t, pod, "log"), "VECTIS_LOG_GRPC_ADVERTISE_ADDRESS", "127.0.0.1:8083")
 	assertEnv(t, findContainer(t, pod, "artifact"), "VECTIS_ARTIFACT_INSTANCE_ID", "artifact-1")
 	assertEnv(t, findContainer(t, pod, "artifact"), "VECTIS_ARTIFACT_GRPC_ADVERTISE_ADDRESS", "127.0.0.1:8086")
-	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker-core"),
+		"VECTIS_WORKER_CORE_SOCKET",
+		"/run/vectis/worker-core/worker-core.sock",
+	)
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_METRICS_PORT", "9092")
-	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-shell.sock")
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker"),
+		"VECTIS_WORKER_CORE_SHELL_SOCKET",
+		"/run/vectis/worker-core/worker-shell.sock",
+	)
 	findInitContainer(t, pod, "vectis-spiffe-init")
 	findInitContainer(t, pod, "vectis-client-ca-bundle-init")
 	findContainer(t, pod, "spiffe")
-	assertEnv(t, findContainer(t, pod, "secrets"), "VECTIS_GRPC_TLS_CLIENT_CA_FILE", "/run/vectis/grpc-tls/client-ca-bundle.pem")
-	assertEnv(t, findContainer(t, pod, "secrets"), "VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE", "/run/vectis/secrets/encryptedfs.key")
+	assertEnv(
+		t,
+		findContainer(t, pod, "secrets"),
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE",
+		"/run/vectis/grpc-tls/client-ca-bundle.pem",
+	)
+	assertEnv(
+		t,
+		findContainer(t, pod, "secrets"),
+		"VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE",
+		"/run/vectis/secrets/encryptedfs.key",
+	)
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIFFE_ENABLED", "true")
-	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS", "unix:///run/vectis/spiffe/workload.sock")
-	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS", "unix:///run/vectis/spiffe/registration.sock")
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker"),
+		"VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS",
+		"unix:///run/vectis/spiffe/workload.sock",
+	)
+	assertEnv(
+		t,
+		findContainer(t, pod, "worker"),
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS",
+		"unix:///run/vectis/spiffe/registration.sock",
+	)
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SECRETS_ADDRESS", "127.0.0.1:8090")
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089"})
@@ -2901,7 +3112,13 @@ func TestDeployPodmanRender_PrometheusTargetsMatchServiceListeners(t *testing.T)
 						t.Fatalf("prometheus job %s target %q has no declared pod listener", jobName, target)
 					}
 					if !containsString(allowedOwners, owner) {
-						t.Fatalf("prometheus job %s target %q is owned by container %s, want one of %v", jobName, target, owner, allowedOwners)
+						t.Fatalf(
+							"prometheus job %s target %q is owned by container %s, want one of %v",
+							jobName,
+							target,
+							owner,
+							allowedOwners,
+						)
 					}
 				}
 			}
@@ -2934,7 +3151,11 @@ func assertUniquePodTCPListeners(t *testing.T, pod map[string]any) {
 
 	if len(duplicates) > 0 {
 		sort.Strings(duplicates)
-		t.Fatalf("pod %s has duplicate TCP listeners:\n%s", stringValue(mapValue(t, pod["metadata"])["name"]), strings.Join(duplicates, "\n"))
+		t.Fatalf(
+			"pod %s has duplicate TCP listeners:\n%s",
+			stringValue(mapValue(t, pod["metadata"])["name"]),
+			strings.Join(duplicates, "\n"),
+		)
 	}
 }
 
@@ -3539,7 +3760,11 @@ func TestListJobs_usesOnlyEnabledSourceRepository(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/source-repositories":
-			_, _ = w.Write([]byte(`[{"repository_id":"vectis-local","enabled":true},{"repository_id":"disabled","enabled":false}]`))
+			_, _ = w.Write(
+				[]byte(
+					`[{"repository_id":"vectis-local","enabled":true},{"repository_id":"disabled","enabled":false}]`,
+				),
+			)
 		case "/api/v1/jobs":
 			if r.URL.Query().Get("repository_id") != "vectis-local" {
 				t.Errorf("repository_id=%q", r.URL.Query().Get("repository_id"))
@@ -3567,7 +3792,9 @@ func TestListJobs_sourceRepositoryUsesJobsFacade(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("repository_id") != "vectis" || q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "5" || q.Get("cursor") != ".vectis/jobs/previous.json" {
+		if q.Get("repository_id") != "vectis" || q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" ||
+			q.Get("limit") != "5" ||
+			q.Get("cursor") != ".vectis/jobs/previous.json" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -3651,7 +3878,8 @@ func TestListJobs_jsonOutputIncludesRepositorySync(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if result.RepositorySync.Status != "running" || result.RepositorySync.Ref != "main" || result.RepositorySync.Commit == "" {
+	if result.RepositorySync.Status != "running" || result.RepositorySync.Ref != "main" ||
+		result.RepositorySync.Commit == "" {
 		t.Fatalf("unexpected repository sync JSON: %+v", result.RepositorySync)
 	}
 }
@@ -3674,8 +3902,16 @@ func TestShowJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"job_id":          "build",
 			"definition_hash": "sha256:def",
-			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/script"}},
-			"source":          map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
+			"definition": map[string]any{
+				"id":   "build",
+				"root": map[string]any{"id": "root", "uses": "builtins/script"},
+			},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/custom.json",
+			},
 		})
 	})
 
@@ -3716,8 +3952,16 @@ func TestShowJob_jsonOutputIncludesRepositorySync(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"job_id":          "build",
 			"definition_hash": "sha256:def",
-			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/script"}},
-			"source":          map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/build.json"},
+			"definition": map[string]any{
+				"id":   "build",
+				"root": map[string]any{"id": "root", "uses": "builtins/script"},
+			},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/build.json",
+			},
 			"repository_sync": map[string]any{"status": "failed", "ref": "main"},
 		})
 	})
@@ -3798,7 +4042,13 @@ func TestCreateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`)); err != nil {
+	if err := createSourceJobFromJobsFacadeWithOutput(
+		cmd,
+		&buf,
+		"vectis",
+		"build",
+		[]byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`),
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3827,7 +4077,13 @@ func TestCreateSourceJobFromJobsFacade_reportsAlreadyExists(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	var buf bytes.Buffer
-	err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script"}}`))
+	err := createSourceJobFromJobsFacadeWithOutput(
+		cmd,
+		&buf,
+		"vectis",
+		"build",
+		[]byte(`{"root":{"id":"root","uses":"builtins/script"}}`),
+	)
 	if err == nil {
 		t.Fatal("expected already exists error")
 	}
@@ -3855,7 +4111,8 @@ func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 			t.Errorf("decode body: %v", err)
 		}
 
-		if body.RepositoryID != "vectis" || body.JobID != "build" || body.Message != "update build" || body.ExpectedHead != "fedcba9876543210" {
+		if body.RepositoryID != "vectis" || body.JobID != "build" || body.Message != "update build" ||
+			body.ExpectedHead != "fedcba9876543210" {
 			t.Errorf("source update body mismatch: %+v", body)
 		}
 
@@ -3884,7 +4141,13 @@ func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`)); err != nil {
+	if err := updateSourceJobFromJobsFacadeWithOutput(
+		cmd,
+		&buf,
+		"vectis",
+		"build",
+		[]byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`),
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3912,7 +4175,13 @@ func TestUpdateSourceJobFromJobsFacade_reportsStaleHead(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	var buf bytes.Buffer
-	err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script"}}`))
+	err := updateSourceJobFromJobsFacadeWithOutput(
+		cmd,
+		&buf,
+		"vectis",
+		"build",
+		[]byte(`{"root":{"id":"root","uses":"builtins/script"}}`),
+	)
 	if err == nil {
 		t.Fatal("expected source conflict error")
 	}
@@ -4389,7 +4658,8 @@ func TestGetRun_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if run["run_id"] != "run-1" || run["status"] != "failed" || run["owning_cell"] != "pdx-b" || run["execution_payload_hash"] != "sha256:payload" {
+	if run["run_id"] != "run-1" || run["status"] != "failed" || run["owning_cell"] != "pdx-b" ||
+		run["execution_payload_hash"] != "sha256:payload" {
 		t.Fatalf("unexpected JSON output: %#v", run)
 	}
 }
@@ -4421,7 +4691,9 @@ func TestGetRun_jsonOutputIncludesTaskCompletion(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if run.TaskCompletion == nil || run.TaskCompletion.Total != 4 || run.TaskCompletion.Succeeded != 2 || run.TaskCompletion.TerminalFailed != 1 || run.TaskCompletion.Incomplete != 1 {
+	if run.TaskCompletion == nil || run.TaskCompletion.Total != 4 || run.TaskCompletion.Succeeded != 2 ||
+		run.TaskCompletion.TerminalFailed != 1 ||
+		run.TaskCompletion.Incomplete != 1 {
 		t.Fatalf("unexpected task completion JSON: %+v", run.TaskCompletion)
 	}
 }
@@ -4484,7 +4756,8 @@ func TestGetRunExecutionPayload_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if result.RunID != "run-1" || result.PayloadHash != "sha256:payload" || !strings.Contains(string(result.Payload), "job-1") {
+	if result.RunID != "run-1" || result.PayloadHash != "sha256:payload" ||
+		!strings.Contains(string(result.Payload), "job-1") {
 		t.Fatalf("unexpected payload JSON: %+v payload=%s", result, string(result.Payload))
 	}
 }
@@ -4567,7 +4840,9 @@ func TestGetRunDefinition_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if result.RunID != "run-1" || result.JobID != "build" || result.DefinitionVersion != 2 || result.DefinitionHash != "sha256:def" || !strings.Contains(string(result.Definition), "root") {
+	if result.RunID != "run-1" || result.JobID != "build" || result.DefinitionVersion != 2 ||
+		result.DefinitionHash != "sha256:def" ||
+		!strings.Contains(string(result.Definition), "root") {
 		t.Fatalf("unexpected definition JSON: %+v definition=%s", result, string(result.Definition))
 	}
 }
@@ -4849,7 +5124,8 @@ func TestGetRunArtifacts_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(result.Data) != 1 || result.Data[0].Name != "coverage" || !strings.Contains(string(result.Data[0].Metadata), "coverage") {
+	if len(result.Data) != 1 || result.Data[0].Name != "coverage" ||
+		!strings.Contains(string(result.Data[0].Metadata), "coverage") {
 		t.Fatalf("unexpected artifacts JSON: %+v", result)
 	}
 }
@@ -4887,7 +5163,8 @@ func TestDownloadRunArtifact_file(t *testing.T) {
 		t.Fatalf("downloaded file = %q", got)
 	}
 
-	if out := buf.String(); !strings.Contains(out, "Downloaded artifact coverage") || !strings.Contains(out, "14 bytes") {
+	if out := buf.String(); !strings.Contains(out, "Downloaded artifact coverage") ||
+		!strings.Contains(out, "14 bytes") {
 		t.Fatalf("unexpected download output:\n%s", out)
 	}
 }
@@ -5523,7 +5800,11 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 				"namespace":     "/",
 				"declared":      true,
 				"enabled":       true,
-				"sync":          map[string]any{"status": "succeeded", "last_started_at_unix": 1715000000, "last_finished_at_unix": 1715000001},
+				"sync": map[string]any{
+					"status":                "succeeded",
+					"last_started_at_unix":  1715000000,
+					"last_finished_at_unix": 1715000001,
+				},
 			},
 		})
 	case "/api/v1/source-repositories/vectis/schedules":
@@ -5531,7 +5812,13 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 			"namespace":     "/",
 			"repository_id": "vectis",
 			"schedules": []map[string]any{
-				{"schedule_id": "nightly-build", "repository_id": "vectis", "job_id": "build", "declared": true, "enabled": true},
+				{
+					"schedule_id":   "nightly-build",
+					"repository_id": "vectis",
+					"job_id":        "build",
+					"declared":      true,
+					"enabled":       true,
+				},
 			},
 		})
 	default:
@@ -5743,11 +6030,18 @@ func TestDoctor_success(t *testing.T) {
 	}
 
 	if seen["/api/v1/namespaces"] != 0 || seen["/api/v1/source-repositories"] != 0 {
-		t.Fatalf("expected healthy source repositories to use aggregate source status, got namespaces=%d repositories=%d", seen["/api/v1/namespaces"], seen["/api/v1/source-repositories"])
+		t.Fatalf(
+			"expected healthy source repositories to use aggregate source status, got namespaces=%d repositories=%d",
+			seen["/api/v1/namespaces"],
+			seen["/api/v1/source-repositories"],
+		)
 	}
 
 	if seen["/api/v1/source-repositories/vectis/schedules"] != 0 {
-		t.Fatalf("expected healthy source schedules to use aggregate source status, got %d schedule requests", seen["/api/v1/source-repositories/vectis/schedules"])
+		t.Fatalf(
+			"expected healthy source schedules to use aggregate source status, got %d schedule requests",
+			seen["/api/v1/source-repositories/vectis/schedules"],
+		)
 	}
 }
 
@@ -5782,7 +6076,10 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+		case "/api/v1/source/status",
+			"/api/v1/namespaces",
+			"/api/v1/source-repositories",
+			"/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -5842,7 +6139,10 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+		case "/api/v1/source/status",
+			"/api/v1/namespaces",
+			"/api/v1/source-repositories",
+			"/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -5902,7 +6202,10 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+		case "/api/v1/source/status",
+			"/api/v1/namespaces",
+			"/api/v1/source-repositories",
+			"/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -5956,7 +6259,10 @@ func TestDoctor_jsonOutput(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+		case "/api/v1/source/status",
+			"/api/v1/namespaces",
+			"/api/v1/source-repositories",
+			"/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -6035,7 +6341,10 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+		case "/api/v1/source/status",
+			"/api/v1/namespaces",
+			"/api/v1/source-repositories",
+			"/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -6095,7 +6404,10 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+		case "/api/v1/source/status",
+			"/api/v1/namespaces",
+			"/api/v1/source-repositories",
+			"/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -6473,7 +6785,10 @@ func TestDoctorServiceIdentityConfig_validMTLSBackedAllowlists(t *testing.T) {
 	t.Setenv("VECTIS_GRPC_TLS_CERT_FILE", certFile)
 	t.Setenv("VECTIS_GRPC_TLS_KEY_FILE", keyFile)
 	t.Setenv("VECTIS_GRPC_TLS_CLIENT_CA_FILE", certFile)
-	t.Setenv("VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES", "spiffe://prod.example/vectis/api,spiffe://prod.example/vectis/worker")
+	t.Setenv(
+		"VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES",
+		"spiffe://prod.example/vectis/api,spiffe://prod.example/vectis/worker",
+	)
 	t.Setenv("VECTIS_SERVICE_IDENTITY_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES", "spiffe://prod.example/vectis/worker")
 	t.Setenv("VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES", "spiffe://prod.example/vectis/api")
 
@@ -6764,7 +7079,10 @@ func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+		case "/api/v1/source/status",
+			"/api/v1/namespaces",
+			"/api/v1/source-repositories",
+			"/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -6794,17 +7112,26 @@ func TestDoctor_sourceRepositorySyncWarnsForFailedAndStaleRunning(t *testing.T) 
 		{
 			RepositoryID: "failed-repo",
 			Enabled:      true,
-			Sync:         sourceRepositorySyncInfo{Status: "failed", Error: "credential detail should stay out of evidence"},
+			Sync: sourceRepositorySyncInfo{
+				Status: "failed",
+				Error:  "credential detail should stay out of evidence",
+			},
 		},
 		{
 			RepositoryID: "credential-repo",
 			Enabled:      true,
-			Sync:         sourceRepositorySyncInfo{Status: "failed", Error: `git_credentials_unavailable: resolve source repository credential "credential-repo": secret://git/private missing`},
+			Sync: sourceRepositorySyncInfo{
+				Status: "failed",
+				Error:  `git_credentials_unavailable: resolve source repository credential "credential-repo": secret://git/private missing`,
+			},
 		},
 		{
 			RepositoryID: "stale-repo",
 			Enabled:      true,
-			Sync:         sourceRepositorySyncInfo{Status: "running", LastStartedAtUnix: time.Now().Add(-2 * time.Minute).Unix()},
+			Sync: sourceRepositorySyncInfo{
+				Status:            "running",
+				LastStartedAtUnix: time.Now().Add(-2 * time.Minute).Unix(),
+			},
 		},
 		{
 			RepositoryID: "never-repo",
@@ -6953,7 +7280,12 @@ func TestDoctor_sourceRepositoryChecksUseStatusCounts(t *testing.T) {
 	combined := syncCheck.Summary + " " + syncCheck.Evidence + " " + declarationCheck.Summary + " " + declarationCheck.Evidence
 	for _, want := range []string{"source repository sync ok: 1 enabled", "succeeded=1", "source repositories aligned: 2 repositories", "stale_enabled=0"} {
 		if !strings.Contains(combined, want) {
-			t.Fatalf("expected status-backed repository checks to contain %q, got sync=%#v declaration=%#v", want, syncCheck, declarationCheck)
+			t.Fatalf(
+				"expected status-backed repository checks to contain %q, got sync=%#v declaration=%#v",
+				want,
+				syncCheck,
+				declarationCheck,
+			)
 		}
 	}
 
@@ -6996,7 +7328,12 @@ func TestDoctor_loadsSourceRepositoriesAcrossNamespaces(t *testing.T) {
 			}
 
 			_ = json.NewEncoder(w).Encode([]map[string]any{
-				{"repository_id": repositoryID, "namespace": namespace, "enabled": true, "sync": map[string]any{"status": "succeeded"}},
+				{
+					"repository_id": repositoryID,
+					"namespace":     namespace,
+					"enabled":       true,
+					"sync":          map[string]any{"status": "succeeded"},
+				},
 			})
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -7008,7 +7345,8 @@ func TestDoctor_loadsSourceRepositoriesAcrossNamespaces(t *testing.T) {
 		t.Fatalf("unexpected source repository load error: %s", loadError)
 	}
 
-	if len(repositories) != 2 || repositories[0].RepositoryID != "root-repo" || repositories[1].RepositoryID != "team-repo" {
+	if len(repositories) != 2 || repositories[0].RepositoryID != "root-repo" ||
+		repositories[1].RepositoryID != "team-repo" {
 		t.Fatalf("unexpected repositories: %+v", repositories)
 	}
 
@@ -7057,7 +7395,13 @@ func TestDoctor_sourceSchedulesWarnForStaleEnabledScheduleAndOverrides(t *testin
 		{ScheduleID: "active-stale", RepositoryID: "vectis", Declared: false, Enabled: true},
 		{ScheduleID: "disabled-stale", RepositoryID: "vectis", Declared: false, Enabled: false},
 		{ScheduleID: "declared", RepositoryID: "vectis", Declared: true, Enabled: true},
-		{ScheduleID: "hotfix", RepositoryID: "vectis", Declared: true, Enabled: true, Override: &sourceScheduleOverride{Ref: "hotfix/build"}},
+		{
+			ScheduleID:   "hotfix",
+			RepositoryID: "vectis",
+			Declared:     true,
+			Enabled:      true,
+			Override:     &sourceScheduleOverride{Ref: "hotfix/build"},
+		},
 	}
 
 	declarationCheck := doctorSourceScheduleDeclarations(schedules, "")
@@ -7103,7 +7447,12 @@ func TestDoctor_sourceScheduleChecksUseStatusCounts(t *testing.T) {
 	combined := declarationCheck.Summary + " " + declarationCheck.Evidence + " " + overrideCheck.Summary + " " + overrideCheck.Evidence
 	for _, want := range []string{"source schedules aligned: 2 schedules", "schedules=2", "stale_enabled=0", "no active source schedule overrides", "overrides=0"} {
 		if !strings.Contains(combined, want) {
-			t.Fatalf("expected status-backed schedule checks to contain %q, got declaration=%#v override=%#v", want, declarationCheck, overrideCheck)
+			t.Fatalf(
+				"expected status-backed schedule checks to contain %q, got declaration=%#v override=%#v",
+				want,
+				declarationCheck,
+				overrideCheck,
+			)
 		}
 	}
 
@@ -7176,8 +7525,20 @@ func TestDoctor_cronSchedulesWarnsForDueSchedules(t *testing.T) {
 func TestDoctor_cellIngressRoutesWarnsForUnhealthyCells(t *testing.T) {
 	check := doctorCheckCellsStatusResponse(t, map[string]any{
 		"cells": []map[string]any{
-			{"cell_id": "iad-a", "ingress_required": true, "ingress_configured": true, "ingress_reachable": true, "status": "ready"},
-			{"cell_id": "pdx-b", "ingress_required": true, "ingress_configured": false, "ingress_reachable": false, "status": "missing_route"},
+			{
+				"cell_id":            "iad-a",
+				"ingress_required":   true,
+				"ingress_configured": true,
+				"ingress_reachable":  true,
+				"status":             "ready",
+			},
+			{
+				"cell_id":            "pdx-b",
+				"ingress_required":   true,
+				"ingress_configured": false,
+				"ingress_reachable":  false,
+				"status":             "missing_route",
+			},
 		},
 	})
 
@@ -7279,7 +7640,8 @@ func TestDoctor_catalogInboxWarnsForFailedEvents(t *testing.T) {
 		t.Fatalf("unexpected summary: %q", check.Summary)
 	}
 
-	if !strings.Contains(check.Evidence, "pending=2") || !strings.Contains(check.Evidence, "failed=1") || !strings.Contains(check.Evidence, "iad-a:p=2/f=1") {
+	if !strings.Contains(check.Evidence, "pending=2") || !strings.Contains(check.Evidence, "failed=1") ||
+		!strings.Contains(check.Evidence, "iad-a:p=2/f=1") {
 		t.Fatalf("unexpected evidence: %q", check.Evidence)
 	}
 }

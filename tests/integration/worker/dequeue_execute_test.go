@@ -167,7 +167,14 @@ func TestIntegrationWorker_ExecutesCustomActionFromEnvelopeLocks(t *testing.T) {
 
 	resolver := descriptorResolver{"examples/greet@v1": greetDescriptor()}
 	req := &api.JobRequest{Job: enqueueJob}
-	env, err := cell.AttachPendingExecutionEnvelopeWithActions(ctx, repos.Runs(), req, runID, time.Now().UnixNano(), resolver)
+	env, err := cell.AttachPendingExecutionEnvelopeWithActions(
+		ctx,
+		repos.Runs(),
+		req,
+		runID,
+		time.Now().UnixNano(),
+		resolver,
+	)
 	if err != nil {
 		t.Fatalf("attach execution envelope: %v", err)
 	}

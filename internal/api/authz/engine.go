@@ -220,7 +220,12 @@ func (DenyAll) Allow(_ context.Context, _ *authn.Principal, _ Action, _ Resource
 //   - "hierarchical_rbac" uses [HierarchicalRBAC] when repositories are available.
 //   - "authenticated_full" uses [AuthenticatedFull] (any authenticated principal).
 //   - Any other configuration falls back to [DenyAll] to fail closed.
-func SelectAuthorizer(setupComplete bool, engine string, namespaces dal.NamespacesRepository, roleBindings dal.RoleBindingsRepository) Authorizer {
+func SelectAuthorizer(
+	setupComplete bool,
+	engine string,
+	namespaces dal.NamespacesRepository,
+	roleBindings dal.RoleBindingsRepository,
+) Authorizer {
 	if !setupComplete {
 		return SetupPending{}
 	}

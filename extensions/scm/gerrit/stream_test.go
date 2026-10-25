@@ -62,8 +62,9 @@ func TestPollAndStreamEventsUseSameKeyForRevision(t *testing.T) {
 		t.Fatalf("encode cursor: %v", err)
 	}
 
-	provider := NewProvider(WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		return gerritChangesResponse(r, `[{
+	provider := NewProvider(
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return gerritChangesResponse(r, `[{
 			"id":"project~master~35",
 			"project":"project",
 			"branch":"master",
@@ -73,7 +74,8 @@ func TestPollAndStreamEventsUseSameKeyForRevision(t *testing.T) {
 			"current_revision":"rev2",
 			"revisions":{"rev2":{"ref":"refs/changes/17/17/2"}}
 		}]`), nil
-	})}))
+		})}),
+	)
 
 	pollResult, err := provider.Poll(context.Background(), scm.PollSpec{
 		Provider: "gerrit",
@@ -133,7 +135,8 @@ func TestPollAndStreamEventsUseSameKeyForRevision(t *testing.T) {
 		t.Fatalf("stream event info: %v", err)
 	}
 
-	if pollInfo.ID != streamInfo.ID || pollInfo.CurrentRevision != streamInfo.CurrentRevision || pollInfo.Ref != streamInfo.Ref {
+	if pollInfo.ID != streamInfo.ID || pollInfo.CurrentRevision != streamInfo.CurrentRevision ||
+		pollInfo.Ref != streamInfo.Ref {
 		t.Fatalf("poll info = %+v, stream info = %+v", pollInfo, streamInfo)
 	}
 }
@@ -210,10 +213,15 @@ func TestConsumeStreamEmitsNormalizedEvents(t *testing.T) {
 `)
 
 	var events []string
-	err := ConsumeStream(context.Background(), input, StreamOptions{BaseURL: "http://gerrit.example.com"}, func(_ context.Context, event scm.Event) error {
-		events = append(events, event.Key)
-		return nil
-	})
+	err := ConsumeStream(
+		context.Background(),
+		input,
+		StreamOptions{BaseURL: "http://gerrit.example.com"},
+		func(_ context.Context, event scm.Event) error {
+			events = append(events, event.Key)
+			return nil
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("ConsumeStream: %v", err)

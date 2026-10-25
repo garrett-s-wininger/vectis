@@ -19,7 +19,10 @@ type executableActionResolver struct {
 	processExecutor interfaces.ExecExecutor
 }
 
-func NewActionResolver(descriptorResolver actionregistry.Resolver, processExecutor interfaces.ExecExecutor) (action.Resolver, error) {
+func NewActionResolver(
+	descriptorResolver actionregistry.Resolver,
+	processExecutor interfaces.ExecExecutor,
+) (action.Resolver, error) {
 	return newExecutableActionResolver(builtins.NewRegistry(), descriptorResolver, nil, processExecutor)
 }
 
@@ -97,7 +100,10 @@ func (r *executableActionResolver) Resolve(uses string) (action.Node, error) {
 func (r *executableActionResolver) descriptorForUses(uses string) (actionregistry.Descriptor, bool, error) {
 	uses = strings.TrimSpace(uses)
 	if _, ok := r.ambiguousFrozen[uses]; ok {
-		return actionregistry.Descriptor{}, false, fmt.Errorf("multiple frozen descriptors for action reference %q", uses)
+		return actionregistry.Descriptor{}, false, fmt.Errorf(
+			"multiple frozen descriptors for action reference %q",
+			uses,
+		)
 	}
 
 	if frozen, ok := r.frozenByUses[uses]; ok {
@@ -112,7 +118,10 @@ func (r *executableActionResolver) descriptorForUses(uses string) (actionregistr
 	return descriptor, false, err
 }
 
-func (r *executableActionResolver) enrichFrozenDescriptor(uses string, frozen actionregistry.Descriptor) actionregistry.Descriptor {
+func (r *executableActionResolver) enrichFrozenDescriptor(
+	uses string,
+	frozen actionregistry.Descriptor,
+) actionregistry.Descriptor {
 	if r.descriptors == nil {
 		return frozen
 	}

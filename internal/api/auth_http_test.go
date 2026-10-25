@@ -186,10 +186,13 @@ func TestAccessControlledHandler_publicRoute(t *testing.T) {
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 
 	var hit bool
-	h := s.accessControlledHandler(routeAuthPolicy{mode: routeAuthPublic}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{mode: routeAuthPublic},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hit = true
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -251,9 +254,12 @@ func TestAccessControlledHandler_noBearerToken(t *testing.T) {
 	ctx := context.Background()
 	_, _ = s.authRepo.CompleteInitialSetup(ctx, "admin", "hash", "tokenhash", "label")
 
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not run")
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not run")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -274,9 +280,12 @@ func TestAccessControlledHandler_tokenTooLong(t *testing.T) {
 	ctx := context.Background()
 	_, _ = s.authRepo.CompleteInitialSetup(ctx, "admin", "hash", "tokenhash", "label")
 
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not run")
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not run")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -298,9 +307,12 @@ func TestAccessControlledHandler_invalidToken(t *testing.T) {
 	ctx := context.Background()
 	_, _ = s.authRepo.CompleteInitialSetup(ctx, "admin", "hash", "tokenhash", "label")
 
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not run")
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not run")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -328,10 +340,13 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 	_, _ = s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	var principal *authn.Principal
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		principal, _ = authn.PrincipalFromContext(r.Context())
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			principal, _ = authn.PrincipalFromContext(r.Context())
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -399,9 +414,12 @@ func TestAccessControlledHandler_authorizationDenied(t *testing.T) {
 	// Override authorizer to deny everything
 	s.authzOverride = denyExceptSetup{}
 
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not run")
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not run")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -426,9 +444,12 @@ func TestAccessControlledHandler_auditLogOnInvalidToken(t *testing.T) {
 	mockAuditor := &mockAuditor{}
 	s.SetAuditor(mockAuditor)
 
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not run")
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not run")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -486,14 +507,23 @@ func TestAccessControlledHandler_tokenScopesLoaded(t *testing.T) {
 	tokenID, _ := s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	// Add a scope to the token
-	_, _ = db.ExecContext(ctx, `INSERT INTO api_token_scopes (api_token_id, action, namespace_id, propagate) VALUES (?, ?, ?, ?)`,
-		tokenID, "job:read", 1, false)
+	_, _ = db.ExecContext(
+		ctx,
+		`INSERT INTO api_token_scopes (api_token_id, action, namespace_id, propagate) VALUES (?, ?, ?, ?)`,
+		tokenID,
+		"job:read",
+		1,
+		false,
+	)
 
 	var principal *authn.Principal
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		principal, _ = authn.PrincipalFromContext(r.Context())
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			principal, _ = authn.PrincipalFromContext(r.Context())
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -530,9 +560,12 @@ func TestAccessControlledHandler_dbUnavailableReturns503(t *testing.T) {
 	// Close DB to simulate unavailability
 	db.Close()
 
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not run")
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not run")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -565,9 +598,12 @@ func TestAccessControlledHandler_tokenScopeDBErrorReturns500(t *testing.T) {
 	// Close DB after token is resolved but before scopes are loaded
 	db.Close()
 
-	h := s.accessControlledHandler(routeAuthPolicy{Action: authz.ActionJobRead}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler should not run")
-	}))
+	h := s.accessControlledHandler(
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not run")
+		}),
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)

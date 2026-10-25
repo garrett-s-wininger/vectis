@@ -125,7 +125,14 @@ func TestRunLocalJobValidation(t *testing.T) {
 		t.Fatalf("write workspace file: %v", err)
 	}
 
-	if err := runLocalJob(context.Background(), "missing.json", fileWorkspace, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "workspace is not a directory") {
+	if err := runLocalJob(
+		context.Background(),
+		"missing.json",
+		fileWorkspace,
+		&stdout,
+		&stderr,
+	); err == nil ||
+		!strings.Contains(err.Error(), "workspace is not a directory") {
 		t.Fatalf("expected workspace directory error, got %v", err)
 	}
 }

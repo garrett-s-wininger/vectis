@@ -210,14 +210,18 @@ func init() {
 	v.SetDefault("metrics_host", config.LogForwarderMetricsHost())
 	v.SetDefault("metrics_port", config.LogForwarderMetricsPort())
 
-	rootCmd.PersistentFlags().String("socket", "", "Unix socket path (default: $XDG_RUNTIME_DIR/vectis/log-forwarder.sock)")
-	rootCmd.PersistentFlags().String("lockfile", "", "Lockfile path (default: $XDG_RUNTIME_DIR/vectis/log-forwarder.lock)")
-	rootCmd.PersistentFlags().String("spool-dir", "", "Spool directory (default: $XDG_DATA_HOME/vectis/log-forwarder/spool)")
+	rootCmd.PersistentFlags().
+		String("socket", "", "Unix socket path (default: $XDG_RUNTIME_DIR/vectis/log-forwarder.sock)")
+	rootCmd.PersistentFlags().
+		String("lockfile", "", "Lockfile path (default: $XDG_RUNTIME_DIR/vectis/log-forwarder.lock)")
+	rootCmd.PersistentFlags().
+		String("spool-dir", "", "Spool directory (default: $XDG_DATA_HOME/vectis/log-forwarder/spool)")
 	rootCmd.PersistentFlags().Int("batch-size", 100, "Max chunks per batch")
 	rootCmd.PersistentFlags().Int("max-chunks-per-sec", 10000, "Rate limit for forwarding")
 	rootCmd.PersistentFlags().Int("buffer-size", 1024, "Unix socket receive buffer size")
 	rootCmd.PersistentFlags().Duration("shutdown-timeout", 10*time.Second, "Graceful shutdown timeout")
-	rootCmd.PersistentFlags().String("metrics-host", config.LogForwarderMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().
+		String("metrics-host", config.LogForwarderMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.LogForwarderMetricsPort(), "HTTP port for Prometheus /metrics")
 
 	_ = v.BindPFlag("socket", rootCmd.PersistentFlags().Lookup("socket"))

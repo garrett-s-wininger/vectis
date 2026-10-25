@@ -20,12 +20,20 @@ func VmDeploySmokeCheck() error {
 
 // VmDeploySmokePrepare prepares the deploy smoke VM.
 func VmDeploySmokePrepare() error {
-	return runPacker("build", packerDeploySmokeVars(), envDefault("PACKER_DEPLOY_SMOKE_DIR", filepath.Join("build", "packer", "deploy-smoke")))
+	return runPacker(
+		"build",
+		packerDeploySmokeVars(),
+		envDefault("PACKER_DEPLOY_SMOKE_DIR", filepath.Join("build", "packer", "deploy-smoke")),
+	)
 }
 
 // VmDeploySmokeValidate validates the deploy smoke VM Packer template.
 func VmDeploySmokeValidate() error {
-	return runPacker("validate", packerDeploySmokeVars(), envDefault("PACKER_DEPLOY_SMOKE_DIR", filepath.Join("build", "packer", "deploy-smoke")))
+	return runPacker(
+		"validate",
+		packerDeploySmokeVars(),
+		envDefault("PACKER_DEPLOY_SMOKE_DIR", filepath.Join("build", "packer", "deploy-smoke")),
+	)
 }
 
 // VmDoctor runs VM readiness checks.
@@ -40,12 +48,20 @@ func VmPackageBuilderCheck() error {
 
 // VmPackageBuilderPrepare prepares the package builder VM.
 func VmPackageBuilderPrepare() error {
-	return runPacker("build", packerPackageBuilderVars(), envDefault("PACKER_PACKAGE_BUILDER_DIR", filepath.Join("build", "packer", "package-builder")))
+	return runPacker(
+		"build",
+		packerPackageBuilderVars(),
+		envDefault("PACKER_PACKAGE_BUILDER_DIR", filepath.Join("build", "packer", "package-builder")),
+	)
 }
 
 // VmPackageBuilderValidate validates the package builder VM Packer template.
 func VmPackageBuilderValidate() error {
-	return runPacker("validate", packerPackageBuilderVars(), envDefault("PACKER_PACKAGE_BUILDER_DIR", filepath.Join("build", "packer", "package-builder")))
+	return runPacker(
+		"validate",
+		packerPackageBuilderVars(),
+		envDefault("PACKER_PACKAGE_BUILDER_DIR", filepath.Join("build", "packer", "package-builder")),
+	)
 }
 
 // VmPackageSmokeCheck checks both package smoke VMs.
@@ -64,7 +80,15 @@ func VmPackageSmokeDebCheck() error {
 
 // VmPackageSmokeDebPrepare prepares the DEB package smoke VM.
 func VmPackageSmokeDebPrepare() error {
-	return runPacker("build", packerPackageSmokeVars("deb", envDefault("PACKER_PACKAGE_DEB_SMOKE_INSTANCE", "vectis-package-smoke"), envDefault("PACKER_PACKAGE_DEB_SMOKE_TEMPLATE", "ubuntu-lts")), envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke")))
+	return runPacker(
+		"build",
+		packerPackageSmokeVars(
+			"deb",
+			envDefault("PACKER_PACKAGE_DEB_SMOKE_INSTANCE", "vectis-package-smoke"),
+			envDefault("PACKER_PACKAGE_DEB_SMOKE_TEMPLATE", "ubuntu-lts"),
+		),
+		envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke")),
+	)
 }
 
 // VmPackageSmokePrepare prepares both package smoke VMs.
@@ -83,16 +107,40 @@ func VmPackageSmokeRPMCheck() error {
 
 // VmPackageSmokeRPMPrepare prepares the RPM package smoke VM.
 func VmPackageSmokeRPMPrepare() error {
-	return runPacker("build", packerPackageSmokeVars("rpm", envDefault("PACKER_PACKAGE_RPM_SMOKE_INSTANCE", "vectis-package-rpm-smoke"), envDefault("PACKER_PACKAGE_RPM_SMOKE_TEMPLATE", "fedora")), envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke")))
+	return runPacker(
+		"build",
+		packerPackageSmokeVars(
+			"rpm",
+			envDefault("PACKER_PACKAGE_RPM_SMOKE_INSTANCE", "vectis-package-rpm-smoke"),
+			envDefault("PACKER_PACKAGE_RPM_SMOKE_TEMPLATE", "fedora"),
+		),
+		envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke")),
+	)
 }
 
 // VmPackageSmokeValidate validates both package smoke VM Packer templates.
 func VmPackageSmokeValidate() error {
-	if err := runPacker("validate", packerPackageSmokeVars("deb", envDefault("PACKER_PACKAGE_DEB_SMOKE_INSTANCE", "vectis-package-smoke"), envDefault("PACKER_PACKAGE_DEB_SMOKE_TEMPLATE", "ubuntu-lts")), envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke"))); err != nil {
+	if err := runPacker(
+		"validate",
+		packerPackageSmokeVars(
+			"deb",
+			envDefault("PACKER_PACKAGE_DEB_SMOKE_INSTANCE", "vectis-package-smoke"),
+			envDefault("PACKER_PACKAGE_DEB_SMOKE_TEMPLATE", "ubuntu-lts"),
+		),
+		envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke")),
+	); err != nil {
 		return err
 	}
 
-	return runPacker("validate", packerPackageSmokeVars("rpm", envDefault("PACKER_PACKAGE_RPM_SMOKE_INSTANCE", "vectis-package-rpm-smoke"), envDefault("PACKER_PACKAGE_RPM_SMOKE_TEMPLATE", "fedora")), envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke")))
+	return runPacker(
+		"validate",
+		packerPackageSmokeVars(
+			"rpm",
+			envDefault("PACKER_PACKAGE_RPM_SMOKE_INSTANCE", "vectis-package-rpm-smoke"),
+			envDefault("PACKER_PACKAGE_RPM_SMOKE_TEMPLATE", "fedora"),
+		),
+		envDefault("PACKER_PACKAGE_SMOKE_DIR", filepath.Join("build", "packer", "package-smoke")),
+	)
 }
 
 // VmPrepare prepares all configured VMs.
@@ -165,8 +213,11 @@ func packerPackageBuilderVars() []string {
 		"disk":               envDefault("PACKER_PACKAGE_BUILDER_DISK", "60"),
 		"stop_after_prepare": envDefault("PACKER_PACKAGE_BUILDER_STOP", "true"),
 		"lima_bin":           packageBuilderLimaBin(),
-		"workspace_root":     envDefault("PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT", "/var/tmp/vectis-package-local-workspaces"),
-		"cache_root":         envDefault("PACKER_PACKAGE_BUILDER_CACHE_ROOT", "/var/tmp/vectis-package-local-cache"),
+		"workspace_root": envDefault(
+			"PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT",
+			"/var/tmp/vectis-package-local-workspaces",
+		),
+		"cache_root": envDefault("PACKER_PACKAGE_BUILDER_CACHE_ROOT", "/var/tmp/vectis-package-local-cache"),
 	}
 
 	if sha := os.Getenv("PACKER_PACKAGE_BUILDER_GO_SHA256"); sha != "" {
@@ -225,21 +276,36 @@ func runVMDoctor(mode, lane string) error {
 
 func vmDoctorArgs(mode, lane string) []string {
 	args := []string{
-		"--provider", envDefault("VM_PROVIDER", "auto"),
-		"--timeout", envDefault("VM_DOCTOR_TIMEOUT", "10m"),
-		"--packer", envDefault("PACKER", "packer"),
-		"--prep-version", envDefault("PACKER_VM_PREP_VERSION", "2"),
-		"--deploy-lima-bin", envDefault("PACKER_DEPLOY_SMOKE_LIMA_BIN", "limactl"),
-		"--deploy-instance", envDefault("PACKER_DEPLOY_SMOKE_INSTANCE", "vectis-deploy-smoke"),
-		"--builder-lima-bin", packageBuilderLimaBin(),
-		"--builder-instance", envDefault("PACKER_PACKAGE_BUILDER_INSTANCE", "vectis-package-builder"),
-		"--builder-go-version", envDefault("PACKER_PACKAGE_BUILDER_GO_VERSION", goModGoVersion()),
-		"--builder-cache-root", envDefault("PACKER_PACKAGE_BUILDER_CACHE_ROOT", "/var/tmp/vectis-package-local-cache"),
-		"--builder-workspace-root", envDefault("PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT", "/var/tmp/vectis-package-local-workspaces"),
-		"--smoke-lima-bin", envDefault("PACKER_PACKAGE_SMOKE_LIMA_BIN", "limactl"),
-		"--deb-smoke-instance", envDefault("PACKER_PACKAGE_DEB_SMOKE_INSTANCE", "vectis-package-smoke"),
-		"--rpm-smoke-instance", envDefault("PACKER_PACKAGE_RPM_SMOKE_INSTANCE", "vectis-package-rpm-smoke"),
-		"--mode", mode,
+		"--provider",
+		envDefault("VM_PROVIDER", "auto"),
+		"--timeout",
+		envDefault("VM_DOCTOR_TIMEOUT", "10m"),
+		"--packer",
+		envDefault("PACKER", "packer"),
+		"--prep-version",
+		envDefault("PACKER_VM_PREP_VERSION", "2"),
+		"--deploy-lima-bin",
+		envDefault("PACKER_DEPLOY_SMOKE_LIMA_BIN", "limactl"),
+		"--deploy-instance",
+		envDefault("PACKER_DEPLOY_SMOKE_INSTANCE", "vectis-deploy-smoke"),
+		"--builder-lima-bin",
+		packageBuilderLimaBin(),
+		"--builder-instance",
+		envDefault("PACKER_PACKAGE_BUILDER_INSTANCE", "vectis-package-builder"),
+		"--builder-go-version",
+		envDefault("PACKER_PACKAGE_BUILDER_GO_VERSION", goModGoVersion()),
+		"--builder-cache-root",
+		envDefault("PACKER_PACKAGE_BUILDER_CACHE_ROOT", "/var/tmp/vectis-package-local-cache"),
+		"--builder-workspace-root",
+		envDefault("PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT", "/var/tmp/vectis-package-local-workspaces"),
+		"--smoke-lima-bin",
+		envDefault("PACKER_PACKAGE_SMOKE_LIMA_BIN", "limactl"),
+		"--deb-smoke-instance",
+		envDefault("PACKER_PACKAGE_DEB_SMOKE_INSTANCE", "vectis-package-smoke"),
+		"--rpm-smoke-instance",
+		envDefault("PACKER_PACKAGE_RPM_SMOKE_INSTANCE", "vectis-package-rpm-smoke"),
+		"--mode",
+		mode,
 	}
 
 	if lane != "" {

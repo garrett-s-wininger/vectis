@@ -51,7 +51,11 @@ func (p routeBodyPolicy) allowsBody() bool {
 	return p.mode == routeBodyJSON || p.mode == routeBodyOptionalJSON
 }
 
-func routeBodyMiddleware(policy routeBodyPolicy, next http.Handler, recorders ...securityRejectionRecorder) http.Handler {
+func routeBodyMiddleware(
+	policy routeBodyPolicy,
+	next http.Handler,
+	recorders ...securityRejectionRecorder,
+) http.Handler {
 	var record securityRejectionRecorder
 	if len(recorders) > 0 {
 		record = recorders[0]

@@ -66,7 +66,10 @@ func (w *worker) newArtifactPublisher(job *api.Job, env *cell.ExecutionEnvelope)
 	}
 }
 
-func (p *workerArtifactPublisher) PublishArtifact(ctx context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+func (p *workerArtifactPublisher) PublishArtifact(
+	ctx context.Context,
+	req action.ArtifactPublishRequest,
+) (action.ArtifactPublishResult, error) {
 	if p == nil {
 		return action.ArtifactPublishResult{}, fmt.Errorf("artifact publisher is not configured")
 	}

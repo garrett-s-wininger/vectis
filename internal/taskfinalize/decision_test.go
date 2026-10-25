@@ -85,7 +85,9 @@ func TestFailureReason(t *testing.T) {
 		},
 	}
 
-	if got, want := taskfinalize.FailureReason(decision), "3 task execution(s) ended in a terminal failure"; got != want {
+	if got, want := taskfinalize.FailureReason(
+		decision,
+	), "3 task execution(s) ended in a terminal failure"; got != want {
 		t.Fatalf("FailureReason: got %q, want %q", got, want)
 	}
 }
@@ -114,7 +116,12 @@ func TestRecordDecision(t *testing.T) {
 		t.Fatalf("ended spans: got %d, want 1", len(spans))
 	}
 
-	if got := spanAttributeString(spans[0].Attributes(), "vectis.task.finalize.outcome"); got != string(taskfinalize.OutcomeReduceFailed) {
+	if got := spanAttributeString(
+		spans[0].Attributes(),
+		"vectis.task.finalize.outcome",
+	); got != string(
+		taskfinalize.OutcomeReduceFailed,
+	) {
 		t.Fatalf("finalize outcome attr: got %q, want %q", got, taskfinalize.OutcomeReduceFailed)
 	}
 
@@ -144,7 +151,12 @@ func TestRecordDecisionWithoutReduceOmitsReduceAttributes(t *testing.T) {
 		t.Fatalf("ended spans: got %d, want 1", len(spans))
 	}
 
-	if got := spanAttributeString(spans[0].Attributes(), "vectis.task.finalize.outcome"); got != string(taskfinalize.OutcomeExecutionAborted) {
+	if got := spanAttributeString(
+		spans[0].Attributes(),
+		"vectis.task.finalize.outcome",
+	); got != string(
+		taskfinalize.OutcomeExecutionAborted,
+	) {
 		t.Fatalf("finalize outcome attr: got %q, want %q", got, taskfinalize.OutcomeExecutionAborted)
 	}
 

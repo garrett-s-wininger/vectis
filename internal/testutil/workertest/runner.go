@@ -96,18 +96,47 @@ func (r *Runner) RunOne(ctx context.Context) (Result, error) {
 		return Result{}, fmt.Errorf("mark execution started: %w", err)
 	}
 
-	execErr := r.Executor.ExecuteTaskWithOptions(ctx, req.GetJob(), env.TaskKey, r.LogClient, r.Logger, job.ExecuteOptions{
-		WorkloadIdentity: workload,
-		SecretFiles:      secretFiles,
-		ActionResolver:   r.ActionResolver,
-		ActionLocks:      env.ActionLocks,
-	})
+	execErr := r.Executor.ExecuteTaskWithOptions(
+		ctx,
+		req.GetJob(),
+		env.TaskKey,
+		r.LogClient,
+		r.Logger,
+		job.ExecuteOptions{
+			WorkloadIdentity: workload,
+			SecretFiles:      secretFiles,
+			ActionResolver:   r.ActionResolver,
+			ActionLocks:      env.ActionLocks,
+		},
+	)
 	if execErr != nil {
-		finalization, _ := r.Store.CompleteExecutionAndFinalizeRunByClaim(ctx, env.ExecutionID, r.workerID(), claim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, execErr.Error())
-		return Result{Request: req, Envelope: env, Claim: claim, Workload: workload, Finalization: finalization}, execErr
+		finalization, _ := r.Store.CompleteExecutionAndFinalizeRunByClaim(
+			ctx,
+			env.ExecutionID,
+			r.workerID(),
+			claim.ClaimToken,
+			dal.ExecutionStatusFailed,
+			dal.FailureCodeExecution,
+			execErr.Error(),
+		)
+		return Result{
+			Request:      req,
+			Envelope:     env,
+			Claim:        claim,
+			Workload:     workload,
+			Finalization: finalization,
+		}, execErr
 	}
 
-	finalization, err := r.Store.CompleteExecutionAndFinalizeRunByClaim(ctx, env.ExecutionID, r.workerID(), claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalization, err := r.Store.CompleteExecutionAndFinalizeRunByClaim(
+		ctx,
+		env.ExecutionID,
+		r.workerID(),
+		claim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		return Result{}, fmt.Errorf("complete execution: %w", err)
 	}
@@ -156,7 +185,10 @@ func (r *Runner) dequeue(ctx context.Context) (*api.JobRequest, error) {
 	return req, nil
 }
 
-func (r *Runner) prepareWorkload(ctx context.Context, env *cell.ExecutionEnvelope) (*workloadidentity.Identity, spire.RegistrationHandle, error) {
+func (r *Runner) prepareWorkload(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+) (*workloadidentity.Identity, spire.RegistrationHandle, error) {
 	if r.TrustDomain == "" && r.Registrar == nil && r.SVIDSource == nil {
 		return nil, spire.RegistrationHandle{}, nil
 	}
@@ -190,7 +222,11 @@ func (r *Runner) prepareWorkload(ctx context.Context, env *cell.ExecutionEnvelop
 	}), handle, nil
 }
 
-func (r *Runner) ensureRegistration(ctx context.Context, workload *workloadidentity.Identity, env *cell.ExecutionEnvelope) (spire.RegistrationHandle, error) {
+func (r *Runner) ensureRegistration(
+	ctx context.Context,
+	workload *workloadidentity.Identity,
+	env *cell.ExecutionEnvelope,
+) (spire.RegistrationHandle, error) {
 	if r.Registrar == nil {
 		return spire.RegistrationHandle{}, nil
 	}
@@ -206,14 +242,18 @@ func (r *Runner) ensureRegistration(ctx context.Context, workload *workloadident
 	if ttl <= 0 {
 		ttl = time.Minute
 	}
-	intent, err := spire.NewExecutionRegistrationIntent(workload.SPIFFEID, executionFromEnvelope(env), spire.ExecutionRegistrationOptions{
-		ParentSPIFFEID: r.ParentSPIFFEID,
-		Selectors:      r.Selectors,
-		ExpiresAt:      now.Add(ttl),
-		Now:            now,
-		MinTTL:         r.RegistrationMinTTL,
-		MaxTTL:         r.RegistrationMaxTTL,
-	})
+	intent, err := spire.NewExecutionRegistrationIntent(
+		workload.SPIFFEID,
+		executionFromEnvelope(env),
+		spire.ExecutionRegistrationOptions{
+			ParentSPIFFEID: r.ParentSPIFFEID,
+			Selectors:      r.Selectors,
+			ExpiresAt:      now.Add(ttl),
+			Now:            now,
+			MinTTL:         r.RegistrationMinTTL,
+			MaxTTL:         r.RegistrationMaxTTL,
+		},
+	)
 	if err != nil {
 		return spire.RegistrationHandle{}, fmt.Errorf("execution SPIFFE registration intent: %w", err)
 	}
@@ -232,7 +272,13 @@ func (r *Runner) releaseRegistration(ctx context.Context, handle spire.Registrat
 	_ = r.Registrar.ReleaseRegistration(context.WithoutCancel(ctx), handle)
 }
 
-func (r *Runner) resolveSecrets(ctx context.Context, runJob *api.Job, env *cell.ExecutionEnvelope, claimToken string, workload *workloadidentity.Identity) ([]secrets.FileMaterial, error) {
+func (r *Runner) resolveSecrets(
+	ctx context.Context,
+	runJob *api.Job,
+	env *cell.ExecutionEnvelope,
+	claimToken string,
+	workload *workloadidentity.Identity,
+) ([]secrets.FileMaterial, error) {
 	refs := secrets.ReferencesForTask(runJob, env.TaskKey)
 	if len(refs) == 0 {
 		return nil, nil

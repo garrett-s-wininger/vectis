@@ -115,7 +115,12 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	defer metricsSrv.Shutdown()
 
 	interval := config.ReconcilerInterval()
-	logger.Info("Reconciler polling every %v with service lease ttl %v and redispatch limit %d", interval, config.ReconcilerLeaseTTL(), config.ReconcilerRedispatchLimit())
+	logger.Info(
+		"Reconciler polling every %v with service lease ttl %v and redispatch limit %d",
+		interval,
+		config.ReconcilerLeaseTTL(),
+		config.ReconcilerRedispatchLimit(),
+	)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -146,9 +151,12 @@ var rootCmd = &cobra.Command{
 func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Duration("interval", config.ReconcilerInterval(), "How often to scan for queued runs")
-	rootCmd.PersistentFlags().Duration("lease-ttl", config.ReconcilerLeaseTTL(), "How long a reconciler instance owns the active service lease")
-	rootCmd.PersistentFlags().Int("redispatch-limit", config.ReconcilerRedispatchLimit(), "Maximum queued runs to redispatch per reconciler pass")
-	rootCmd.PersistentFlags().String("metrics-host", config.ReconcilerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().
+		Duration("lease-ttl", config.ReconcilerLeaseTTL(), "How long a reconciler instance owns the active service lease")
+	rootCmd.PersistentFlags().
+		Int("redispatch-limit", config.ReconcilerRedispatchLimit(), "Maximum queued runs to redispatch per reconciler pass")
+	rootCmd.PersistentFlags().
+		String("metrics-host", config.ReconcilerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.ReconcilerMetricsPort(), "HTTP port for Prometheus /metrics")
 
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
@@ -156,7 +164,11 @@ func init() {
 	_ = viper.BindPFlag("redispatch_limit", rootCmd.PersistentFlags().Lookup("redispatch-limit"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
-	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_RECONCILER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+	_ = viper.BindEnv(
+		"cell_ingress_endpoints",
+		"VECTIS_RECONCILER_CELL_INGRESS_ENDPOINTS",
+		"VECTIS_CELL_INGRESS_ENDPOINTS",
+	)
 
 	viper.SetDefault("metrics_host", config.ReconcilerMetricsHost())
 	viper.SetDefault("metrics_port", config.ReconcilerMetricsPort())

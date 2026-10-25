@@ -140,14 +140,75 @@ func assertNamespaceExists(t *testing.T, db *sql.DB, path string) {
 func assertSQLiteSecurityConstraints(t *testing.T, db *sql.DB) {
 	t.Helper()
 
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO namespaces (name, parent_id, path, break_inheritance) VALUES (?, ?, ?, ?)`, "bad-bool", 1, "/bad-bool", 2)
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO job_triggers (job_id, trigger_type, enabled) VALUES (?, ?, ?)`, "job-bad-enabled", "manual", 2)
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`, "bad-enabled", "hash", 2)
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path) VALUES (?, ?, ?)`, "bad-kind", "remote_git", "/work/bad-kind")
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, checkout_mode) VALUES (?, ?, ?, ?)`, "bad-checkout", "local_checkout", "/work/bad-checkout", "magic")
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, authoring_mode) VALUES (?, ?, ?, ?)`, "bad-authoring", "local_checkout", "/work/bad-authoring", "magic")
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, enabled) VALUES (?, ?, ?, ?)`, "bad-source-enabled", "local_checkout", "/work/bad-source-enabled", 2)
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, sync_status) VALUES (?, ?, ?, ?)`, "bad-sync-status", "local_checkout", "/work/bad-sync-status", "magic")
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO namespaces (name, parent_id, path, break_inheritance) VALUES (?, ?, ?, ?)`,
+		"bad-bool",
+		1,
+		"/bad-bool",
+		2,
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO job_triggers (job_id, trigger_type, enabled) VALUES (?, ?, ?)`,
+		"job-bad-enabled",
+		"manual",
+		2,
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`,
+		"bad-enabled",
+		"hash",
+		2,
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO source_repositories (repository_id, source_kind, checkout_path) VALUES (?, ?, ?)`,
+		"bad-kind",
+		"remote_git",
+		"/work/bad-kind",
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO source_repositories (repository_id, source_kind, checkout_path, checkout_mode) VALUES (?, ?, ?, ?)`,
+		"bad-checkout",
+		"local_checkout",
+		"/work/bad-checkout",
+		"magic",
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO source_repositories (repository_id, source_kind, checkout_path, authoring_mode) VALUES (?, ?, ?, ?)`,
+		"bad-authoring",
+		"local_checkout",
+		"/work/bad-authoring",
+		"magic",
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO source_repositories (repository_id, source_kind, checkout_path, enabled) VALUES (?, ?, ?, ?)`,
+		"bad-source-enabled",
+		"local_checkout",
+		"/work/bad-source-enabled",
+		2,
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO source_repositories (repository_id, source_kind, checkout_path, sync_status) VALUES (?, ?, ?, ?)`,
+		"bad-sync-status",
+		"local_checkout",
+		"/work/bad-sync-status",
+		"magic",
+	)
 
 	res, err := db.Exec(`INSERT INTO local_users (username, password_hash) VALUES (?, ?)`, "constraint-user", "hash")
 	if err != nil {
@@ -157,7 +218,14 @@ func assertSQLiteSecurityConstraints(t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatalf("constraint user id: %v", err)
 	}
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`, userID, 1, "owner")
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`,
+		userID,
+		1,
+		"owner",
+	)
 
 	res, err = db.Exec(`INSERT INTO api_tokens (local_user_id, token_hash) VALUES (?, ?)`, userID, "constraint-token")
 	if err != nil {
@@ -167,8 +235,21 @@ func assertSQLiteSecurityConstraints(t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatalf("constraint token id: %v", err)
 	}
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO api_token_scopes (api_token_id, action) VALUES (?, ?)`, tokenID, "setup:complete")
-	assertSQLiteConstraintRejects(t, db, `INSERT INTO api_token_scopes (api_token_id, action, propagate) VALUES (?, ?, ?)`, tokenID, "job:read", 2)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO api_token_scopes (api_token_id, action) VALUES (?, ?)`,
+		tokenID,
+		"setup:complete",
+	)
+	assertSQLiteConstraintRejects(
+		t,
+		db,
+		`INSERT INTO api_token_scopes (api_token_id, action, propagate) VALUES (?, ?, ?)`,
+		tokenID,
+		"job:read",
+		2,
+	)
 }
 
 func assertSQLiteConstraintRejects(t *testing.T, db *sql.DB, query string, args ...any) {
@@ -247,7 +328,14 @@ func readMigrationVersions(t *testing.T, backend string) map[string]map[string]s
 			versions[version] = map[string]string{}
 		}
 		if existing := versions[version][direction]; existing != "" {
-			t.Fatalf("%s migration version %s has duplicate %s files: %s and %s", backend, version, direction, existing, entry.Name())
+			t.Fatalf(
+				"%s migration version %s has duplicate %s files: %s and %s",
+				backend,
+				version,
+				direction,
+				existing,
+				entry.Name(),
+			)
 		}
 		versions[version][direction] = entry.Name()
 	}
@@ -280,7 +368,13 @@ func splitMigrationFilename(name string) (version, direction string, ok bool) {
 	return "", "", false
 }
 
-func assertSameMigrationVersions(t *testing.T, leftName string, left map[string]map[string]string, rightName string, right map[string]map[string]string) {
+func assertSameMigrationVersions(
+	t *testing.T,
+	leftName string,
+	left map[string]map[string]string,
+	rightName string,
+	right map[string]map[string]string,
+) {
 	t.Helper()
 
 	for _, version := range sortedMigrationVersions(left) {
@@ -326,7 +420,12 @@ func assertSQLiteForeignKeyTargetsExist(t *testing.T, db *sql.DB) {
 	}
 }
 
-func assertSQLiteForeignKeysReferenceExistingTables(t *testing.T, db *sql.DB, table string, existing map[string]struct{}) {
+func assertSQLiteForeignKeysReferenceExistingTables(
+	t *testing.T,
+	db *sql.DB,
+	table string,
+	existing map[string]struct{},
+) {
 	t.Helper()
 
 	fkRows, err := db.Query(fmt.Sprintf("PRAGMA foreign_key_list(%s)", sqliteIdentifier(table)))

@@ -10,7 +10,12 @@ import (
 	"google.golang.org/grpc"
 )
 
-func DialLog(ctx context.Context, logger interfaces.Logger, pinnedLogAddr, registryDialAddr string, retryMetrics backoff.RetryMetrics) (*grpc.ClientConn, func(), error) {
+func DialLog(
+	ctx context.Context,
+	logger interfaces.Logger,
+	pinnedLogAddr, registryDialAddr string,
+	retryMetrics backoff.RetryMetrics,
+) (*grpc.ClientConn, func(), error) {
 	if pinnedLogAddr != "" {
 		logger.Info("Using pinned log address: %s", pinnedLogAddr)
 		return NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_LOG, pinnedLogAddr, logger, nil, retryMetrics)

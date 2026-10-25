@@ -69,7 +69,12 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	grpcServer := grpc.NewServer(srvOpts...)
 	_, healthServer := orchestrator.RegisterOrchestratorServiceWithHealth(grpcServer, service, logger)
 
-	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, config.OrchestratorMetricsListenAddr(), "Orchestrator", logger)
+	metricsSrv, err := cli.StartMetricsHTTPServer(
+		metricsHandler,
+		config.OrchestratorMetricsListenAddr(),
+		"Orchestrator",
+		logger,
+	)
 	if err != nil {
 		logger.Fatal("%v", err)
 	}
@@ -97,7 +102,14 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	}
 
 	logger.Info("Orchestrator server listening on %s", addr)
-	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Orchestrator", logger, cli.WithGRPCHealthServer(healthServer, "orchestrator")); err != nil {
+	if err := cli.ServeGRPC(
+		cmd.Context(),
+		grpcServer,
+		ln,
+		"Orchestrator",
+		logger,
+		cli.WithGRPCHealthServer(healthServer, "orchestrator"),
+	); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }
@@ -126,9 +138,11 @@ func init() {
 	viper.SetDefault("shards", config.OrchestratorShards())
 
 	rootCmd.PersistentFlags().Int("port", config.OrchestratorPort(), "Port for the orchestrator gRPC service")
-	rootCmd.PersistentFlags().String("metrics-host", config.OrchestratorMetricsHost(), "Host/interface for Prometheus /metrics")
+	rootCmd.PersistentFlags().
+		String("metrics-host", config.OrchestratorMetricsHost(), "Host/interface for Prometheus /metrics")
 	rootCmd.PersistentFlags().Int("metrics-port", config.OrchestratorMetricsPort(), "HTTP port for Prometheus /metrics")
-	rootCmd.PersistentFlags().Int("shards", config.OrchestratorShards(), "Number of run ownership shards; 0 uses GOMAXPROCS")
+	rootCmd.PersistentFlags().
+		Int("shards", config.OrchestratorShards(), "Number of run ownership shards; 0 uses GOMAXPROCS")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))

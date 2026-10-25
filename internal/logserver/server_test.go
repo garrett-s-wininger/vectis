@@ -192,7 +192,13 @@ func TestStreamLogsAssignsRunGlobalSequencesAcrossTaskStreams(t *testing.T) {
 	rootStream := &fakeStreamLogsServer{
 		chunks: []*api.LogChunk{
 			{RunId: proto.String(runID), Sequence: proto.Int64(1), Stream: &stdout, Data: []byte("root start")},
-			{RunId: proto.String(runID), Sequence: proto.Int64(2), Stream: &control, Completed: success.Enum(), Data: []byte(`{"event":"completed","status":"success"}`)},
+			{
+				RunId:     proto.String(runID),
+				Sequence:  proto.Int64(2),
+				Stream:    &control,
+				Completed: success.Enum(),
+				Data:      []byte(`{"event":"completed","status":"success"}`),
+			},
 		},
 	}
 
@@ -202,7 +208,12 @@ func TestStreamLogsAssignsRunGlobalSequencesAcrossTaskStreams(t *testing.T) {
 
 	fanoutStream := &fakeStreamLogsServer{
 		chunks: []*api.LogChunk{
-			{RunId: proto.String(runID), Sequence: proto.Int64(1), Stream: &stdout, Data: []byte("fanout after root completion")},
+			{
+				RunId:    proto.String(runID),
+				Sequence: proto.Int64(1),
+				Stream:   &stdout,
+				Data:     []byte("fanout after root completion"),
+			},
 		},
 	}
 
@@ -223,7 +234,10 @@ func TestStreamLogsAssignsRunGlobalSequencesAcrossTaskStreams(t *testing.T) {
 	}
 
 	replay := &fakeGetLogsServer{}
-	if err := s.GetLogs(&api.GetLogsRequest{RunId: proto.String(runID), SinceSequence: proto.Int64(2)}, replay); err != nil {
+	if err := s.GetLogs(
+		&api.GetLogsRequest{RunId: proto.String(runID), SinceSequence: proto.Int64(2)},
+		replay,
+	); err != nil {
 		t.Fatalf("GetLogs: %v", err)
 	}
 
@@ -491,7 +505,13 @@ func TestServerReplayHistoricalEntriesUsesReplayStoreWithoutTail(t *testing.T) {
 	}
 
 	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
-	entries, terminalAlreadyConsumed, replayTruncated := s.replayHistoricalEntries("run-1", 1, 0, 1, NewJobBuffer(mocks.NopLogger{}, nil))
+	entries, terminalAlreadyConsumed, replayTruncated := s.replayHistoricalEntries(
+		"run-1",
+		1,
+		0,
+		1,
+		NewJobBuffer(mocks.NopLogger{}, nil),
+	)
 	if store.replayCalls != 1 {
 		t.Fatalf("replay calls = %d, want 1", store.replayCalls)
 	}

@@ -47,11 +47,13 @@ func TestPostgres_DALDispatchEventsSmoke(t *testing.T) {
 	}
 
 	msg := "queue unavailable"
-	if err := repos.DispatchEvents().Record(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil); err != nil {
+	if err := repos.DispatchEvents().
+		Record(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil); err != nil {
 		t.Fatalf("record attempt: %v", err)
 	}
 
-	if err := repos.DispatchEvents().Record(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg); err != nil {
+	if err := repos.DispatchEvents().
+		Record(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg); err != nil {
 		t.Fatalf("record failure: %v", err)
 	}
 
@@ -162,7 +164,8 @@ func TestPostgres_CronClaimAndDispatchSmoke(t *testing.T) {
 		t.Fatalf("list dispatch events: %v", err)
 	}
 
-	if len(events) != 2 || events[0].Source != dal.DispatchSourceCron || events[1].EventType != dal.DispatchEventSuccess {
+	if len(events) != 2 || events[0].Source != dal.DispatchSourceCron ||
+		events[1].EventType != dal.DispatchEventSuccess {
 		t.Fatalf("unexpected cron dispatch events: %+v", events)
 	}
 
@@ -215,7 +218,8 @@ func TestPostgres_ReconcilerRedispatchSmoke(t *testing.T) {
 		t.Fatalf("list dispatch events: %v", err)
 	}
 
-	if len(events) != 2 || events[0].Source != dal.DispatchSourceReconciler || events[1].EventType != dal.DispatchEventSuccess {
+	if len(events) != 2 || events[0].Source != dal.DispatchSourceReconciler ||
+		events[1].EventType != dal.DispatchEventSuccess {
 		t.Fatalf("unexpected reconciler dispatch events: %+v", events)
 	}
 

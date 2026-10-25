@@ -95,7 +95,10 @@ func SPIFFEID(trustDomain, pathTemplate string, execution Execution) (string, er
 	}
 
 	if strings.ContainsAny(trustDomain, "/?#") {
-		return "", fmt.Errorf("workload identity: trust domain %q must not contain path, query, or fragment separators", trustDomain)
+		return "", fmt.Errorf(
+			"workload identity: trust domain %q must not contain path, query, or fragment separators",
+			trustDomain,
+		)
 	}
 
 	path, err := renderSPIFFEPath(pathTemplate, execution)

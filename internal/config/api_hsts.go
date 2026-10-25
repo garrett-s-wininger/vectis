@@ -20,7 +20,11 @@ const (
 
 func init() {
 	_ = viper.BindEnv("api.hsts.max_age_seconds", envAPIHSTSMaxAgeSeconds, "VECTIS_API_SERVER_HSTS_MAX_AGE_SECONDS")
-	_ = viper.BindEnv("api.hsts.include_subdomains", envAPIHSTSIncludeSubDomains, "VECTIS_API_SERVER_HSTS_INCLUDE_SUBDOMAINS")
+	_ = viper.BindEnv(
+		"api.hsts.include_subdomains",
+		envAPIHSTSIncludeSubDomains,
+		"VECTIS_API_SERVER_HSTS_INCLUDE_SUBDOMAINS",
+	)
 	_ = viper.BindEnv("api.hsts.preload", envAPIHSTSPreload, "VECTIS_API_SERVER_HSTS_PRELOAD")
 }
 
@@ -84,7 +88,11 @@ func ValidateAPIHSTSConfig() error {
 		return err
 	}
 
-	includeSubDomains, err := validateAPIHSTSBool(envAPIHSTSIncludeSubDomains, "api.hsts.include_subdomains", APIHSTSIncludeSubDomains())
+	includeSubDomains, err := validateAPIHSTSBool(
+		envAPIHSTSIncludeSubDomains,
+		"api.hsts.include_subdomains",
+		APIHSTSIncludeSubDomains(),
+	)
 	if err != nil {
 		return err
 	}
@@ -99,7 +107,11 @@ func ValidateAPIHSTSConfig() error {
 	}
 
 	if preload && maxAgeSeconds < apiHSTSPreloadMinMaxAgeSeconds {
-		return fmt.Errorf("api.hsts.preload requires api.hsts.max_age_seconds >= %d (got %d)", apiHSTSPreloadMinMaxAgeSeconds, maxAgeSeconds)
+		return fmt.Errorf(
+			"api.hsts.preload requires api.hsts.max_age_seconds >= %d (got %d)",
+			apiHSTSPreloadMinMaxAgeSeconds,
+			maxAgeSeconds,
+		)
 	}
 
 	return nil

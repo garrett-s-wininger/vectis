@@ -30,7 +30,13 @@ func runVectisSPIFFE(cmd *cobra.Command, args []string) {
 	}
 	defer authority.Stop()
 
-	logger.Info("SPIFFE authority ready for trust domain %s (workload=%s registration=%s bundle=%s)", cfg.TrustDomain, cfg.WorkloadSocketPath, cfg.RegistrationSocketPath, cfg.BundleFile)
+	logger.Info(
+		"SPIFFE authority ready for trust domain %s (workload=%s registration=%s bundle=%s)",
+		cfg.TrustDomain,
+		cfg.WorkloadSocketPath,
+		cfg.RegistrationSocketPath,
+		cfg.BundleFile,
+	)
 	if initOnly {
 		return
 	}
@@ -123,7 +129,8 @@ func init() {
 	rootCmd.PersistentFlags().String("workload-socket", "", "Workload API Unix socket path")
 	rootCmd.PersistentFlags().String("registration-socket", "", "Entry API Unix socket path")
 	rootCmd.PersistentFlags().String("bundle-file", "", "PEM bundle output path")
-	rootCmd.PersistentFlags().StringArray("selector", nil, "Trusted workload selector, such as unix:uid:0; may be repeated")
+	rootCmd.PersistentFlags().
+		StringArray("selector", nil, "Trusted workload selector, such as unix:uid:0; may be repeated")
 	rootCmd.PersistentFlags().Duration("x509-svid-ttl", 5*time.Minute, "Default X.509-SVID TTL")
 	rootCmd.PersistentFlags().Bool("init-only", false, "Initialize CA and bundle material, then exit")
 

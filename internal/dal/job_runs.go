@@ -40,13 +40,30 @@ func (r *SQLRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update Run
 	case RunStatusSucceeded:
 		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status})
 	case RunStatusFailed:
-		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status, FailureCode: update.FailureCode, Reason: update.Reason})
+		return r.applyCatalogRunStatusUpdate(
+			ctx,
+			RunStatusUpdate{
+				RunID:       runID,
+				Status:      update.Status,
+				FailureCode: update.FailureCode,
+				Reason:      update.Reason,
+			},
+		)
 	case RunStatusCancelled:
-		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason})
+		return r.applyCatalogRunStatusUpdate(
+			ctx,
+			RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason},
+		)
 	case RunStatusAborted:
-		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: RunStatusCancelled, Reason: update.Reason})
+		return r.applyCatalogRunStatusUpdate(
+			ctx,
+			RunStatusUpdate{RunID: runID, Status: RunStatusCancelled, Reason: update.Reason},
+		)
 	case RunStatusOrphaned:
-		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason})
+		return r.applyCatalogRunStatusUpdate(
+			ctx,
+			RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason},
+		)
 	default:
 		return fmt.Errorf("%w: unsupported run status %s", ErrConflict, update.Status)
 	}
@@ -75,13 +92,22 @@ func (r *SQLRunsRepository) VerifyCatalogRunSourceCell(ctx context.Context, runI
 	}
 
 	if normalizeCellID(owningCell) != sourceCell {
-		return fmt.Errorf("%w: catalog source_cell %s cannot update run %s owned by %s", ErrConflict, sourceCell, runID, normalizeCellID(owningCell))
+		return fmt.Errorf(
+			"%w: catalog source_cell %s cannot update run %s owned by %s",
+			ErrConflict,
+			sourceCell,
+			runID,
+			normalizeCellID(owningCell),
+		)
 	}
 
 	return nil
 }
 
-func (r *SQLRunsRepository) VerifyCatalogExecutionSourceCell(ctx context.Context, executionID, sourceCell string) error {
+func (r *SQLRunsRepository) VerifyCatalogExecutionSourceCell(
+	ctx context.Context,
+	executionID, sourceCell string,
+) error {
 	executionID = strings.TrimSpace(executionID)
 	sourceCell = normalizeCellID(sourceCell)
 	if executionID == "" {
@@ -106,7 +132,13 @@ func (r *SQLRunsRepository) VerifyCatalogExecutionSourceCell(ctx context.Context
 	}
 
 	if normalizeCellID(cellID) != sourceCell {
-		return fmt.Errorf("%w: catalog source_cell %s cannot update execution %s owned by %s", ErrConflict, sourceCell, executionID, normalizeCellID(cellID))
+		return fmt.Errorf(
+			"%w: catalog source_cell %s cannot update execution %s owned by %s",
+			ErrConflict,
+			sourceCell,
+			executionID,
+			normalizeCellID(cellID),
+		)
 	}
 
 	return nil
@@ -136,11 +168,41 @@ func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upda
 func applyExecutionStatusUpdateTx(ctx context.Context, tx *sql.Tx, update ExecutionStatusUpdate) error {
 	switch update.Status {
 	case ExecutionStatusAccepted:
-		return transitionExecutionStatusTx(ctx, tx, update.ExecutionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPlanned, ExecutionStatusPending}, true, false, false)
+		return transitionExecutionStatusTx(
+			ctx,
+			tx,
+			update.ExecutionID,
+			ExecutionStatusAccepted,
+			SegmentStatusAccepted,
+			[]string{ExecutionStatusPlanned, ExecutionStatusPending},
+			true,
+			false,
+			false,
+		)
 	case ExecutionStatusRunning:
-		return transitionExecutionStatusTx(ctx, tx, update.ExecutionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
+		return transitionExecutionStatusTx(
+			ctx,
+			tx,
+			update.ExecutionID,
+			ExecutionStatusRunning,
+			SegmentStatusRunning,
+			[]string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted},
+			true,
+			true,
+			false,
+		)
 	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
-		return transitionExecutionStatusTx(ctx, tx, update.ExecutionID, update.Status, update.Status, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, true, true)
+		return transitionExecutionStatusTx(
+			ctx,
+			tx,
+			update.ExecutionID,
+			update.Status,
+			update.Status,
+			[]string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning},
+			true,
+			true,
+			true,
+		)
 	default:
 		return fmt.Errorf("%w: unsupported execution status %s", ErrConflict, update.Status)
 	}
@@ -153,23 +215,36 @@ func transitionExecutionStatusTx(
 	allowedFrom []string,
 	markAccepted, markStarted, markFinished bool,
 ) error {
-	_, err := transitionExecutionTxWithDecision(ctx, tx, executionID, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished, func(current, target string) statusTransitionDecision {
-		decision := catalogExecutionStatusDecision(current, target)
-		if decision != statusTransitionApply {
-			return decision
-		}
+	_, err := transitionExecutionTxWithDecision(
+		ctx,
+		tx,
+		executionID,
+		targetStatus,
+		targetSegmentStatus,
+		markAccepted,
+		markStarted,
+		markFinished,
+		func(current, target string) statusTransitionDecision {
+			decision := catalogExecutionStatusDecision(current, target)
+			if decision != statusTransitionApply {
+				return decision
+			}
 
-		if !statusIn(current, allowedFrom) {
-			return statusTransitionConflict
-		}
+			if !statusIn(current, allowedFrom) {
+				return statusTransitionConflict
+			}
 
-		return statusTransitionApply
-	})
+			return statusTransitionApply
+		},
+	)
 
 	return err
 }
 
-func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, update TerminalExecutionSnapshotUpdate) error {
+func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(
+	ctx context.Context,
+	update TerminalExecutionSnapshotUpdate,
+) error {
 	runUpdate, err := terminalSnapshotRunStatusUpdate(update)
 	if err != nil {
 		return err
@@ -182,7 +257,8 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, 
 	defer func() { _ = tx.Rollback() }()
 
 	var owningCell string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), runUpdate.RunID).Scan(&owningCell); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), runUpdate.RunID).
+		Scan(&owningCell); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: run %s", ErrNotFound, runUpdate.RunID)
 		}
@@ -277,7 +353,11 @@ func terminalSnapshotRunStatusUpdate(update TerminalExecutionSnapshotUpdate) (Ru
 			out.Reason = CancelReasonAPI
 		}
 	default:
-		return RunStatusUpdate{}, fmt.Errorf("%w: unsupported terminal snapshot outcome %s", ErrConflict, update.Outcome)
+		return RunStatusUpdate{}, fmt.Errorf(
+			"%w: unsupported terminal snapshot outcome %s",
+			ErrConflict,
+			update.Outcome,
+		)
 	}
 
 	return out, nil
@@ -300,7 +380,13 @@ func terminalSnapshotRows(runID, owningCell string, snapshots []TaskExecutionSna
 		}
 
 		if recRunID != runID {
-			return nil, fmt.Errorf("%w: terminal snapshot execution %s belongs to run %s, want %s", ErrConflict, executionID, recRunID, runID)
+			return nil, fmt.Errorf(
+				"%w: terminal snapshot execution %s belongs to run %s, want %s",
+				ErrConflict,
+				executionID,
+				recRunID,
+				runID,
+			)
 		}
 
 		root := taskKey == RootTaskKey
@@ -565,7 +651,10 @@ func insertTerminalSnapshotTasksTx(ctx context.Context, tx *sql.Tx, rows []termi
 			continue
 		}
 
-		values = append(values, []any{row.taskID, row.runID, row.parentTaskID, row.taskKey, row.name, TaskStatusPlanned, ""})
+		values = append(
+			values,
+			[]any{row.taskID, row.runID, row.parentTaskID, row.taskKey, row.name, TaskStatusPlanned, ""},
+		)
 	}
 
 	return execBatchedValuesTx(ctx, tx, `
@@ -582,7 +671,10 @@ func insertTerminalSnapshotTaskAttemptsTx(ctx context.Context, tx *sql.Tx, rows 
 			continue
 		}
 
-		values = append(values, []any{row.taskAttemptID, row.taskID, row.runID, row.cellID, TaskStatusPlanned, row.attempt})
+		values = append(
+			values,
+			[]any{row.taskAttemptID, row.taskID, row.runID, row.cellID, TaskStatusPlanned, row.attempt},
+		)
 	}
 
 	return execBatchedValuesTx(ctx, tx, `
@@ -649,7 +741,8 @@ func verifyTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, rows []
 
 		var count int
 		args := stringsToAny(chunk)
-		if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COUNT(*) FROM segment_executions WHERE execution_id IN ("+questionPlaceholders(len(chunk))+")"), args...).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COUNT(*) FROM segment_executions WHERE execution_id IN ("+questionPlaceholders(len(chunk))+")"), args...).
+			Scan(&count); err != nil {
 			return normalizeSQLError(err)
 		}
 
@@ -739,7 +832,17 @@ func applyTerminalSnapshotStatusBatchTx(ctx context.Context, tx *sql.Tx, batch t
 	}
 
 	observedAt := time.Now().UnixNano()
-	if err := updateTerminalSnapshotExecutionsTx(ctx, tx, batch.status, allowedFrom, batch.executionIDs, observedAt, markAccepted, markStarted, markFinished); err != nil {
+	if err := updateTerminalSnapshotExecutionsTx(
+		ctx,
+		tx,
+		batch.status,
+		allowedFrom,
+		batch.executionIDs,
+		observedAt,
+		markAccepted,
+		markStarted,
+		markFinished,
+	); err != nil {
 		return err
 	}
 
@@ -747,7 +850,17 @@ func applyTerminalSnapshotStatusBatchTx(ctx context.Context, tx *sql.Tx, batch t
 		return err
 	}
 
-	if err := updateTerminalSnapshotTaskAttemptsTx(ctx, tx, batch.status, allowedFrom, batch.taskAttemptIDs, observedAt, markAccepted, markStarted, markFinished); err != nil {
+	if err := updateTerminalSnapshotTaskAttemptsTx(
+		ctx,
+		tx,
+		batch.status,
+		allowedFrom,
+		batch.taskAttemptIDs,
+		observedAt,
+		markAccepted,
+		markStarted,
+		markFinished,
+	); err != nil {
 		return err
 	}
 
@@ -765,13 +878,25 @@ func terminalSnapshotStatusTransition(status string) ([]string, bool, bool, bool
 	case ExecutionStatusRunning:
 		return []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false, nil
 	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
-		return []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, true, true, nil
+		return []string{
+			ExecutionStatusPlanned,
+			ExecutionStatusPending,
+			ExecutionStatusAccepted,
+			ExecutionStatusRunning,
+		}, true, true, true, nil
 	default:
 		return nil, false, false, false, fmt.Errorf("%w: unsupported execution status %s", ErrConflict, status)
 	}
 }
 
-func updateTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, executionIDs []string, observedAt int64, markAccepted, markStarted, markFinished bool) error {
+func updateTerminalSnapshotExecutionsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	status string,
+	allowedFrom, executionIDs []string,
+	observedAt int64,
+	markAccepted, markStarted, markFinished bool,
+) error {
 	if len(executionIDs) == 0 {
 		return nil
 	}
@@ -795,7 +920,12 @@ func updateTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, status 
 		)
 	}
 
-	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	setParts = append(
+		setParts,
+		"last_observed_at = ?",
+		"event_sequence = event_sequence + 1",
+		"updated_at = CURRENT_TIMESTAMP",
+	)
 	args = append(args, observedAt)
 	args = append(args, stringsToAny(executionIDs)...)
 	args = append(args, status)
@@ -810,7 +940,12 @@ func updateTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, status 
 	return normalizeSQLError(err)
 }
 
-func updateTerminalSnapshotSegmentsTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, segmentIDs []string) error {
+func updateTerminalSnapshotSegmentsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	status string,
+	allowedFrom, segmentIDs []string,
+) error {
 	if len(segmentIDs) == 0 {
 		return nil
 	}
@@ -829,7 +964,14 @@ func updateTerminalSnapshotSegmentsTx(ctx context.Context, tx *sql.Tx, status st
 	return normalizeSQLError(err)
 }
 
-func updateTerminalSnapshotTaskAttemptsTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, taskAttemptIDs []string, observedAt int64, markAccepted, markStarted, markFinished bool) error {
+func updateTerminalSnapshotTaskAttemptsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	status string,
+	allowedFrom, taskAttemptIDs []string,
+	observedAt int64,
+	markAccepted, markStarted, markFinished bool,
+) error {
 	if len(taskAttemptIDs) == 0 {
 		return nil
 	}
@@ -848,7 +990,12 @@ func updateTerminalSnapshotTaskAttemptsTx(ctx context.Context, tx *sql.Tx, statu
 		setParts = append(setParts, "finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)")
 	}
 
-	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	setParts = append(
+		setParts,
+		"last_observed_at = ?",
+		"event_sequence = event_sequence + 1",
+		"updated_at = CURRENT_TIMESTAMP",
+	)
 	args = append(args, observedAt)
 	args = append(args, stringsToAny(taskAttemptIDs)...)
 	args = append(args, status)
@@ -863,7 +1010,12 @@ func updateTerminalSnapshotTaskAttemptsTx(ctx context.Context, tx *sql.Tx, statu
 	return normalizeSQLError(err)
 }
 
-func updateTerminalSnapshotTasksTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, taskIDs []string) error {
+func updateTerminalSnapshotTasksTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	status string,
+	allowedFrom, taskIDs []string,
+) error {
 	if len(taskIDs) == 0 {
 		return nil
 	}
@@ -887,7 +1039,8 @@ func applyTerminalRunStatusUpdateTx(ctx context.Context, tx *sql.Tx, update RunS
 	targetStatus := strings.TrimSpace(update.Status)
 
 	var currentStatus string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&currentStatus); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).
+		Scan(&currentStatus); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
 		}
@@ -899,7 +1052,13 @@ func applyTerminalRunStatusUpdateTx(ctx context.Context, tx *sql.Tx, update RunS
 	case statusTransitionNoop:
 		return clearExecutionClaimsForTerminalRunTx(ctx, tx, runID)
 	case statusTransitionConflict:
-		return fmt.Errorf("%w: terminal snapshot run status %s cannot replace current status %s for run %s", ErrConflict, targetStatus, currentStatus, runID)
+		return fmt.Errorf(
+			"%w: terminal snapshot run status %s cannot replace current status %s for run %s",
+			ErrConflict,
+			targetStatus,
+			currentStatus,
+			runID,
+		)
 	case statusTransitionApply:
 	}
 
@@ -968,7 +1127,13 @@ func execBatchedValuesTx(ctx context.Context, tx *sql.Tx, prefix string, rows []
 	return err
 }
 
-func execBatchedValuesRowsAffectedTx(ctx context.Context, tx *sql.Tx, prefix string, rows [][]any, suffix string) (int, error) {
+func execBatchedValuesRowsAffectedTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	prefix string,
+	rows [][]any,
+	suffix string,
+) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
@@ -1035,9 +1200,14 @@ func stringsToAny(values []string) []any {
 }
 
 func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
-	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE job_runs SET status = ?, orphan_reason = '', failure_code = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?"),
-		"running", runID)
+	_, err := r.db.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"UPDATE job_runs SET status = ?, orphan_reason = '', failure_code = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?",
+		),
+		"running",
+		runID,
+	)
 
 	return normalizeSQLError(err)
 }
@@ -1052,7 +1222,8 @@ func (r *SQLRunsRepository) applyCatalogRunStatusUpdate(ctx context.Context, upd
 	runID := strings.TrimSpace(update.RunID)
 	targetStatus := strings.TrimSpace(update.Status)
 	var currentStatus string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&currentStatus); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).
+		Scan(&currentStatus); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
 		}
@@ -1064,16 +1235,28 @@ func (r *SQLRunsRepository) applyCatalogRunStatusUpdate(ctx context.Context, upd
 	case statusTransitionNoop:
 		return tx.Commit()
 	case statusTransitionConflict:
-		return fmt.Errorf("%w: catalog run status %s cannot replace current status %s for run %s", ErrConflict, targetStatus, currentStatus, runID)
+		return fmt.Errorf(
+			"%w: catalog run status %s cannot replace current status %s for run %s",
+			ErrConflict,
+			targetStatus,
+			currentStatus,
+			runID,
+		)
 	case statusTransitionApply:
 	}
 
 	var res sql.Result
 	switch targetStatus {
 	case RunStatusRunning:
-		res, err = tx.ExecContext(ctx,
-			rebindQueryForPgx("UPDATE job_runs SET status = ?, orphan_reason = '', failure_code = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ? AND status = ?"),
-			RunStatusRunning, runID, currentStatus)
+		res, err = tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				"UPDATE job_runs SET status = ?, orphan_reason = '', failure_code = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ? AND status = ?",
+			),
+			RunStatusRunning,
+			runID,
+			currentStatus,
+		)
 	case RunStatusSucceeded:
 		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
 			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
@@ -1263,7 +1446,8 @@ func (r *SQLRunsRepository) repairMarkTerminal(ctx context.Context, runID, statu
 	}
 
 	var current string
-	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&current); err != nil {
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).
+		Scan(&current); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
 		}
@@ -1341,7 +1525,17 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 		return normalizeSQLError(err)
 	}
 
-	if !statusIn(status, []string{RunStatusQueued, RunStatusFailed, RunStatusOrphaned, RunStatusAborted, RunStatusCancelled, RunStatusAbandoned}) {
+	if !statusIn(
+		status,
+		[]string{
+			RunStatusQueued,
+			RunStatusFailed,
+			RunStatusOrphaned,
+			RunStatusAborted,
+			RunStatusCancelled,
+			RunStatusAbandoned,
+		},
+	) {
 		return fmt.Errorf("%w: run %s in status %s cannot be requeued", ErrConflict, runID, status)
 	}
 
@@ -1418,7 +1612,17 @@ func retireRootRetryAttemptsTx(ctx context.Context, tx *sql.Tx, runID string) er
 	}
 
 	for _, executionID := range executionIDs {
-		if _, err := transitionExecutionTx(ctx, tx, executionID, ExecutionStatusAborted, SegmentStatusAborted, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, false, false, true); err != nil {
+		if _, err := transitionExecutionTx(
+			ctx,
+			tx,
+			executionID,
+			ExecutionStatusAborted,
+			SegmentStatusAborted,
+			[]string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning},
+			false,
+			false,
+			true,
+		); err != nil {
 			return err
 		}
 	}
@@ -1823,11 +2027,22 @@ func (r *SQLRunsRepository) AssignLogShard(ctx context.Context, runID, shardID s
 	return assigned, nil
 }
 
-func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error) {
+func (r *SQLRunsRepository) CreateRun(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+) (runID string, runIndexOut int, err error) {
 	return r.CreateRunInCell(ctx, jobID, runIndex, definitionVersion, r.currentCellID())
 }
 
-func (r *SQLRunsRepository) CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error) {
+func (r *SQLRunsRepository) CreateRunInCell(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellID string,
+) (runID string, runIndexOut int, err error) {
 	runs, err := r.CreateRunsInCells(ctx, jobID, runIndex, definitionVersion, []string{targetCellID})
 	if err != nil {
 		return "", 0, err
@@ -1840,11 +2055,24 @@ func (r *SQLRunsRepository) CreateRunInCell(ctx context.Context, jobID string, r
 	return runs[0].RunID, runs[0].RunIndex, nil
 }
 
-func (r *SQLRunsRepository) CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error) {
+func (r *SQLRunsRepository) CreateRunsInCells(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellIDs []string,
+) ([]CreatedRun, error) {
 	return r.CreateRunsInCellsWithAudit(ctx, jobID, runIndex, definitionVersion, targetCellIDs, RunAuditMetadata{})
 }
 
-func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error) {
+func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellIDs []string,
+	audit RunAuditMetadata,
+) ([]CreatedRun, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -1855,7 +2083,8 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 	if runIndex != nil {
 		idx = *runIndex
 	} else {
-		err = tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx)
+		err = tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).
+			Scan(&idx)
 		if err != nil {
 			return nil, normalizeSQLError(err)
 		}
@@ -1885,8 +2114,11 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 		runID := uuid.New().String()
 		runIndexOut := idx + i
 
-		_, err = tx.ExecContext(ctx,
-			rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
+		_, err = tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+			),
 			runID,
 			jobID,
 			runIndexOut,
@@ -1935,7 +2167,10 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 	return createdRuns, nil
 }
 
-func (r *SQLRunsRepository) ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]CreatedRun, error) {
+func (r *SQLRunsRepository) ListRunsByTriggerInvocation(
+	ctx context.Context,
+	triggerInvocationID string,
+) ([]CreatedRun, error) {
 	return r.ListCreatedByTriggerInvocation(ctx, triggerInvocationID)
 }
 
@@ -1965,7 +2200,14 @@ func (r *SQLRunsRepository) GetQueuedRunForDispatch(ctx context.Context, runID s
 	return QueuedRun{}, false, normalizeSQLError(err)
 }
 
-func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
+func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(
+	ctx context.Context,
+	scheduleID int64,
+	scheduledFor time.Time,
+	jobID, definitionJSON string,
+	source JobDefinitionSourceRecord,
+	audit RunAuditMetadata,
+) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
 	if scheduleID <= 0 {
 		return "", 0, 0, false, fmt.Errorf("schedule id is required")
 	}
@@ -1981,7 +2223,15 @@ func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Conte
 			return runID, runIndexOut, definitionVersion, false, nil
 		}
 
-		runID, runIndexOut, definitionVersion, created, err := r.tryCreateScheduledSourceDefinitionRun(ctx, scheduleID, scheduledForKey, jobID, definitionJSON, source, audit)
+		runID, runIndexOut, definitionVersion, created, err := r.tryCreateScheduledSourceDefinitionRun(
+			ctx,
+			scheduleID,
+			scheduledForKey,
+			jobID,
+			definitionJSON,
+			source,
+			audit,
+		)
 		if err != nil {
 			return "", 0, 0, false, err
 		}
@@ -2000,10 +2250,19 @@ func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Conte
 		return runID, runIndexOut, definitionVersion, false, nil
 	}
 
-	return "", 0, 0, false, fmt.Errorf("%w: scheduled source run for schedule %d at %s was not created", ErrConflict, scheduleID, scheduledForKey)
+	return "", 0, 0, false, fmt.Errorf(
+		"%w: scheduled source run for schedule %d at %s was not created",
+		ErrConflict,
+		scheduleID,
+		scheduledForKey,
+	)
 }
 
-func (r *SQLRunsRepository) findScheduledRun(ctx context.Context, scheduleID int64, scheduledForKey string) (runID string, runIndexOut int, definitionVersion int, found bool, err error) {
+func (r *SQLRunsRepository) findScheduledRun(
+	ctx context.Context,
+	scheduleID int64,
+	scheduledForKey string,
+) (runID string, runIndexOut int, definitionVersion int, found bool, err error) {
 	err = r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT f.run_id, r.run_index, r.definition_version
 		FROM cron_schedule_fires f
@@ -2022,7 +2281,13 @@ func (r *SQLRunsRepository) findScheduledRun(ctx context.Context, scheduleID int
 	return "", 0, 0, false, nil
 }
 
-func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledForKey, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
+func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(
+	ctx context.Context,
+	scheduleID int64,
+	scheduledForKey, jobID, definitionJSON string,
+	source JobDefinitionSourceRecord,
+	audit RunAuditMetadata,
+) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, 0, false, err
@@ -2042,9 +2307,16 @@ func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(ctx context.Co
 	}
 
 	definitionHash := DefinitionHash(definitionJSON)
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)`),
-		newGlobalID(), jobID, definitionVersion, definitionJSON, definitionHash,
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)`,
+		),
+		newGlobalID(),
+		jobID,
+		definitionVersion,
+		definitionJSON,
+		definitionHash,
 	); err != nil {
 		return "", 0, 0, false, normalizeSQLError(err)
 	}
@@ -2087,7 +2359,13 @@ func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(ctx context.Co
 	return runID, runIndexOut, definitionVersion, true, nil
 }
 
-func (r *SQLRunsRepository) CreateSCMEventRun(ctx context.Context, triggerID int64, eventKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
+func (r *SQLRunsRepository) CreateSCMEventRun(
+	ctx context.Context,
+	triggerID int64,
+	eventKey, jobID string,
+	definitionVersion int,
+	audit RunAuditMetadata,
+) (runID string, runIndexOut int, created bool, err error) {
 	if triggerID <= 0 {
 		return "", 0, false, fmt.Errorf("%w: trigger_id is required", ErrNotFound)
 	}
@@ -2106,7 +2384,14 @@ func (r *SQLRunsRepository) CreateSCMEventRun(ctx context.Context, triggerID int
 			return runID, runIndexOut, false, nil
 		}
 
-		runID, runIndexOut, created, err := r.tryCreateSCMEventRun(ctx, triggerID, eventKey, jobID, definitionVersion, audit)
+		runID, runIndexOut, created, err := r.tryCreateSCMEventRun(
+			ctx,
+			triggerID,
+			eventKey,
+			jobID,
+			definitionVersion,
+			audit,
+		)
 		if err != nil {
 			return "", 0, false, err
 		}
@@ -2124,10 +2409,19 @@ func (r *SQLRunsRepository) CreateSCMEventRun(ctx context.Context, triggerID int
 		return runID, runIndexOut, false, nil
 	}
 
-	return "", 0, false, fmt.Errorf("%w: scm event run for trigger %d event %q was not created", ErrConflict, triggerID, eventKey)
+	return "", 0, false, fmt.Errorf(
+		"%w: scm event run for trigger %d event %q was not created",
+		ErrConflict,
+		triggerID,
+		eventKey,
+	)
 }
 
-func (r *SQLRunsRepository) findSCMEventRun(ctx context.Context, triggerID int64, eventKey string) (runID string, runIndexOut int, found bool, err error) {
+func (r *SQLRunsRepository) findSCMEventRun(
+	ctx context.Context,
+	triggerID int64,
+	eventKey string,
+) (runID string, runIndexOut int, found bool, err error) {
 	err = r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT e.run_id, r.run_index
 		FROM scm_trigger_events e
@@ -2146,7 +2440,13 @@ func (r *SQLRunsRepository) findSCMEventRun(ctx context.Context, triggerID int64
 	return "", 0, false, nil
 }
 
-func (r *SQLRunsRepository) tryCreateSCMEventRun(ctx context.Context, triggerID int64, eventKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
+func (r *SQLRunsRepository) tryCreateSCMEventRun(
+	ctx context.Context,
+	triggerID int64,
+	eventKey, jobID string,
+	definitionVersion int,
+	audit RunAuditMetadata,
+) (runID string, runIndexOut int, created bool, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, false, err
@@ -2201,12 +2501,21 @@ func (r *SQLRunsRepository) tryCreateSCMEventRun(ctx context.Context, triggerID 
 	return runID, runIndexOut, true, nil
 }
 
-func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex *int, definitionVersion int, targetCellID string, audit RunAuditMetadata) (int, error) {
+func createRunTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID, jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellID string,
+	audit RunAuditMetadata,
+) (int, error) {
 	var idx int
 	if runIndex != nil {
 		idx = *runIndex
 	} else {
-		if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx); err != nil {
+		if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).
+			Scan(&idx); err != nil {
 			return 0, normalizeSQLError(err)
 		}
 	}
@@ -2225,8 +2534,11 @@ func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex 
 		namespacePath = RootNamespacePath
 	}
 
-	_, err = tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
+	_, err = tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+		),
 		runID,
 		jobID,
 		idx,
@@ -2244,14 +2556,25 @@ func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex 
 		return 0, normalizeSQLError(err)
 	}
 
-	if _, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+	if _, err := createInitialSegmentExecutionTx(
+		ctx,
+		tx,
+		runID,
+		targetCellID,
+		audit.StartDeadlineUnixNano,
+	); err != nil {
 		return 0, err
 	}
 
 	return idx, nil
 }
 
-func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error) {
+func (r *SQLRunsRepository) CreateReplayRun(
+	ctx context.Context,
+	sourceRunID string,
+	targetCellID string,
+	audit RunAuditMetadata,
+) (CreatedRun, error) {
 	sourceRunID = strings.TrimSpace(sourceRunID)
 	if sourceRunID == "" {
 		return CreatedRun{}, fmt.Errorf("%w: source_run_id is required", ErrNotFound)
@@ -2277,7 +2600,12 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 	}
 
 	if sourceStatus == RunStatusQueued || sourceStatus == RunStatusRunning {
-		return CreatedRun{}, fmt.Errorf("%w: source run %s in status %s cannot be replayed", ErrConflict, sourceRunID, sourceStatus)
+		return CreatedRun{}, fmt.Errorf(
+			"%w: source run %s in status %s cannot be replayed",
+			ErrConflict,
+			sourceRunID,
+			sourceStatus,
+		)
 	}
 
 	targetCellID = normalizeTargetCellID(targetCellID, sourceOwningCell)
@@ -2300,7 +2628,8 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 	}
 
 	var idx int
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).
+		Scan(&idx); err != nil {
 		return CreatedRun{}, normalizeSQLError(err)
 	}
 
@@ -2310,8 +2639,11 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 		replayOfRunID = sourceRunID
 	}
 
-	_, err = tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
+	_, err = tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+		),
 		runID,
 		jobID,
 		idx,
@@ -2357,7 +2689,10 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 	}, nil
 }
 
-func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error) {
+func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(
+	ctx context.Context,
+	invocationID string,
+) ([]CreatedRun, error) {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
 		return nil, nil
@@ -2434,7 +2769,10 @@ func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, 
 	return out, nil
 }
 
-func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (string, string, error) {
+func (r *SQLRunsRepository) RecordExecutionPayload(
+	ctx context.Context,
+	runID, payloadJSON, definitionHash string,
+) (string, string, error) {
 	runID = strings.TrimSpace(runID)
 	definitionHash = strings.TrimSpace(definitionHash)
 	if runID == "" {
@@ -2468,8 +2806,11 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 	}
 
 	payloadHash := ExecutionPayloadHash(payloadJSON)
-	result, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''"),
+	result, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''",
+		),
 		payloadHash,
 		runID,
 	)
@@ -2507,7 +2848,11 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 			}
 
 			if recordedPayloadJSON != payloadJSON {
-				return "", "", fmt.Errorf("%w: execution payload hash %s has different payload", ErrConflict, payloadHash)
+				return "", "", fmt.Errorf(
+					"%w: execution payload hash %s has different payload",
+					ErrConflict,
+					payloadHash,
+				)
 			}
 
 			if err := tx.Commit(); err != nil {
@@ -2562,7 +2907,10 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 	return payloadHash, payloadJSON, nil
 }
 
-func (r *SQLRunsRepository) GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error) {
+func (r *SQLRunsRepository) GetExecutionPayloadForRun(
+	ctx context.Context,
+	runID string,
+) (ExecutionPayloadRecord, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return ExecutionPayloadRecord{}, fmt.Errorf("%w: run_id is required", ErrNotFound)
@@ -2623,7 +2971,10 @@ func (r *SQLRunsRepository) GetExecutionPayloadHashForRun(ctx context.Context, r
 	return payloadHash, nil
 }
 
-func (r *SQLRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error) {
+func (r *SQLRunsRepository) GetExecutionPayloadByHash(
+	ctx context.Context,
+	payloadHash string,
+) (ExecutionPayloadRecord, error) {
 	payloadHash = strings.TrimSpace(payloadHash)
 	if payloadHash == "" {
 		return ExecutionPayloadRecord{}, fmt.Errorf("%w: payload_hash is required", ErrNotFound)
@@ -2651,7 +3002,8 @@ func (r *SQLRunsRepository) UpsertRunHotStateOwner(ctx context.Context, update R
 	update.CellID = strings.TrimSpace(update.CellID)
 	update.OwnerID = strings.TrimSpace(update.OwnerID)
 	update.OwnerEpoch = strings.TrimSpace(update.OwnerEpoch)
-	if update.RunID == "" || update.CellID == "" || update.OwnerID == "" || update.OwnerEpoch == "" || update.LeaseUntil.IsZero() {
+	if update.RunID == "" || update.CellID == "" || update.OwnerID == "" || update.OwnerEpoch == "" ||
+		update.LeaseUntil.IsZero() {
 		return fmt.Errorf("%w: run_id, cell_id, owner_id, owner_epoch, and lease_until are required", ErrConflict)
 	}
 
@@ -2733,7 +3085,10 @@ func clearRunHotStateOwnerTx(ctx context.Context, tx *sql.Tx, runID string) erro
 	return normalizeSQLError(err)
 }
 
-func (r *SQLRunsRepository) GetRunHotStateOwner(ctx context.Context, runID string) (RunHotStateOwnerRecord, bool, error) {
+func (r *SQLRunsRepository) GetRunHotStateOwner(
+	ctx context.Context,
+	runID string,
+) (RunHotStateOwnerRecord, bool, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return RunHotStateOwnerRecord{}, false, nil
@@ -2775,8 +3130,11 @@ func nullableString(value string) any {
 func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, version int) (string, error) {
 	var hash string
 	var definitionJSON string
-	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT definition_hash, definition_json FROM job_definitions WHERE job_id = ? AND version = ?"),
+	if err := tx.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT definition_hash, definition_json FROM job_definitions WHERE job_id = ? AND version = ?",
+		),
 		jobID,
 		version,
 	).Scan(&hash, &definitionJSON); err == nil {
@@ -2792,7 +3150,15 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 	}
 }
 
-func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {
+func (r *SQLRunsRepository) ListByJob(
+	ctx context.Context,
+	jobID string,
+	afterIndex *int,
+	since *time.Time,
+	owningCell string,
+	cursor int64,
+	limit int,
+) ([]RunRecord, int64, error) {
 	query := `
 		SELECT
 			jr.id,
@@ -2862,11 +3228,46 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 		var replayOfRunID, triggerInvocationID, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString
 		var triggerID sql.NullInt64
 		rec.JobID = jobID
-		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerKey, &triggerName, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells); err != nil {
+		if err := rows.Scan(
+			&id,
+			&rec.RunID,
+			&rec.RunIndex,
+			&rec.Status,
+			&orphanReason,
+			&failureCode,
+			&createdAt,
+			&startedAt,
+			&finishedAt,
+			&failureReason,
+			&rec.DefinitionVersion,
+			&rec.DefinitionHash,
+			&rec.OwningCell,
+			&replayOfRunID,
+			&triggerInvocationID,
+			&rec.ExecutionPayloadHash,
+			&triggerID,
+			&triggerKey,
+			&triggerName,
+			&triggerType,
+			&triggerSourceInstance,
+			&triggerPayloadHash,
+			&requestedCells,
+		); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
-		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
+		if err := applyRunAuditFields(
+			&rec,
+			replayOfRunID,
+			triggerInvocationID,
+			triggerID,
+			triggerKey,
+			triggerName,
+			triggerType,
+			triggerSourceInstance,
+			triggerPayloadHash,
+			requestedCells,
+		); err != nil {
 			return nil, 0, err
 		}
 
@@ -2911,7 +3312,15 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 	return out, nextCursor, nil
 }
 
-func (r *SQLRunsRepository) ListBySourceRepositoryJob(ctx context.Context, repositoryID, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {
+func (r *SQLRunsRepository) ListBySourceRepositoryJob(
+	ctx context.Context,
+	repositoryID, jobID string,
+	afterIndex *int,
+	since *time.Time,
+	owningCell string,
+	cursor int64,
+	limit int,
+) ([]RunRecord, int64, error) {
 	query := `
 		SELECT
 			jr.id,
@@ -2985,17 +3394,60 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(ctx context.Context, repos
 		var replayOfRunID, triggerInvocationID, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString
 		var triggerID sql.NullInt64
 		rec.JobID = jobID
-		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerKey, &triggerName, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells); err != nil {
+		if err := rows.Scan(
+			&id,
+			&rec.RunID,
+			&rec.RunIndex,
+			&rec.Status,
+			&orphanReason,
+			&failureCode,
+			&createdAt,
+			&startedAt,
+			&finishedAt,
+			&failureReason,
+			&rec.DefinitionVersion,
+			&rec.DefinitionHash,
+			&rec.OwningCell,
+			&replayOfRunID,
+			&triggerInvocationID,
+			&rec.ExecutionPayloadHash,
+			&triggerID,
+			&triggerKey,
+			&triggerName,
+			&triggerType,
+			&triggerSourceInstance,
+			&triggerPayloadHash,
+			&requestedCells,
+		); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
-		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
+		if err := applyRunAuditFields(
+			&rec,
+			replayOfRunID,
+			triggerInvocationID,
+			triggerID,
+			triggerKey,
+			triggerName,
+			triggerType,
+			triggerSourceInstance,
+			triggerPayloadHash,
+			requestedCells,
+		); err != nil {
 			return nil, 0, err
 		}
 
 		rec.JobID = jobID
 		lastID = id
-		populateRunRecordNullableFields(&rec, orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason)
+		populateRunRecordNullableFields(
+			&rec,
+			orphanReason,
+			failureCode,
+			createdAt,
+			startedAt,
+			finishedAt,
+			failureReason,
+		)
 		out = append(out, rec)
 	}
 
@@ -3066,16 +3518,60 @@ func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int
 		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
 		var replayOfRunID, triggerInvocationID, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString
 		var triggerID sql.NullInt64
-		if err := rows.Scan(&id, &rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerKey, &triggerName, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells); err != nil {
+		if err := rows.Scan(
+			&id,
+			&rec.RunID,
+			&rec.JobID,
+			&rec.RunIndex,
+			&rec.Status,
+			&orphanReason,
+			&failureCode,
+			&createdAt,
+			&startedAt,
+			&finishedAt,
+			&failureReason,
+			&rec.DefinitionVersion,
+			&rec.DefinitionHash,
+			&rec.OwningCell,
+			&replayOfRunID,
+			&triggerInvocationID,
+			&rec.ExecutionPayloadHash,
+			&triggerID,
+			&triggerKey,
+			&triggerName,
+			&triggerType,
+			&triggerSourceInstance,
+			&triggerPayloadHash,
+			&requestedCells,
+		); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
-		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
+		if err := applyRunAuditFields(
+			&rec,
+			replayOfRunID,
+			triggerInvocationID,
+			triggerID,
+			triggerKey,
+			triggerName,
+			triggerType,
+			triggerSourceInstance,
+			triggerPayloadHash,
+			requestedCells,
+		); err != nil {
 			return nil, 0, err
 		}
 
 		lastID = id
-		populateRunRecordNullableFields(&rec, orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason)
+		populateRunRecordNullableFields(
+			&rec,
+			orphanReason,
+			failureCode,
+			createdAt,
+			startedAt,
+			finishedAt,
+			failureReason,
+		)
 		out = append(out, rec)
 	}
 
@@ -3092,7 +3588,12 @@ func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int
 	return out, nextCursor, nil
 }
 
-func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error) {
+func (r *SQLRunsRepository) ListRunTasks(
+	ctx context.Context,
+	runID string,
+	cursor int64,
+	limit int,
+) ([]TaskRecord, int64, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return nil, 0, fmt.Errorf("%w: run_id is required", ErrNotFound)
@@ -3255,7 +3756,8 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 
 	if len(out) == 0 {
 		var existingRunID string
-		err := r.db.QueryRowContext(ctx, rebindQueryForPgx("SELECT run_id FROM job_runs WHERE run_id = ?"), runID).Scan(&existingRunID)
+		err := r.db.QueryRowContext(ctx, rebindQueryForPgx("SELECT run_id FROM job_runs WHERE run_id = ?"), runID).
+			Scan(&existingRunID)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				return nil, 0, fmt.Errorf("%w: run %s", ErrNotFound, runID)
@@ -3334,7 +3836,10 @@ func (r *SQLRunsRepository) attachExecutionSecurityEvents(ctx context.Context, r
 			continue
 		}
 
-		tasks[ref.taskIndex].Attempts[ref.attemptIndex].SecurityEvents = append(tasks[ref.taskIndex].Attempts[ref.attemptIndex].SecurityEvents, event)
+		tasks[ref.taskIndex].Attempts[ref.attemptIndex].SecurityEvents = append(
+			tasks[ref.taskIndex].Attempts[ref.attemptIndex].SecurityEvents,
+			event,
+		)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -3363,7 +3868,12 @@ func (r *SQLRunsRepository) hasRunTaskFinalFacts(ctx context.Context, runID stri
 	return true, nil
 }
 
-func (r *SQLRunsRepository) listRunTaskFinalFacts(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error) {
+func (r *SQLRunsRepository) listRunTaskFinalFacts(
+	ctx context.Context,
+	runID string,
+	cursor int64,
+	limit int,
+) ([]TaskRecord, int64, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
 			id,
@@ -3478,11 +3988,17 @@ func (r *SQLRunsRepository) listRunTaskFinalFacts(ctx context.Context, runID str
 	return out, nextCursor, nil
 }
 
-func (r *SQLRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {
+func (r *SQLRunsRepository) EnsurePlannedTaskExecution(
+	ctx context.Context,
+	create TaskExecutionCreate,
+) (TaskExecutionRecord, bool, error) {
 	return r.ensureTaskExecution(ctx, create, TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned)
 }
 
-func (r *SQLRunsRepository) EnsurePlannedTaskExecutionsBatch(ctx context.Context, creates []TaskExecutionCreate) ([]TaskExecutionRecord, int, error) {
+func (r *SQLRunsRepository) EnsurePlannedTaskExecutionsBatch(
+	ctx context.Context,
+	creates []TaskExecutionCreate,
+) ([]TaskExecutionRecord, int, error) {
 	if len(creates) == 0 {
 		return nil, 0, nil
 	}
@@ -3518,7 +4034,8 @@ func (r *SQLRunsRepository) EnsurePlannedTaskExecutionsBatch(ctx context.Context
 		return nil, 0, err
 	}
 
-	if taskCreated != len(rows) || attemptCreated != len(rows) || segmentCreated != len(rows) || executionCreated != len(rows) {
+	if taskCreated != len(rows) || attemptCreated != len(rows) || segmentCreated != len(rows) ||
+		executionCreated != len(rows) {
 		if err := verifyPlannedTaskExecutionBatchRowsTx(ctx, tx, rows); err != nil {
 			return nil, 0, err
 		}
@@ -3536,7 +4053,10 @@ func (r *SQLRunsRepository) EnsurePlannedTaskExecutionsBatch(ctx context.Context
 	return records, executionCreated, nil
 }
 
-func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {
+func (r *SQLRunsRepository) EnsurePendingTaskExecution(
+	ctx context.Context,
+	create TaskExecutionCreate,
+) (TaskExecutionRecord, bool, error) {
 	return r.ensureTaskExecution(ctx, create, TaskStatusPending, SegmentStatusPending, ExecutionStatusPending)
 }
 
@@ -3548,7 +4068,10 @@ type taskExecutionStatusSnapshot struct {
 	ExecutionStatus string
 }
 
-func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error) {
+func (r *SQLRunsRepository) ActivatePlannedTaskExecution(
+	ctx context.Context,
+	taskID string,
+) (TaskExecutionRecord, bool, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return TaskExecutionRecord{}, false, fmt.Errorf("%w: task_id is required", ErrNotFound)
@@ -3581,7 +4104,10 @@ func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, ta
 	return snapshot.Record, activated, nil
 }
 
-func (r *SQLRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error) {
+func (r *SQLRunsRepository) ActivatePlannedChildTaskExecutions(
+	ctx context.Context,
+	parentTaskID string,
+) ([]TaskExecutionRecord, int, error) {
 	parentTaskID = strings.TrimSpace(parentTaskID)
 	if parentTaskID == "" {
 		return nil, 0, fmt.Errorf("%w: parent_task_id is required", ErrNotFound)
@@ -3623,7 +4149,8 @@ func (r *SQLRunsRepository) MarkRunQueuedForContinuation(ctx context.Context, ru
 		}
 
 		var status string
-		if scanErr := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT status FROM job_runs WHERE run_id = ?"), runID).Scan(&status); scanErr != nil {
+		if scanErr := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT status FROM job_runs WHERE run_id = ?"), runID).
+			Scan(&status); scanErr != nil {
 			if scanErr == sql.ErrNoRows {
 				return fmt.Errorf("%w: run %s", ErrNotFound, runID)
 			}
@@ -3707,7 +4234,11 @@ func queryHasRunTaskFinalFacts(ctx context.Context, q runTaskCompletionQueryer, 
 	return count > 0, nil
 }
 
-func getRunTaskFinalFactsCompletion(ctx context.Context, q runTaskCompletionQueryer, runID string) (RunTaskCompletion, error) {
+func getRunTaskFinalFactsCompletion(
+	ctx context.Context,
+	q runTaskCompletionQueryer,
+	runID string,
+) (RunTaskCompletion, error) {
 	var summary RunTaskCompletion
 	summary.RunID = runID
 	if err := q.QueryRowContext(ctx, rebindQueryForPgx(`
@@ -3736,7 +4267,10 @@ func getRunTaskFinalFactsCompletion(ctx context.Context, q runTaskCompletionQuer
 	return summary, nil
 }
 
-func (r *SQLRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.Context, limit int) ([]RunTaskCompletion, error) {
+func (r *SQLRunsRepository) ListOrphanedTaskFinalizationCandidates(
+	ctx context.Context,
+	limit int,
+) ([]RunTaskCompletion, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -3776,7 +4310,13 @@ func (r *SQLRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.C
 	var out []RunTaskCompletion
 	for rows.Next() {
 		var summary RunTaskCompletion
-		if err := rows.Scan(&summary.RunID, &summary.Total, &summary.Succeeded, &summary.TerminalFailed, &summary.Incomplete); err != nil {
+		if err := rows.Scan(
+			&summary.RunID,
+			&summary.Total,
+			&summary.Succeeded,
+			&summary.TerminalFailed,
+			&summary.Incomplete,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -3819,7 +4359,9 @@ func (r *SQLRunsRepository) CountOrphanedTaskFinalizationCandidates(ctx context.
 	return count, nil
 }
 
-func (r *SQLRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(ctx context.Context) ([]RunCountByCell, error) {
+func (r *SQLRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(
+	ctx context.Context,
+) ([]RunCountByCell, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT owning_cell, COUNT(*)
 		FROM (
@@ -3927,7 +4469,11 @@ func (r *SQLRunsRepository) CountPendingTaskContinuationsByCell(ctx context.Cont
 	return counts, nil
 }
 
-func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]TaskExecutionRecord, int, error) {
+func activatePlannedChildTaskExecutionsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	parentTaskID string,
+) ([]TaskExecutionRecord, int, error) {
 	if err := ensureTaskExistsTx(ctx, tx, parentTaskID); err != nil {
 		return nil, 0, err
 	}
@@ -3971,7 +4517,11 @@ func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, paren
 	return records, activatedCount, nil
 }
 
-func activatePlannedContinuationsTx(ctx context.Context, tx *sql.Tx, runID, completedTaskID string) ([]TaskExecutionRecord, int, error) {
+func activatePlannedContinuationsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID, completedTaskID string,
+) ([]TaskExecutionRecord, int, error) {
 	plan, ok, err := taskControlPlanForRunTx(ctx, tx, runID)
 	if err != nil {
 		return nil, 0, err
@@ -4038,7 +4588,11 @@ func activatePlannedContinuationsTx(ctx context.Context, tx *sql.Tx, runID, comp
 	return records, activatedCount, nil
 }
 
-func activatePlannedTaskExecutionSnapshotTx(ctx context.Context, tx *sql.Tx, snapshot taskExecutionStatusSnapshot) (bool, error) {
+func activatePlannedTaskExecutionSnapshotTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	snapshot taskExecutionStatusSnapshot,
+) (bool, error) {
 	if !snapshot.hasStatuses(TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned) {
 		return false, fmt.Errorf(
 			"%w: task %s statuses task=%s attempt=%s segment=%s execution=%s cannot activate",
@@ -4075,8 +4629,11 @@ func activatePlannedTaskExecutionSnapshotTx(ctx context.Context, tx *sql.Tx, sna
 		return false, normalizeSQLError(err)
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE segment_executions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE execution_id = ?"),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"UPDATE segment_executions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE execution_id = ?",
+		),
 		ExecutionStatusPending,
 		snapshot.Record.ExecutionID,
 	); err != nil {
@@ -4086,7 +4643,11 @@ func activatePlannedTaskExecutionSnapshotTx(ctx context.Context, tx *sql.Tx, sna
 	return true, nil
 }
 
-func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, taskID string) (taskExecutionStatusSnapshot, error) {
+func taskExecutionStatusSnapshotByTaskIDTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	taskID string,
+) (taskExecutionStatusSnapshot, error) {
 	snapshot, err := scanTaskExecutionStatusSnapshot(tx.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT
 			rt.run_id,
@@ -4123,7 +4684,11 @@ func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, task
 	return snapshot, nil
 }
 
-func taskExecutionStatusSnapshotsByParentTaskIDTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]taskExecutionStatusSnapshot, error) {
+func taskExecutionStatusSnapshotsByParentTaskIDTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	parentTaskID string,
+) ([]taskExecutionStatusSnapshot, error) {
 	rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
 			rt.run_id,
@@ -4177,7 +4742,11 @@ func taskExecutionStatusSnapshotsByParentTaskIDTx(ctx context.Context, tx *sql.T
 	return out, nil
 }
 
-func taskExecutionStatusSnapshotsByRunIDTx(ctx context.Context, tx *sql.Tx, runID string) ([]taskExecutionStatusSnapshot, error) {
+func taskExecutionStatusSnapshotsByRunIDTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+) ([]taskExecutionStatusSnapshot, error) {
 	rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
 			rt.run_id,
@@ -4312,7 +4881,11 @@ func executionPayloadJSONForRunTx(ctx context.Context, tx *sql.Tx, runID string)
 	return payloadJSON.String, true, nil
 }
 
-func taskReady(plan taskgraph.BoundaryPlan, statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
+func taskReady(
+	plan taskgraph.BoundaryPlan,
+	statusByTaskKey map[string]taskExecutionStatusSnapshot,
+	taskKey string,
+) bool {
 	parentKey, ok := plan.ParentByKey[taskKey]
 	if !ok {
 		return false
@@ -4343,7 +4916,11 @@ func taskReady(plan taskgraph.BoundaryPlan, statusByTaskKey map[string]taskExecu
 	return false
 }
 
-func subtreeSucceeded(plan taskgraph.BoundaryPlan, statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
+func subtreeSucceeded(
+	plan taskgraph.BoundaryPlan,
+	statusByTaskKey map[string]taskExecutionStatusSnapshot,
+	taskKey string,
+) bool {
 	snapshot, ok := statusByTaskKey[taskKey]
 	if !ok || !taskSucceeded(snapshot) {
 		return false
@@ -4373,7 +4950,8 @@ func usesSequence(uses string) bool {
 
 func ensureTaskExistsTx(ctx context.Context, tx *sql.Tx, taskID string) error {
 	var found string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT task_id FROM run_tasks WHERE task_id = ?"), taskID).Scan(&found); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT task_id FROM run_tasks WHERE task_id = ?"), taskID).
+		Scan(&found); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: task %s", ErrNotFound, taskID)
 		}
@@ -4399,7 +4977,11 @@ func (s taskExecutionStatusSnapshot) hasConsistentAdvancedStatus() bool {
 	return s.TaskStatus != TaskStatusPlanned && s.TaskStatus != TaskStatusPending
 }
 
-func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create TaskExecutionCreate, taskStatus, segmentStatus, executionStatus string) (TaskExecutionRecord, bool, error) {
+func (r *SQLRunsRepository) ensureTaskExecution(
+	ctx context.Context,
+	create TaskExecutionCreate,
+	taskStatus, segmentStatus, executionStatus string,
+) (TaskExecutionRecord, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return TaskExecutionRecord{}, false, err
@@ -4418,14 +5000,20 @@ func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create Task
 	return record, created, nil
 }
 
-func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecutionCreate, taskStatus, segmentStatus, executionStatus string) (TaskExecutionRecord, bool, error) {
+func ensureTaskExecutionTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	create TaskExecutionCreate,
+	taskStatus, segmentStatus, executionStatus string,
+) (TaskExecutionRecord, bool, error) {
 	normalized, err := normalizeTaskExecutionCreate(create)
 	if err != nil {
 		return TaskExecutionRecord{}, false, err
 	}
 
 	var owningCell string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), normalized.RunID).Scan(&owningCell); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), normalized.RunID).
+		Scan(&owningCell); err != nil {
 		if err == sql.ErrNoRows {
 			return TaskExecutionRecord{}, false, fmt.Errorf("%w: run %s", ErrNotFound, normalized.RunID)
 		}
@@ -4439,7 +5027,8 @@ func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecution
 	}
 
 	var parentRunID string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT run_id FROM run_tasks WHERE task_id = ?"), parentTaskID).Scan(&parentRunID); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT run_id FROM run_tasks WHERE task_id = ?"), parentTaskID).
+		Scan(&parentRunID); err != nil {
 		if err == sql.ErrNoRows {
 			return TaskExecutionRecord{}, false, fmt.Errorf("%w: parent task %s", ErrNotFound, parentTaskID)
 		}
@@ -4448,7 +5037,12 @@ func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecution
 	}
 
 	if parentRunID != normalized.RunID {
-		return TaskExecutionRecord{}, false, fmt.Errorf("%w: parent task %s belongs to run %s", ErrConflict, parentTaskID, parentRunID)
+		return TaskExecutionRecord{}, false, fmt.Errorf(
+			"%w: parent task %s belongs to run %s",
+			ErrConflict,
+			parentTaskID,
+			parentRunID,
+		)
 	}
 
 	cellID := normalizeTargetCellID(normalized.TargetCellID, owningCell)
@@ -4476,7 +5070,10 @@ func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecution
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}
 
-	if storedRunID != normalized.RunID || nullStringValue(storedParentTaskID) != parentTaskID || storedTaskKey != normalized.TaskKey || storedName != normalized.Name || storedSpecHash != normalized.SpecHash {
+	if storedRunID != normalized.RunID || nullStringValue(storedParentTaskID) != parentTaskID ||
+		storedTaskKey != normalized.TaskKey ||
+		storedName != normalized.Name ||
+		storedSpecHash != normalized.SpecHash {
 		return TaskExecutionRecord{}, false, fmt.Errorf("%w: task %s has different payload", ErrConflict, taskID)
 	}
 
@@ -4498,8 +5095,14 @@ func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecution
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}
 
-	if storedAttemptID != attemptID || attemptRunID != normalized.RunID || attemptTaskID != taskID || attemptCellID != cellID || storedAttempt != attempt {
-		return TaskExecutionRecord{}, false, fmt.Errorf("%w: task attempt %s has different payload", ErrConflict, attemptID)
+	if storedAttemptID != attemptID || attemptRunID != normalized.RunID || attemptTaskID != taskID ||
+		attemptCellID != cellID ||
+		storedAttempt != attempt {
+		return TaskExecutionRecord{}, false, fmt.Errorf(
+			"%w: task attempt %s has different payload",
+			ErrConflict,
+			attemptID,
+		)
 	}
 
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
@@ -4548,8 +5151,16 @@ func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecution
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}
 
-	if storedExecutionID != executionID || executionSegmentID != segmentID || executionRunID != normalized.RunID || executionTaskID != taskID || executionTaskAttemptID != attemptID || executionCellID != cellID || executionAttempt != attempt {
-		return TaskExecutionRecord{}, false, fmt.Errorf("%w: execution %s has different payload", ErrConflict, executionID)
+	if storedExecutionID != executionID || executionSegmentID != segmentID || executionRunID != normalized.RunID ||
+		executionTaskID != taskID ||
+		executionTaskAttemptID != attemptID ||
+		executionCellID != cellID ||
+		executionAttempt != attempt {
+		return TaskExecutionRecord{}, false, fmt.Errorf(
+			"%w: execution %s has different payload",
+			ErrConflict,
+			executionID,
+		)
 	}
 
 	return TaskExecutionRecord{
@@ -4574,7 +5185,12 @@ type plannedTaskExecutionBatchRow struct {
 	StartDeadlineUnixNano int64
 }
 
-func plannedTaskExecutionBatchRowsTx(ctx context.Context, tx *sql.Tx, creates []TaskExecutionCreate, fallbackCellID string) ([]plannedTaskExecutionBatchRow, error) {
+func plannedTaskExecutionBatchRowsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	creates []TaskExecutionCreate,
+	fallbackCellID string,
+) ([]plannedTaskExecutionBatchRow, error) {
 	normalized := make([]TaskExecutionCreate, 0, len(creates))
 	runID := ""
 	seenTasks := make(map[string]struct{}, len(creates))
@@ -4600,7 +5216,8 @@ func plannedTaskExecutionBatchRowsTx(ctx context.Context, tx *sql.Tx, creates []
 	}
 
 	var owningCell string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), runID).Scan(&owningCell); err != nil {
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), runID).
+		Scan(&owningCell); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("%w: run %s", ErrNotFound, runID)
 		}
@@ -4801,7 +5418,11 @@ func insertPlannedTaskBatchTasksTx(ctx context.Context, tx *sql.Tx, rows []plann
 	return created, nil
 }
 
-func insertPlannedTaskBatchAttemptsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) (int, error) {
+func insertPlannedTaskBatchAttemptsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	rows []plannedTaskExecutionBatchRow,
+) (int, error) {
 	values := make([][]any, 0, len(rows))
 	for _, row := range rows {
 		values = append(values, []any{
@@ -4821,7 +5442,11 @@ func insertPlannedTaskBatchAttemptsTx(ctx context.Context, tx *sql.Tx, rows []pl
 	`)
 }
 
-func insertPlannedTaskBatchSegmentsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) (int, error) {
+func insertPlannedTaskBatchSegmentsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	rows []plannedTaskExecutionBatchRow,
+) (int, error) {
 	values := make([][]any, 0, len(rows))
 	for _, row := range rows {
 		values = append(values, []any{
@@ -4839,7 +5464,11 @@ func insertPlannedTaskBatchSegmentsTx(ctx context.Context, tx *sql.Tx, rows []pl
 	`)
 }
 
-func insertPlannedTaskBatchExecutionsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) (int, error) {
+func insertPlannedTaskBatchExecutionsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	rows []plannedTaskExecutionBatchRow,
+) (int, error) {
 	values := make([][]any, 0, len(rows))
 	for _, row := range rows {
 		values = append(values, []any{
@@ -4864,7 +5493,14 @@ func insertPlannedTaskBatchExecutionsTx(ctx context.Context, tx *sql.Tx, rows []
 
 func verifyPlannedTaskExecutionBatchRowsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) error {
 	for _, row := range rows {
-		rec, _, err := ensureTaskExecutionTx(ctx, tx, row.Create, TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned)
+		rec, _, err := ensureTaskExecutionTx(
+			ctx,
+			tx,
+			row.Create,
+			TaskStatusPlanned,
+			SegmentStatusPlanned,
+			ExecutionStatusPlanned,
+		)
 		if err != nil {
 			return err
 		}
@@ -4943,7 +5579,10 @@ func unixNanoStringPtr(value sql.NullInt64) *string {
 	return &v
 }
 
-func populateRunRecordNullableFields(rec *RunRecord, orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString) {
+func populateRunRecordNullableFields(
+	rec *RunRecord,
+	orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString,
+) {
 	if orphanReason.Valid && orphanReason.String != "" {
 		rec.OrphanReason = &orphanReason.String
 	}
@@ -4973,11 +5612,19 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 	return r.listQueuedBeforeDispatchCutoff(ctx, cutoffUnix, 0)
 }
 
-func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoffLimit(ctx context.Context, cutoffUnix int64, limit int) ([]QueuedRun, error) {
+func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoffLimit(
+	ctx context.Context,
+	cutoffUnix int64,
+	limit int,
+) ([]QueuedRun, error) {
 	return r.listQueuedBeforeDispatchCutoff(ctx, cutoffUnix, limit)
 }
 
-func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64, limit int) ([]QueuedRun, error) {
+func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(
+	ctx context.Context,
+	cutoffUnix int64,
+	limit int,
+) ([]QueuedRun, error) {
 	query := `
 		SELECT run_id, job_id, definition_version, definition_hash, owning_cell
 		FROM job_runs
@@ -5006,7 +5653,13 @@ func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(ctx context.Context, 
 	var out []QueuedRun
 	for rows.Next() {
 		var rec QueuedRun
-		if err := rows.Scan(&rec.RunID, &rec.JobID, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
+		if err := rows.Scan(
+			&rec.RunID,
+			&rec.JobID,
+			&rec.DefinitionVersion,
+			&rec.DefinitionHash,
+			&rec.OwningCell,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -5033,7 +5686,10 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 	return executions[0], nil
 }
 
-func (r *SQLRunsRepository) ListPendingExecutions(ctx context.Context, runID string) ([]ExecutionDispatchRecord, error) {
+func (r *SQLRunsRepository) ListPendingExecutions(
+	ctx context.Context,
+	runID string,
+) ([]ExecutionDispatchRecord, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
 			jr.run_id,
@@ -5093,7 +5749,10 @@ func (r *SQLRunsRepository) ListPendingExecutions(ctx context.Context, runID str
 	return out, nil
 }
 
-func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error) {
+func (r *SQLRunsRepository) GetExecutionDispatch(
+	ctx context.Context,
+	executionID string,
+) (ExecutionDispatchRecord, error) {
 	executionID = strings.TrimSpace(executionID)
 	if executionID == "" {
 		return ExecutionDispatchRecord{}, fmt.Errorf("%w: execution_id is required", ErrNotFound)
@@ -5147,7 +5806,10 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 	return rec, nil
 }
 
-func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (ExecutionDispatchRecord, error) {
+func (r *SQLRunsRepository) GetActiveExecutionDispatch(
+	ctx context.Context,
+	runID, executionID string,
+) (ExecutionDispatchRecord, error) {
 	runID = strings.TrimSpace(runID)
 	executionID = strings.TrimSpace(executionID)
 	if runID == "" || executionID == "" {
@@ -5207,7 +5869,12 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runI
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ExecutionDispatchRecord{}, fmt.Errorf("%w: active execution %s in run %s", ErrNotFound, executionID, runID)
+			return ExecutionDispatchRecord{}, fmt.Errorf(
+				"%w: active execution %s in run %s",
+				ErrNotFound,
+				executionID,
+				runID,
+			)
 		}
 
 		return ExecutionDispatchRecord{}, normalizeSQLError(err)
@@ -5254,7 +5921,11 @@ func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (Execut
 	return rec, nil
 }
 
-func (r *SQLRunsRepository) EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error) {
+func (r *SQLRunsRepository) EnsureExecutionStartDeadline(
+	ctx context.Context,
+	executionID string,
+	deadlineUnixNano int64,
+) (int64, error) {
 	executionID = strings.TrimSpace(executionID)
 	if executionID == "" {
 		return 0, fmt.Errorf("%w: execution_id is required", ErrNotFound)
@@ -5292,7 +5963,11 @@ func (r *SQLRunsRepository) EnsureExecutionStartDeadline(ctx context.Context, ex
 	return 0, nil
 }
 
-func (r *SQLRunsRepository) MarkExpiredQueuedExecutionsFailed(ctx context.Context, cutoffUnixNano int64, limit int) ([]ExpiredExecution, error) {
+func (r *SQLRunsRepository) MarkExpiredQueuedExecutionsFailed(
+	ctx context.Context,
+	cutoffUnixNano int64,
+	limit int,
+) ([]ExpiredExecution, error) {
 	if cutoffUnixNano <= 0 {
 		return nil, nil
 	}
@@ -5362,7 +6037,12 @@ func (r *SQLRunsRepository) MarkExpiredQueuedExecutionsFailed(ctx context.Contex
 	return expired, nil
 }
 
-func expireExecutionStartDeadlineTx(ctx context.Context, tx *sql.Tx, executionID string, now time.Time) (ExpiredExecution, bool, error) {
+func expireExecutionStartDeadlineTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	executionID string,
+	now time.Time,
+) (ExpiredExecution, bool, error) {
 	var runID string
 	var status string
 	var runStatus string
@@ -5397,7 +6077,17 @@ func expireExecutionStartDeadlineTx(ctx context.Context, tx *sql.Tx, executionID
 		return ExpiredExecution{}, false, nil
 	}
 
-	if _, err := transitionExecutionTx(ctx, tx, executionID, ExecutionStatusFailed, SegmentStatusFailed, []string{ExecutionStatusPending, ExecutionStatusAccepted}, false, false, true); err != nil {
+	if _, err := transitionExecutionTx(
+		ctx,
+		tx,
+		executionID,
+		ExecutionStatusFailed,
+		SegmentStatusFailed,
+		[]string{ExecutionStatusPending, ExecutionStatusAccepted},
+		false,
+		false,
+		true,
+	); err != nil {
 		return ExpiredExecution{}, false, err
 	}
 
@@ -5449,7 +6139,11 @@ func startDeadlineExpiredForClaim(status string, startDeadline sql.NullInt64, no
 		startDeadline.Int64 <= now.UTC().UnixNano()
 }
 
-func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error) {
+func (r *SQLRunsRepository) TryClaimExecution(
+	ctx context.Context,
+	executionID, owner string,
+	leaseUntil time.Time,
+) (ExecutionClaimResult, error) {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
 	if executionID == "" || owner == "" {
@@ -5556,15 +6250,29 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	}
 
 	if transitionedToAccepted {
-		if _, err := tx.ExecContext(ctx,
-			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+		if _, err := tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				"UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?",
+			),
 			SegmentStatusAccepted,
 			segmentID,
 		); err != nil {
 			return ExecutionClaimResult{}, normalizeSQLError(err)
 		}
 
-		if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, TaskStatusAccepted, TaskStatusAccepted, true, false, false); err != nil {
+		if err := transitionTaskAttemptTx(
+			ctx,
+			tx,
+			taskID,
+			taskAttemptID,
+			attempt,
+			TaskStatusAccepted,
+			TaskStatusAccepted,
+			true,
+			false,
+			false,
+		); err != nil {
 			return ExecutionClaimResult{}, err
 		}
 	}
@@ -5595,7 +6303,11 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	}
 
 	if runUpdated != 1 {
-		return ExecutionClaimResult{}, fmt.Errorf("%w: run %s cannot be promoted for execution claim", ErrConflict, runID)
+		return ExecutionClaimResult{}, fmt.Errorf(
+			"%w: run %s cannot be promoted for execution claim",
+			ErrConflict,
+			runID,
+		)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -5609,7 +6321,11 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	}, nil
 }
 
-func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+func (r *SQLRunsRepository) MirrorExecutionClaim(
+	ctx context.Context,
+	executionID, owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
 	claimToken = strings.TrimSpace(claimToken)
@@ -5646,8 +6362,16 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 		return normalizeSQLError(err)
 	}
 
-	if !statusIn(currentStatus, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
-		return fmt.Errorf("%w: execution %s status %s cannot mirror an active claim", ErrConflict, executionID, currentStatus)
+	if !statusIn(
+		currentStatus,
+		[]string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning},
+	) {
+		return fmt.Errorf(
+			"%w: execution %s status %s cannot mirror an active claim",
+			ErrConflict,
+			executionID,
+			currentStatus,
+		)
 	}
 
 	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning}) {
@@ -5666,10 +6390,20 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 				return err
 			}
 
-			return fmt.Errorf("%w: %w: execution %s expired before mirrored claim", ErrConflict, ErrDispatchExpired, expired.ExecutionID)
+			return fmt.Errorf(
+				"%w: %w: execution %s expired before mirrored claim",
+				ErrConflict,
+				ErrDispatchExpired,
+				expired.ExecutionID,
+			)
 		}
 
-		return fmt.Errorf("%w: %w: execution %s expired before mirrored claim", ErrConflict, ErrDispatchExpired, executionID)
+		return fmt.Errorf(
+			"%w: %w: execution %s expired before mirrored claim",
+			ErrConflict,
+			ErrDispatchExpired,
+			executionID,
+		)
 	}
 
 	if leaseOwner.Valid && leaseOwner.String != "" && leaseOwner.String != owner {
@@ -5714,15 +6448,29 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 	}
 
 	if transitionedToAccepted {
-		if _, err := tx.ExecContext(ctx,
-			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+		if _, err := tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				"UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?",
+			),
 			SegmentStatusAccepted,
 			segmentID,
 		); err != nil {
 			return normalizeSQLError(err)
 		}
 
-		if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, TaskStatusAccepted, TaskStatusAccepted, true, false, false); err != nil {
+		if err := transitionTaskAttemptTx(
+			ctx,
+			tx,
+			taskID,
+			taskAttemptID,
+			attempt,
+			TaskStatusAccepted,
+			TaskStatusAccepted,
+			true,
+			false,
+			false,
+		); err != nil {
 			return err
 		}
 	}
@@ -5757,7 +6505,11 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 	return tx.Commit()
 }
 
-func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+func (r *SQLRunsRepository) RenewExecutionLease(
+	ctx context.Context,
+	executionID, owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
 	claimToken = strings.TrimSpace(claimToken)
@@ -5791,13 +6543,22 @@ func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID
 	}
 
 	if n == 0 {
-		return fmt.Errorf("%w: renew execution lease: no matching active row for execution_id=%q owner=%q claim_token=%q", ErrConflict, executionID, owner, claimToken)
+		return fmt.Errorf(
+			"%w: renew execution lease: no matching active row for execution_id=%q owner=%q claim_token=%q",
+			ErrConflict,
+			executionID,
+			owner,
+			claimToken,
+		)
 	}
 
 	return nil
 }
 
-func (r *SQLRunsRepository) ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error {
+func (r *SQLRunsRepository) ValidateActiveExecutionClaim(
+	ctx context.Context,
+	runID, executionID, claimToken string,
+) error {
 	runID = strings.TrimSpace(runID)
 	executionID = strings.TrimSpace(executionID)
 	claimToken = strings.TrimSpace(claimToken)
@@ -5827,28 +6588,44 @@ func (r *SQLRunsRepository) ValidateActiveExecutionClaim(ctx context.Context, ru
 	}
 
 	if !statusIn(executionStatus, []string{ExecutionStatusAccepted, ExecutionStatusRunning}) {
-		return fmt.Errorf("%w: execution %s status %s does not have an active claim", ErrConflict, executionID, executionStatus)
+		return fmt.Errorf(
+			"%w: execution %s status %s does not have an active claim",
+			ErrConflict,
+			executionID,
+			executionStatus,
+		)
 	}
 
 	nowUnix := time.Now().UTC().Unix()
-	if !storedClaimToken.Valid || storedClaimToken.String != claimToken || !leaseUntil.Valid || leaseUntil.Int64 < nowUnix {
+	if !storedClaimToken.Valid || storedClaimToken.String != claimToken || !leaseUntil.Valid ||
+		leaseUntil.Int64 < nowUnix {
 		return fmt.Errorf("%w: execution %s claim is not active", ErrConflict, executionID)
 	}
 
 	return nil
 }
 
-func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error) {
+func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(
+	ctx context.Context,
+	executionID, owner, claimToken, status, failureCode, reason string,
+) (ExecutionFinalizationResult, error) {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
 	claimToken = strings.TrimSpace(claimToken)
 	status = strings.TrimSpace(status)
 	if executionID == "" || owner == "" || claimToken == "" {
-		return ExecutionFinalizationResult{}, fmt.Errorf("%w: execution_id, owner, and claim_token are required", ErrConflict)
+		return ExecutionFinalizationResult{}, fmt.Errorf(
+			"%w: execution_id, owner, and claim_token are required",
+			ErrConflict,
+		)
 	}
 
 	if !isTerminalExecutionStatus(status) {
-		return ExecutionFinalizationResult{}, fmt.Errorf("%w: unsupported terminal execution status %s", ErrConflict, status)
+		return ExecutionFinalizationResult{}, fmt.Errorf(
+			"%w: unsupported terminal execution status %s",
+			ErrConflict,
+			status,
+		)
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -5857,7 +6634,14 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	runID, err := validateExecutionClaimForCompletionTx(ctx, tx, executionID, owner, claimToken, time.Now().UTC().Unix())
+	runID, err := validateExecutionClaimForCompletionTx(
+		ctx,
+		tx,
+		executionID,
+		owner,
+		claimToken,
+		time.Now().UTC().Unix(),
+	)
 	if err != nil {
 		return ExecutionFinalizationResult{}, err
 	}
@@ -5866,7 +6650,14 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 		return ExecutionFinalizationResult{}, err
 	}
 
-	if _, err := validateExecutionClaimForCompletionTx(ctx, tx, executionID, owner, claimToken, time.Now().UTC().Unix()); err != nil {
+	if _, err := validateExecutionClaimForCompletionTx(
+		ctx,
+		tx,
+		executionID,
+		owner,
+		claimToken,
+		time.Now().UTC().Unix(),
+	); err != nil {
 		return ExecutionFinalizationResult{}, err
 	}
 
@@ -5876,7 +6667,17 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 	var cancelReason string
 	if status == ExecutionStatusSucceeded {
 		var taskID string
-		taskID, err = transitionExecutionTx(ctx, tx, executionID, ExecutionStatusSucceeded, SegmentStatusSucceeded, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
+		taskID, err = transitionExecutionTx(
+			ctx,
+			tx,
+			executionID,
+			ExecutionStatusSucceeded,
+			SegmentStatusSucceeded,
+			[]string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning},
+			true,
+			false,
+			true,
+		)
 		if err != nil {
 			return ExecutionFinalizationResult{}, err
 		}
@@ -5957,7 +6758,17 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 		return result, nil
 	}
 
-	if _, err := transitionExecutionTx(ctx, tx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true); err != nil {
+	if _, err := transitionExecutionTx(
+		ctx,
+		tx,
+		executionID,
+		status,
+		status,
+		[]string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning},
+		true,
+		false,
+		true,
+	); err != nil {
 		return ExecutionFinalizationResult{}, err
 	}
 
@@ -6048,7 +6859,12 @@ func lockRunForFinalizationTx(ctx context.Context, tx *sql.Tx, runID string) err
 	return nil
 }
 
-func validateExecutionClaimForCompletionTx(ctx context.Context, tx *sql.Tx, executionID, owner, claimToken string, nowUnix int64) (string, error) {
+func validateExecutionClaimForCompletionTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	executionID, owner, claimToken string,
+	nowUnix int64,
+) (string, error) {
 	var runID string
 	var runStatus string
 	var executionStatus string
@@ -6068,14 +6884,27 @@ func validateExecutionClaimForCompletionTx(ctx context.Context, tx *sql.Tx, exec
 	}
 
 	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning, RunStatusOrphaned}) {
-		return "", fmt.Errorf("%w: run %s status %s cannot be finalized by execution claim", ErrConflict, runID, runStatus)
+		return "", fmt.Errorf(
+			"%w: run %s status %s cannot be finalized by execution claim",
+			ErrConflict,
+			runID,
+			runStatus,
+		)
 	}
 
 	if !statusIn(executionStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
-		return "", fmt.Errorf("%w: execution %s status %s cannot be finalized by execution claim", ErrConflict, executionID, executionStatus)
+		return "", fmt.Errorf(
+			"%w: execution %s status %s cannot be finalized by execution claim",
+			ErrConflict,
+			executionID,
+			executionStatus,
+		)
 	}
 
-	if !leaseOwner.Valid || leaseOwner.String != owner || !storedClaimToken.Valid || storedClaimToken.String != claimToken || !leaseUntil.Valid || leaseUntil.Int64 < nowUnix {
+	if !leaseOwner.Valid || leaseOwner.String != owner || !storedClaimToken.Valid ||
+		storedClaimToken.String != claimToken ||
+		!leaseUntil.Valid ||
+		leaseUntil.Int64 < nowUnix {
 		return "", fmt.Errorf("%w: execution %s claim is not active for owner %q", ErrConflict, executionID, owner)
 	}
 
@@ -6152,19 +6981,53 @@ func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCo
 }
 
 func (r *SQLRunsRepository) markExecutionAccepted(ctx context.Context, executionID string) error {
-	return r.transitionExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPending}, true, false, false)
+	return r.transitionExecution(
+		ctx,
+		executionID,
+		ExecutionStatusAccepted,
+		SegmentStatusAccepted,
+		[]string{ExecutionStatusPending},
+		true,
+		false,
+		false,
+	)
 }
 
 func (r *SQLRunsRepository) applyCatalogExecutionAccepted(ctx context.Context, executionID string) error {
-	return r.transitionCatalogExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, true, false, false)
+	return r.transitionCatalogExecution(
+		ctx,
+		executionID,
+		ExecutionStatusAccepted,
+		SegmentStatusAccepted,
+		true,
+		false,
+		false,
+	)
 }
 
 func (r *SQLRunsRepository) MarkExecutionStarted(ctx context.Context, executionID string) error {
-	return r.transitionExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
+	return r.transitionExecution(
+		ctx,
+		executionID,
+		ExecutionStatusRunning,
+		SegmentStatusRunning,
+		[]string{ExecutionStatusPending, ExecutionStatusAccepted},
+		true,
+		true,
+		false,
+	)
 }
 
 func (r *SQLRunsRepository) applyCatalogExecutionStarted(ctx context.Context, executionID string) error {
-	return r.transitionCatalogExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, true, true, false)
+	return r.transitionCatalogExecution(
+		ctx,
+		executionID,
+		ExecutionStatusRunning,
+		SegmentStatusRunning,
+		true,
+		true,
+		false,
+	)
 }
 
 func (r *SQLRunsRepository) markExecutionTerminal(ctx context.Context, executionID, status string) error {
@@ -6172,7 +7035,16 @@ func (r *SQLRunsRepository) markExecutionTerminal(ctx context.Context, execution
 		return fmt.Errorf("%w: unsupported terminal execution status %s", ErrConflict, status)
 	}
 
-	return r.transitionExecution(ctx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
+	return r.transitionExecution(
+		ctx,
+		executionID,
+		status,
+		status,
+		[]string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning},
+		true,
+		false,
+		true,
+	)
 }
 
 func (r *SQLRunsRepository) applyCatalogExecutionTerminal(ctx context.Context, executionID, status string) error {
@@ -6194,7 +7066,17 @@ func (r *SQLRunsRepository) transitionCatalogExecution(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := transitionExecutionTxWithDecision(ctx, tx, executionID, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished, catalogExecutionStatusDecision); err != nil {
+	if _, err := transitionExecutionTxWithDecision(
+		ctx,
+		tx,
+		executionID,
+		targetStatus,
+		targetSegmentStatus,
+		markAccepted,
+		markStarted,
+		markFinished,
+		catalogExecutionStatusDecision,
+	); err != nil {
 		return err
 	}
 
@@ -6213,7 +7095,17 @@ func (r *SQLRunsRepository) transitionExecution(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := transitionExecutionTx(ctx, tx, executionID, targetStatus, targetSegmentStatus, allowedFrom, markAccepted, markStarted, markFinished); err != nil {
+	if _, err := transitionExecutionTx(
+		ctx,
+		tx,
+		executionID,
+		targetStatus,
+		targetSegmentStatus,
+		allowedFrom,
+		markAccepted,
+		markStarted,
+		markFinished,
+	); err != nil {
 		return err
 	}
 
@@ -6227,17 +7119,27 @@ func transitionExecutionTx(
 	allowedFrom []string,
 	markAccepted, markStarted, markFinished bool,
 ) (string, error) {
-	return transitionExecutionTxWithDecision(ctx, tx, executionID, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished, func(current, target string) statusTransitionDecision {
-		if current == target {
-			return statusTransitionNoop
-		}
+	return transitionExecutionTxWithDecision(
+		ctx,
+		tx,
+		executionID,
+		targetStatus,
+		targetSegmentStatus,
+		markAccepted,
+		markStarted,
+		markFinished,
+		func(current, target string) statusTransitionDecision {
+			if current == target {
+				return statusTransitionNoop
+			}
 
-		if !statusIn(current, allowedFrom) {
-			return statusTransitionConflict
-		}
+			if !statusIn(current, allowedFrom) {
+				return statusTransitionConflict
+			}
 
-		return statusTransitionApply
-	})
+			return statusTransitionApply
+		},
+	)
 }
 
 func transitionExecutionTxWithDecision(
@@ -6254,8 +7156,11 @@ func transitionExecutionTxWithDecision(
 	var attempt int
 	var currentStatus string
 
-	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT segment_id, run_id, task_id, task_attempt_id, attempt, status FROM segment_executions WHERE execution_id = ?"),
+	if err := tx.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT segment_id, run_id, task_id, task_attempt_id, attempt, status FROM segment_executions WHERE execution_id = ?",
+		),
 		executionID,
 	).Scan(&segmentID, &runID, &taskID, &taskAttemptID, &attempt, &currentStatus); err != nil {
 		if err == sql.ErrNoRows {
@@ -6269,7 +7174,13 @@ func transitionExecutionTxWithDecision(
 	case statusTransitionNoop:
 		return taskID, nil
 	case statusTransitionConflict:
-		return "", fmt.Errorf("%w: execution %s status %s cannot transition to %s", ErrConflict, executionID, currentStatus, targetStatus)
+		return "", fmt.Errorf(
+			"%w: execution %s status %s cannot transition to %s",
+			ErrConflict,
+			executionID,
+			currentStatus,
+			targetStatus,
+		)
 	case statusTransitionApply:
 	}
 
@@ -6292,7 +7203,12 @@ func transitionExecutionTxWithDecision(
 		)
 	}
 
-	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	setParts = append(
+		setParts,
+		"last_observed_at = ?",
+		"event_sequence = event_sequence + 1",
+		"updated_at = CURRENT_TIMESTAMP",
+	)
 	args = append(args, time.Now().UnixNano(), executionID)
 
 	if _, err := tx.ExecContext(ctx,
@@ -6310,7 +7226,18 @@ func transitionExecutionTxWithDecision(
 		return "", normalizeSQLError(err)
 	}
 
-	if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished); err != nil {
+	if err := transitionTaskAttemptTx(
+		ctx,
+		tx,
+		taskID,
+		taskAttemptID,
+		attempt,
+		targetStatus,
+		targetSegmentStatus,
+		markAccepted,
+		markStarted,
+		markFinished,
+	); err != nil {
 		return "", err
 	}
 
@@ -6356,11 +7283,22 @@ func transitionTaskAttemptTx(
 		setParts = append(setParts, "finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)")
 	}
 
-	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	setParts = append(
+		setParts,
+		"last_observed_at = ?",
+		"event_sequence = event_sequence + 1",
+		"updated_at = CURRENT_TIMESTAMP",
+	)
 	args = append(args, time.Now().UnixNano(), taskAttemptID, taskID, attempt)
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE task_attempts SET "+strings.Join(setParts, ", ")+" WHERE attempt_id = ? AND task_id = ? AND attempt = ?"),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"UPDATE task_attempts SET "+strings.Join(
+				setParts,
+				", ",
+			)+" WHERE attempt_id = ? AND task_id = ? AND attempt = ?",
+		),
 		args...,
 	); err != nil {
 		return normalizeSQLError(err)
@@ -6410,8 +7348,11 @@ func (r *SQLRunsRepository) GetRunForCancel(ctx context.Context, runID string) (
 	var rec RunForCancel
 	var leaseOwner, cancelToken, cancelReason sql.NullString
 	var cancelRequestedAt sql.NullInt64
-	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT run_id, status, lease_owner, cancel_token, cancel_requested_at, cancel_reason FROM job_runs WHERE run_id = ?"),
+	if err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT run_id, status, lease_owner, cancel_token, cancel_requested_at, cancel_reason FROM job_runs WHERE run_id = ?",
+		),
 		runID,
 	).Scan(&rec.RunID, &rec.Status, &leaseOwner, &cancelToken, &cancelRequestedAt, &cancelReason); err != nil {
 		if err == sql.ErrNoRows {
@@ -6535,7 +7476,10 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, 
 	return count, nil
 }
 
-func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Context, cutoffUnix int64) ([]RunCountByCell, error) {
+func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoffByCell(
+	ctx context.Context,
+	cutoffUnix int64,
+) ([]RunCountByCell, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT owning_cell, COUNT(*)
 		FROM job_runs
@@ -6638,14 +7582,30 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 		rec.FailureReason = &failureReason.String
 	}
 
-	if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
+	if err := applyRunAuditFields(
+		&rec,
+		replayOfRunID,
+		triggerInvocationID,
+		triggerID,
+		triggerKey,
+		triggerName,
+		triggerType,
+		triggerSourceInstance,
+		triggerPayloadHash,
+		requestedCells,
+	); err != nil {
 		return RunRecord{}, err
 	}
 
 	return rec, nil
 }
 
-func applyRunAuditFields(rec *RunRecord, replayOfRunID, triggerInvocationID sql.NullString, triggerID sql.NullInt64, triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString) error {
+func applyRunAuditFields(
+	rec *RunRecord,
+	replayOfRunID, triggerInvocationID sql.NullString,
+	triggerID sql.NullInt64,
+	triggerKey, triggerName, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString,
+) error {
 	if replayOfRunID.Valid && strings.TrimSpace(replayOfRunID.String) != "" {
 		rec.ReplayOfRunID = &replayOfRunID.String
 	}

@@ -37,9 +37,12 @@ func BenchmarkLogServer_BatchIngest(b *testing.B) {
 	for _, store := range []string{"noop", "local"} {
 		for _, runs := range []int{1, 100} {
 			for _, payloadBytes := range []int{256, 4096} {
-				b.Run(fmt.Sprintf("store_%s/runs_%03d/payload_%04d/batch_256", store, runs, payloadBytes), func(b *testing.B) {
-					runLogServerBatchIngestBenchmark(b, store, runs, payloadBytes, 256)
-				})
+				b.Run(
+					fmt.Sprintf("store_%s/runs_%03d/payload_%04d/batch_256", store, runs, payloadBytes),
+					func(b *testing.B) {
+						runLogServerBatchIngestBenchmark(b, store, runs, payloadBytes, 256)
+					},
+				)
 			}
 		}
 	}

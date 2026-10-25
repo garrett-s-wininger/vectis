@@ -157,7 +157,9 @@ func TestVerifyLogForwarderSpoolDetectsCRCError(t *testing.T) {
 		t.Fatalf("new spool writer: %v", err)
 	}
 
-	if err := writer.Append(&api.LogChunk{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("hello")}); err != nil {
+	if err := writer.Append(
+		&api.LogChunk{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("hello")},
+	); err != nil {
 		t.Fatalf("append spool chunk: %v", err)
 	}
 
@@ -192,7 +194,9 @@ func TestVerifyWorkerLogSpoolDetectsBadFrame(t *testing.T) {
 		t.Fatalf("mkdir pending: %v", err)
 	}
 
-	payload, err := proto.Marshal(&api.LogChunk{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("hello")})
+	payload, err := proto.Marshal(
+		&api.LogChunk{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("hello")},
+	)
 	if err != nil {
 		t.Fatalf("marshal chunk: %v", err)
 	}

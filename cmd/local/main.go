@@ -82,10 +82,28 @@ type localTopology struct {
 
 var (
 	orderedSingletonServices = []serviceStage{
-		{binary: "vectis-registry", stage: 0, checkHealth: true, portFn: config.RegistryEffectiveListenPort, healthName: "registry"},
+		{
+			binary:      "vectis-registry",
+			stage:       0,
+			checkHealth: true,
+			portFn:      config.RegistryEffectiveListenPort,
+			healthName:  "registry",
+		},
 		{binary: "vectis-log", stage: 1, checkHealth: true, portFn: config.LogGRPCPort, healthName: "log"},
-		{binary: "vectis-artifact", stage: 1, checkHealth: true, portFn: config.ArtifactGRPCPort, healthName: "artifact"},
-		{binary: "vectis-orchestrator", stage: 1, checkHealth: true, portFn: config.OrchestratorEffectiveListenPort, healthName: "orchestrator"},
+		{
+			binary:      "vectis-artifact",
+			stage:       1,
+			checkHealth: true,
+			portFn:      config.ArtifactGRPCPort,
+			healthName:  "artifact",
+		},
+		{
+			binary:      "vectis-orchestrator",
+			stage:       1,
+			checkHealth: true,
+			portFn:      config.OrchestratorEffectiveListenPort,
+			healthName:  "orchestrator",
+		},
 		{binary: "vectis-worker-core", stage: 1, checkHealth: false},
 		{binary: "vectis-cron", stage: 2, checkHealth: false},
 		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
@@ -160,7 +178,13 @@ func (svc serviceStage) label() string {
 	return svc.binary
 }
 
-func startService(ctx context.Context, logger interfaces.Logger, svc serviceStage, logLevel string, tlsEnv []string) (*exec.Cmd, error) {
+func startService(
+	ctx context.Context,
+	logger interfaces.Logger,
+	svc serviceStage,
+	logLevel string,
+	tlsEnv []string,
+) (*exec.Cmd, error) {
 	path, err := supervisor.FindBinary(svc.binary)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find %s: %w", svc.label(), err)
@@ -195,7 +219,18 @@ func startUIDevAssets(logger interfaces.Logger) (*exec.Cmd, error) {
 		return nil, err
 	}
 
-	command := exec.CommandContext(context.Background(), "npm", "run", "dev", "--", "--host", uiDevAssetsHost(), "--port", fmt.Sprintf("%d", viper.GetInt("ui_dev_assets_port")), "--strictPort") //#nosec G204
+	command := exec.CommandContext(
+		context.Background(),
+		"npm",
+		"run",
+		"dev",
+		"--",
+		"--host",
+		uiDevAssetsHost(),
+		"--port",
+		fmt.Sprintf("%d", viper.GetInt("ui_dev_assets_port")),
+		"--strictPort",
+	) //#nosec G204
 	command.Dir = dir
 	command.Stdin = nil
 	command.Stdout = os.Stdout
@@ -689,7 +724,9 @@ func localBrowserTLS(material *localpki.Material, mode string, logger interfaces
 
 		enabled = trusted
 		if !trusted {
-			logger.Warn("Local API and docs will use HTTP because the generated CA is not trusted. Run vectis-local init and then run vectis-local install-cert with elevated privileges, or set --http-tls=on.")
+			logger.Warn(
+				"Local API and docs will use HTTP because the generated CA is not trusted. Run vectis-local init and then run vectis-local install-cert with elevated privileges, or set --http-tls=on.",
+			)
 		}
 	}
 
@@ -1067,7 +1104,9 @@ func localSourceRepositoryDeclarations() ([]config.SourceRepositoryDeclaration, 
 	values := localSourceRepositorySpecs()
 	if len(values) == 0 {
 		if viper.GetBool("config_as_code") {
-			return nil, fmt.Errorf("config-as-code requires one or more --source-repository repository_id=checkout_path flags")
+			return nil, fmt.Errorf(
+				"config-as-code requires one or more --source-repository repository_id=checkout_path flags",
+			)
 		}
 
 		return []config.SourceRepositoryDeclaration{localDefaultSourceRepository()}, nil
@@ -1297,7 +1336,11 @@ func localDiscoveryRegistryEnv(profile string) []string {
 		}
 	}
 
-	return []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=" + netJoinLocal(localEnvInt("VECTIS_REGISTRY_PORT", config.RegistryPort()))}
+	return []string{
+		"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=" + netJoinLocal(
+			localEnvInt("VECTIS_REGISTRY_PORT", config.RegistryPort()),
+		),
+	}
 }
 
 func localDatabaseDSNs() (globalDSN, cellDSN string) {
@@ -1365,7 +1408,12 @@ func buildLocalTopology() (localTopology, error) {
 	defaultCellID := config.CellID()
 	extraCells := localExtraCellIDs()
 	if len(extraCells) > 0 && !localUsesManagedSQLiteDatabases() {
-		return localTopology{}, fmt.Errorf("vectis-local multi-cell currently requires default SQLite database management; unset %s, %s, and %s", database.EnvDatabaseDSN, database.EnvGlobalDatabaseDSN, database.EnvCellDatabaseDSN)
+		return localTopology{}, fmt.Errorf(
+			"vectis-local multi-cell currently requires default SQLite database management; unset %s, %s, and %s",
+			database.EnvDatabaseDSN,
+			database.EnvGlobalDatabaseDSN,
+			database.EnvCellDatabaseDSN,
+		)
 	}
 
 	cells := make([]localCell, 0, len(extraCells)+1)
@@ -1403,20 +1451,23 @@ func ensureLocalSecretsKeys(topology localTopology) error {
 func newLocalCell(cellID string, index int, cellDB string) localCell {
 	offset := index * cellPortStride
 	return localCell{
-		ID:                     cellID,
-		Index:                  index,
-		QueuePort:              localEnvInt("VECTIS_QUEUE_PORT", config.QueuePort()) + offset,
-		QueueMetricsPort:       localEnvInt("VECTIS_QUEUE_METRICS_PORT", config.QueueMetricsPort()) + offset,
-		SecretsPort:            localEnvInt("VECTIS_SECRETS_PORT", config.SecretsPort()) + offset,
-		SecretsMetricsPort:     localEnvInt("VECTIS_SECRETS_METRICS_PORT", config.SecretsMetricsPort()) + offset,
-		CellIngressPort:        localEnvInt("VECTIS_CELL_INGRESS_PORT", config.CellIngressPort()) + offset,
-		CellIngressMetricsPort: localEnvInt("VECTIS_CELL_INGRESS_METRICS_PORT", config.CellIngressMetricsPort()) + offset,
-		WorkerMetricsPort:      localEnvInt("VECTIS_WORKER_METRICS_PORT", config.WorkerMetricsPort()) + offset,
-		WorkerCoreMetricsPort:  localEnvInt("VECTIS_WORKER_CORE_METRICS_PORT", config.WorkerCoreMetricsPort()) + offset,
-		CellDB:                 cellDB,
-		QueueDir:               localManagedQueueDir(cellID),
-		SecretsDir:             localManagedSecretsDir(cellID),
-		SecretsKeyFile:         localManagedSecretsKeyFile(cellID),
+		ID:                 cellID,
+		Index:              index,
+		QueuePort:          localEnvInt("VECTIS_QUEUE_PORT", config.QueuePort()) + offset,
+		QueueMetricsPort:   localEnvInt("VECTIS_QUEUE_METRICS_PORT", config.QueueMetricsPort()) + offset,
+		SecretsPort:        localEnvInt("VECTIS_SECRETS_PORT", config.SecretsPort()) + offset,
+		SecretsMetricsPort: localEnvInt("VECTIS_SECRETS_METRICS_PORT", config.SecretsMetricsPort()) + offset,
+		CellIngressPort:    localEnvInt("VECTIS_CELL_INGRESS_PORT", config.CellIngressPort()) + offset,
+		CellIngressMetricsPort: localEnvInt(
+			"VECTIS_CELL_INGRESS_METRICS_PORT",
+			config.CellIngressMetricsPort(),
+		) + offset,
+		WorkerMetricsPort:     localEnvInt("VECTIS_WORKER_METRICS_PORT", config.WorkerMetricsPort()) + offset,
+		WorkerCoreMetricsPort: localEnvInt("VECTIS_WORKER_CORE_METRICS_PORT", config.WorkerCoreMetricsPort()) + offset,
+		CellDB:                cellDB,
+		QueueDir:              localManagedQueueDir(cellID),
+		SecretsDir:            localManagedSecretsDir(cellID),
+		SecretsKeyFile:        localManagedSecretsKeyFile(cellID),
 	}
 }
 
@@ -1700,7 +1751,11 @@ func runVectis(cmd *cobra.Command, args []string) {
 	}
 
 	if embeddedSPIFFE.Enabled {
-		logger.Info("Embedded local SPIFFE authority is running (registration socket %s, workload socket %s)", embeddedSPIFFE.ServerSocket, embeddedSPIFFE.AgentSocket)
+		logger.Info(
+			"Embedded local SPIFFE authority is running (registration socket %s, workload socket %s)",
+			embeddedSPIFFE.ServerSocket,
+			embeddedSPIFFE.AgentSocket,
+		)
 	} else if viper.GetBool("grpc_insecure") {
 		logger.Warn("Skipping embedded local SPIFFE authority because --grpc-insecure is enabled")
 	}
@@ -1713,7 +1768,10 @@ func runVectis(cmd *cobra.Command, args []string) {
 	if spiffeCfg.Enabled {
 		tlsEnv = append(tlsEnv, spiffeCfg.Env...)
 		viper.Set("grpc_tls.client_ca_file", spiffeCfg.ClientCABundleFile)
-		logger.Info("Enabled local SPIFFE execution identity using combined client CA bundle %s", spiffeCfg.ClientCABundleFile)
+		logger.Info(
+			"Enabled local SPIFFE execution identity using combined client CA bundle %s",
+			spiffeCfg.ClientCABundleFile,
+		)
 	}
 
 	topology, err := buildLocalTopology()
@@ -1722,7 +1780,11 @@ func runVectis(cmd *cobra.Command, args []string) {
 	}
 
 	if profile == localProfileHA && topology.multiCell() {
-		logger.Fatal("profile %q currently supports the default local execution cell only; use profile %q with --cell for multi-cell routing tests", localProfileHA, localProfileSimple)
+		logger.Fatal(
+			"profile %q currently supports the default local execution cell only; use profile %q with --cell for multi-cell routing tests",
+			localProfileHA,
+			localProfileSimple,
+		)
 	}
 
 	if localSecretsEnabled() {
@@ -1730,7 +1792,9 @@ func runVectis(cmd *cobra.Command, args []string) {
 			logger.Fatal("initialize local secrets keys: %v", err)
 		}
 	} else {
-		logger.Warn("Skipping local secrets service because --grpc-insecure disables execution SVID client certificates")
+		logger.Warn(
+			"Skipping local secrets service because --grpc-insecure disables execution SVID client certificates",
+		)
 	}
 
 	if database.EffectiveDBDriver() == "sqlite3" {
@@ -1759,7 +1823,11 @@ func runVectis(cmd *cobra.Command, args []string) {
 	}
 
 	if len(topology.Cells) > 0 && topology.GlobalDB != topology.Cells[0].CellDB {
-		logger.Info("Using split local databases: global=%s default_cell=%s", topology.GlobalDB, topology.Cells[0].CellDB)
+		logger.Info(
+			"Using split local databases: global=%s default_cell=%s",
+			topology.GlobalDB,
+			topology.Cells[0].CellDB,
+		)
 	} else {
 		logger.Info("Using shared local database: %s", topology.GlobalDB)
 	}
@@ -1784,7 +1852,13 @@ func runVectis(cmd *cobra.Command, args []string) {
 	logger.Info("API will be available at %s://%s:%d", browserTLS.Scheme, localHost(), config.APIEffectiveListenPort())
 
 	for _, cell := range topology.Cells {
-		logger.Info("Cell %s ingress will be available at %s://%s:%d", cell.ID, localCellIngressEndpointScheme(), localHost(), cell.CellIngressPort)
+		logger.Info(
+			"Cell %s ingress will be available at %s://%s:%d",
+			cell.ID,
+			localCellIngressEndpointScheme(),
+			localHost(),
+			cell.CellIngressPort,
+		)
 	}
 
 	if profile == localProfileHA {
@@ -1886,7 +1960,16 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Info("Stage %d started successfully", stage)
 	}
 
-	setup := finishLocalSetup(cmd.Context(), logger, localSetupBaseURL(browserTLS.Scheme), material, bootstrapToken, bootstrapSource, os.Stdin, os.Stderr)
+	setup := finishLocalSetup(
+		cmd.Context(),
+		logger,
+		localSetupBaseURL(browserTLS.Scheme),
+		material,
+		bootstrapToken,
+		bootstrapSource,
+		os.Stdin,
+		os.Stderr,
+	)
 	if setup.Err != nil {
 		killAllStartedAndWait(logger)
 		logger.Fatal("local stack is not ready: %v", setup.Err)
@@ -2131,27 +2214,41 @@ func init() {
 	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the local API and docs sites to bind")
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
-	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
-	rootCmd.PersistentFlags().Bool("config-as-code", false, "Configure the local API server for config-as-code reusable jobs")
-	rootCmd.PersistentFlags().StringArray("source-repository", nil, "Declare a local source repository as repository_id=checkout_path; may be repeated. When omitted, vectis-local registers managed repository vectis-local")
+	rootCmd.PersistentFlags().
+		String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
+	rootCmd.PersistentFlags().
+		Bool("config-as-code", false, "Configure the local API server for config-as-code reusable jobs")
+	rootCmd.PersistentFlags().
+		StringArray("source-repository", nil, "Declare a local source repository as repository_id=checkout_path; may be repeated. When omitted, vectis-local registers managed repository vectis-local")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
 	rootCmd.PersistentFlags().String("spiffe-dir", "", "Directory for local vectis-spiffe authority data")
-	rootCmd.PersistentFlags().String("spiffe-runtime-dir", "", "Directory for local vectis-spiffe authority Unix sockets")
-	rootCmd.PersistentFlags().String("spiffe-trust-domain", "", "SPIFFE trust domain for local execution IDs; defaults to vectis.internal")
-	rootCmd.PersistentFlags().String("spiffe-path-template", "", "Optional execution SPIFFE path template for local identity mode")
-	rootCmd.PersistentFlags().String("spiffe-parent-id", "", "Parent SPIFFE ID for worker-created execution registration entries")
-	rootCmd.PersistentFlags().StringArray("spiffe-selector", nil, "Workload selector for worker-created execution registrations; may be repeated")
+	rootCmd.PersistentFlags().
+		String("spiffe-runtime-dir", "", "Directory for local vectis-spiffe authority Unix sockets")
+	rootCmd.PersistentFlags().
+		String("spiffe-trust-domain", "", "SPIFFE trust domain for local execution IDs; defaults to vectis.internal")
+	rootCmd.PersistentFlags().
+		String("spiffe-path-template", "", "Optional execution SPIFFE path template for local identity mode")
+	rootCmd.PersistentFlags().
+		String("spiffe-parent-id", "", "Parent SPIFFE ID for worker-created execution registration entries")
+	rootCmd.PersistentFlags().
+		StringArray("spiffe-selector", nil, "Workload selector for worker-created execution registrations; may be repeated")
 	rootCmd.PersistentFlags().String("spiffe-fetch-timeout", "", "Optional worker Workload API fetch timeout")
-	rootCmd.PersistentFlags().String("spiffe-x509-svid-ttl", "", "Optional X.509-SVID TTL for worker-created registration entries")
-	rootCmd.PersistentFlags().String("spiffe-registration-min-ttl", "", "Optional minimum lifetime for worker-created registration entries")
-	rootCmd.PersistentFlags().String("spiffe-registration-max-ttl", "", "Optional maximum lifetime for worker-created registration entries")
+	rootCmd.PersistentFlags().
+		String("spiffe-x509-svid-ttl", "", "Optional X.509-SVID TTL for worker-created registration entries")
+	rootCmd.PersistentFlags().
+		String("spiffe-registration-min-ttl", "", "Optional minimum lifetime for worker-created registration entries")
+	rootCmd.PersistentFlags().
+		String("spiffe-registration-max-ttl", "", "Optional maximum lifetime for worker-created registration entries")
 	rootCmd.PersistentFlags().Bool("ui", true, "Start the local UI")
 	rootCmd.PersistentFlags().Int("ui-port", 8089, "HTTP port for the local UI")
 	rootCmd.PersistentFlags().String("ui-dir", "", "Directory containing a UI build to serve instead of embedded UI")
-	rootCmd.PersistentFlags().Bool("ui-dev-assets", false, "Start Vite dev assets and proxy them through the local UI BFF")
-	rootCmd.PersistentFlags().String("ui-dev-assets-host", "127.0.0.1", "Host/IP for the UI Vite dev assets server to bind")
+	rootCmd.PersistentFlags().
+		Bool("ui-dev-assets", false, "Start Vite dev assets and proxy them through the local UI BFF")
+	rootCmd.PersistentFlags().
+		String("ui-dev-assets-host", "127.0.0.1", "Host/IP for the UI Vite dev assets server to bind")
 	rootCmd.PersistentFlags().Int("ui-dev-assets-port", 5173, "HTTP port for the UI Vite dev assets server")
-	rootCmd.PersistentFlags().String("ui-dev-assets-dir", "ui", "Directory containing the UI package.json for Vite dev assets")
+	rootCmd.PersistentFlags().
+		String("ui-dev-assets-dir", "ui", "Directory containing the UI package.json for Vite dev assets")
 	rootCmd.PersistentFlags().Bool("auth", true, "Enable local HTTP API authentication")
 	rootCmd.PersistentFlags().String("setup", localSetupAuto, "Local first-admin setup: auto or off")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))

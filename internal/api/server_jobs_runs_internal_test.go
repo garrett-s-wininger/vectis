@@ -106,15 +106,18 @@ func TestBuildDispatchSummary(t *testing.T) {
 		t.Fatalf("summary len: got %d want 2 (%+v)", len(got), got)
 	}
 
-	if got[0].Source != dal.DispatchSourceCron || got[0].Attempts != 2 || got[0].Successes != 1 || got[0].Failures != 1 {
+	if got[0].Source != dal.DispatchSourceCron || got[0].Attempts != 2 || got[0].Successes != 1 ||
+		got[0].Failures != 1 {
 		t.Fatalf("cron summary: %+v", got[0])
 	}
 
-	if got[0].FirstEventAt != 10 || got[0].LastEventAt != 31 || got[0].LastEventType != dal.DispatchEventSuccess || got[0].LastMessage != nil {
+	if got[0].FirstEventAt != 10 || got[0].LastEventAt != 31 || got[0].LastEventType != dal.DispatchEventSuccess ||
+		got[0].LastMessage != nil {
 		t.Fatalf("cron last event summary: %+v", got[0])
 	}
 
-	if got[1].Source != dal.DispatchSourceReconciler || got[1].Attempts != 1 || got[1].Successes != 1 || got[1].Failures != 0 {
+	if got[1].Source != dal.DispatchSourceReconciler || got[1].Attempts != 1 || got[1].Successes != 1 ||
+		got[1].Failures != 0 {
 		t.Fatalf("reconciler summary: %+v", got[1])
 	}
 

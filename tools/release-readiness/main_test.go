@@ -200,10 +200,17 @@ func TestRunCheckRecordsPassAndFailure(t *testing.T) {
 	}
 
 	var gotEnv []string
-	pass := runCheck(spec, opts, dir, dir, dir, func(_ context.Context, _ string, _ []string, env []string, _ io.Writer) (int, error) {
-		gotEnv = append([]string(nil), env...)
-		return 0, nil
-	})
+	pass := runCheck(
+		spec,
+		opts,
+		dir,
+		dir,
+		dir,
+		func(_ context.Context, _ string, _ []string, env []string, _ io.Writer) (int, error) {
+			gotEnv = append([]string(nil), env...)
+			return 0, nil
+		},
+	)
 
 	if pass.Status != statusPassed {
 		t.Fatalf("pass status = %q", pass.Status)
@@ -217,9 +224,16 @@ func TestRunCheckRecordsPassAndFailure(t *testing.T) {
 		t.Fatalf("executor env = %v, want %v", gotEnv, spec.Env)
 	}
 
-	fail := runCheck(spec, opts, dir, dir, dir, func(context.Context, string, []string, []string, io.Writer) (int, error) {
-		return 7, errors.New("boom")
-	})
+	fail := runCheck(
+		spec,
+		opts,
+		dir,
+		dir,
+		dir,
+		func(context.Context, string, []string, []string, io.Writer) (int, error) {
+			return 7, errors.New("boom")
+		},
+	)
 
 	if fail.Status != statusFailed {
 		t.Fatalf("fail status = %q", fail.Status)
@@ -247,10 +261,14 @@ func TestRunWithExecutorFailFastSkipsRemainingChecks(t *testing.T) {
 	}
 
 	var ran []string
-	err := runWithExecutor(opts, io.Discard, func(_ context.Context, _ string, command, _ []string, _ io.Writer) (int, error) {
-		ran = append(ran, commandString(command))
-		return 1, errors.New("boom")
-	})
+	err := runWithExecutor(
+		opts,
+		io.Discard,
+		func(_ context.Context, _ string, command, _ []string, _ io.Writer) (int, error) {
+			ran = append(ran, commandString(command))
+			return 1, errors.New("boom")
+		},
+	)
 
 	if !errors.Is(err, errReadinessFailed) {
 		t.Fatalf("expected readiness failure, got %v", err)

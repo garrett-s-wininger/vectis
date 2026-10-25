@@ -38,7 +38,9 @@ type ReviewRequest struct {
 }
 
 func (c Client) ChangeDetail(ctx context.Context, change string) (sdkscm.Change, error) {
-	endpoint, err := c.endpoint("/a/changes/" + url.PathEscape(strings.TrimSpace(change)) + "/detail?o=CURRENT_REVISION")
+	endpoint, err := c.endpoint(
+		"/a/changes/" + url.PathEscape(strings.TrimSpace(change)) + "/detail?o=CURRENT_REVISION",
+	)
 	if err != nil {
 		return sdkscm.Change{}, err
 	}
@@ -104,7 +106,13 @@ func (c Client) PostReview(ctx context.Context, req ReviewRequest) error {
 		req.Revision = DefaultReviewRevision
 	}
 
-	endpoint, err := c.endpoint("/a/changes/" + url.PathEscape(strings.TrimSpace(req.Change)) + "/revisions/" + url.PathEscape(req.Revision) + "/review")
+	endpoint, err := c.endpoint(
+		"/a/changes/" + url.PathEscape(
+			strings.TrimSpace(req.Change),
+		) + "/revisions/" + url.PathEscape(
+			req.Revision,
+		) + "/review",
+	)
 	if err != nil {
 		return err
 	}

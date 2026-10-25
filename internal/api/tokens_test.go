@@ -226,7 +226,12 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 	var regularToken string
 	t.Run("create_regular_user", func(t *testing.T) {
 		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
-		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "regular", string(hash), true)
+		res, err := db.Exec(
+			"INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)",
+			"regular",
+			string(hash),
+			true,
+		)
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)
 		}
@@ -236,7 +241,12 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 		// Create a token for the regular user directly
 		plainToken, _ := randomHexToken(apiTokenRandomBytes)
 		tokenHash := hashAPIToken(plainToken)
-		_, err = db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", regularUserID, tokenHash, "regular-token")
+		_, err = db.Exec(
+			"INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)",
+			regularUserID,
+			tokenHash,
+			"regular-token",
+		)
 		if err != nil {
 			t.Fatalf("failed to insert token: %v", err)
 		}
@@ -244,7 +254,12 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 		regularToken = plainToken
 
 		// Give regular user viewer role on root namespace
-		_, err = db.Exec("INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)", regularUserID, 1, "viewer")
+		_, err = db.Exec(
+			"INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)",
+			regularUserID,
+			1,
+			"viewer",
+		)
 		if err != nil {
 			t.Fatalf("failed to insert role binding: %v", err)
 		}
@@ -661,13 +676,15 @@ func TestTokenScoping_endToEnd(t *testing.T) {
 	})
 
 	t.Run("propagated_token_allows_child_namespace", func(t *testing.T) {
-		if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
-			RepositoryID: "child-repo",
-			NamespaceID:  2,
-			SourceKind:   dal.SourceKindLocalCheckout,
-			CheckoutPath: t.TempDir(),
-			Enabled:      true,
-		}); err != nil {
+		if _, err := dal.NewSQLRepositories(db).
+			Sources().
+			CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+				RepositoryID: "child-repo",
+				NamespaceID:  2,
+				SourceKind:   dal.SourceKindLocalCheckout,
+				CheckoutPath: t.TempDir(),
+				Enabled:      true,
+			}); err != nil {
 			t.Fatalf("failed to create source repository: %v", err)
 		}
 

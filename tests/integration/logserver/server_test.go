@@ -31,7 +31,14 @@ func setupLogServer(t *testing.T) api.LogServiceClient {
 	return api.NewLogServiceClient(conn)
 }
 
-func sendChunk(t *testing.T, stream api.LogService_StreamLogsClient, runID, data string, seq int64, streamType api.Stream, completed api.RunOutcome) {
+func sendChunk(
+	t *testing.T,
+	stream api.LogService_StreamLogsClient,
+	runID, data string,
+	seq int64,
+	streamType api.Stream,
+	completed api.RunOutcome,
+) {
 	t.Helper()
 
 	chunk := &api.LogChunk{
@@ -261,7 +268,15 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	sendChunk(t, stream, runID, liveData, liveSeq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
 	completedSeq := liveSeq + 1
 	completedData := `{"event":"completed","status":"success"}`
-	sendChunk(t, stream, runID, completedData, completedSeq, api.Stream_STREAM_CONTROL, api.RunOutcome_RUN_OUTCOME_SUCCESS)
+	sendChunk(
+		t,
+		stream,
+		runID,
+		completedData,
+		completedSeq,
+		api.Stream_STREAM_CONTROL,
+		api.RunOutcome_RUN_OUTCOME_SUCCESS,
+	)
 
 	if _, err := stream.CloseAndRecv(); err != nil {
 		t.Fatalf("CloseAndRecv: %v", err)
@@ -311,7 +326,11 @@ func TestIntegrationLogServer_ServerClosesStreamAfterCompleted(t *testing.T) {
 
 	chunk := recvGetLogsChunk(t, getStream)
 	if chunk.GetStream() != api.Stream_STREAM_CONTROL || string(chunk.GetData()) != completedData {
-		t.Errorf("expected control completed message, got stream=%v data=%q", chunk.GetStream(), string(chunk.GetData()))
+		t.Errorf(
+			"expected control completed message, got stream=%v data=%q",
+			chunk.GetStream(),
+			string(chunk.GetData()),
+		)
 	}
 	if chunk.GetCompleted() != api.RunOutcome_RUN_OUTCOME_SUCCESS {
 		t.Errorf("expected Completed=RUN_OUTCOME_SUCCESS, got %v", chunk.GetCompleted())
@@ -404,11 +423,27 @@ func TestIntegrationLogServer_GetLogsSinceSequence(t *testing.T) {
 
 	for i := range 5 {
 		seq := int64(i + 1)
-		sendChunk(t, stream, runID, "log-"+string(rune('A'+i)), seq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+		sendChunk(
+			t,
+			stream,
+			runID,
+			"log-"+string(rune('A'+i)),
+			seq,
+			api.Stream_STREAM_STDOUT,
+			api.RunOutcome_RUN_OUTCOME_UNSPECIFIED,
+		)
 	}
 
 	completedSeq := int64(6)
-	sendChunk(t, stream, runID, `{"event":"completed","status":"success"}`, completedSeq, api.Stream_STREAM_CONTROL, api.RunOutcome_RUN_OUTCOME_SUCCESS)
+	sendChunk(
+		t,
+		stream,
+		runID,
+		`{"event":"completed","status":"success"}`,
+		completedSeq,
+		api.Stream_STREAM_CONTROL,
+		api.RunOutcome_RUN_OUTCOME_SUCCESS,
+	)
 
 	if _, err := stream.CloseAndRecv(); err != nil {
 		t.Fatalf("CloseAndRecv: %v", err)

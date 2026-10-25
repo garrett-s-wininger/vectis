@@ -134,8 +134,11 @@ func loadOrCreatePodmanSecrets(rotate bool) (podmanSecrets, bool, error) {
 	secrets := podmanSecrets{
 		PostgresPassword: postgresPassword,
 		BootstrapToken:   bootstrapToken,
-		PodDSN:           fmt.Sprintf("postgres://vectis:%s@127.0.0.1:5432/vectis?sslmode=verify-full&sslrootcert=/run/vectis/postgres-tls/ca.pem", postgresPassword),
-		HostDSN:          fmt.Sprintf("postgres://vectis:%s@127.0.0.1:15432/vectis?sslmode=require", postgresPassword),
+		PodDSN: fmt.Sprintf(
+			"postgres://vectis:%s@127.0.0.1:5432/vectis?sslmode=verify-full&sslrootcert=/run/vectis/postgres-tls/ca.pem",
+			postgresPassword,
+		),
+		HostDSN: fmt.Sprintf("postgres://vectis:%s@127.0.0.1:15432/vectis?sslmode=require", postgresPassword),
 	}
 
 	if _, err := ensurePodmanSecretFields(&secrets); err != nil {
@@ -390,16 +393,43 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 			{Name: "cron"},
 		},
 		LogShards: []podmanLogShard{
-			{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs", InstanceID: "log-1", AdvertiseAddress: podmanAddr(8083)},
+			{
+				Name:             "log",
+				GRPCPort:         8083,
+				MetricsPort:      9083,
+				StorageDir:       "/data/vectis/jobs",
+				InstanceID:       "log-1",
+				AdvertiseAddress: podmanAddr(8083),
+			},
 		},
 		ArtifactShards: []podmanArtifactShard{
-			{Name: "artifact", GRPCPort: 8086, MetricsPort: 9089, StorageDir: "/data/vectis/artifact", InstanceID: "artifact-1", AdvertiseAddress: podmanAddr(8086)},
+			{
+				Name:             "artifact",
+				GRPCPort:         8086,
+				MetricsPort:      9089,
+				StorageDir:       "/data/vectis/artifact",
+				InstanceID:       "artifact-1",
+				AdvertiseAddress: podmanAddr(8086),
+			},
 		},
 		QueueShards: []podmanQueueShard{
-			{Name: "queue", Port: 8081, MetricsPort: 9081, InstanceID: "queue-1", AdvertiseAddress: podmanAddr(8081), PersistenceDir: "/data/vectis/queue"},
+			{
+				Name:             "queue",
+				Port:             8081,
+				MetricsPort:      9081,
+				InstanceID:       "queue-1",
+				AdvertiseAddress: podmanAddr(8081),
+				PersistenceDir:   "/data/vectis/queue",
+			},
 		},
 		OrchestratorReplicas: []podmanOrchestratorReplica{
-			{Name: "orchestrator", Port: 8087, MetricsPort: 9087, AdvertiseAddress: podmanAddr(8087), SetMetricsPortEnv: true},
+			{
+				Name:              "orchestrator",
+				Port:              8087,
+				MetricsPort:       9087,
+				AdvertiseAddress:  podmanAddr(8087),
+				SetMetricsPortEnv: true,
+			},
 		},
 		ReconcilerReplicas: []podmanReconcilerReplica{
 			{Name: "reconciler", MetricsPort: 9085},
@@ -443,22 +473,78 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 	}
 
 	data.LogShards = []podmanLogShard{
-		{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs/log-1", InstanceID: "log-1", AdvertiseAddress: podmanAddr(8083)},
-		{Name: "log-2", GRPCPort: 8183, MetricsPort: 9183, StorageDir: "/data/vectis/jobs/log-2", InstanceID: "log-2", AdvertiseAddress: podmanAddr(8183), SetGRPCPortEnv: true, SetMetricsPortEnv: true},
+		{
+			Name:             "log",
+			GRPCPort:         8083,
+			MetricsPort:      9083,
+			StorageDir:       "/data/vectis/jobs/log-1",
+			InstanceID:       "log-1",
+			AdvertiseAddress: podmanAddr(8083),
+		},
+		{
+			Name:              "log-2",
+			GRPCPort:          8183,
+			MetricsPort:       9183,
+			StorageDir:        "/data/vectis/jobs/log-2",
+			InstanceID:        "log-2",
+			AdvertiseAddress:  podmanAddr(8183),
+			SetGRPCPortEnv:    true,
+			SetMetricsPortEnv: true,
+		},
 	}
 
 	data.ArtifactShards = []podmanArtifactShard{
-		{Name: "artifact", GRPCPort: 8086, MetricsPort: 9089, StorageDir: "/data/vectis/artifact/artifact-1", InstanceID: "artifact-1", AdvertiseAddress: podmanAddr(8086)},
-		{Name: "artifact-2", GRPCPort: 8186, MetricsPort: 9189, StorageDir: "/data/vectis/artifact/artifact-2", InstanceID: "artifact-2", AdvertiseAddress: podmanAddr(8186), SetGRPCPortEnv: true, SetMetricsPortEnv: true},
+		{
+			Name:             "artifact",
+			GRPCPort:         8086,
+			MetricsPort:      9089,
+			StorageDir:       "/data/vectis/artifact/artifact-1",
+			InstanceID:       "artifact-1",
+			AdvertiseAddress: podmanAddr(8086),
+		},
+		{
+			Name:              "artifact-2",
+			GRPCPort:          8186,
+			MetricsPort:       9189,
+			StorageDir:        "/data/vectis/artifact/artifact-2",
+			InstanceID:        "artifact-2",
+			AdvertiseAddress:  podmanAddr(8186),
+			SetGRPCPortEnv:    true,
+			SetMetricsPortEnv: true,
+		},
 	}
 
 	data.QueueShards = []podmanQueueShard{
-		{Name: "queue", Port: 8081, MetricsPort: 9081, Pool: "local-ha", InstanceID: "queue-1", AdvertiseAddress: podmanAddr(8081), PersistenceDir: "/data/vectis/queue/local-ha/queue-1"},
-		{Name: "queue-2", Port: 8181, MetricsPort: 9181, Pool: "local-ha", InstanceID: "queue-2", AdvertiseAddress: podmanAddr(8181), PersistenceDir: "/data/vectis/queue/local-ha/queue-2", SetPortEnv: true, SetMetricsPortEnv: true},
+		{
+			Name:             "queue",
+			Port:             8081,
+			MetricsPort:      9081,
+			Pool:             "local-ha",
+			InstanceID:       "queue-1",
+			AdvertiseAddress: podmanAddr(8081),
+			PersistenceDir:   "/data/vectis/queue/local-ha/queue-1",
+		},
+		{
+			Name:              "queue-2",
+			Port:              8181,
+			MetricsPort:       9181,
+			Pool:              "local-ha",
+			InstanceID:        "queue-2",
+			AdvertiseAddress:  podmanAddr(8181),
+			PersistenceDir:    "/data/vectis/queue/local-ha/queue-2",
+			SetPortEnv:        true,
+			SetMetricsPortEnv: true,
+		},
 	}
 
 	data.OrchestratorReplicas = []podmanOrchestratorReplica{
-		{Name: "orchestrator", Port: 8087, MetricsPort: 9087, AdvertiseAddress: podmanAddr(8087), SetMetricsPortEnv: true},
+		{
+			Name:              "orchestrator",
+			Port:              8087,
+			MetricsPort:       9087,
+			AdvertiseAddress:  podmanAddr(8087),
+			SetMetricsPortEnv: true,
+		},
 	}
 
 	data.ReconcilerReplicas = []podmanReconcilerReplica{
@@ -751,7 +837,16 @@ func runDeployPodmanDown(cmd *cobra.Command, args []string) {
 }
 
 func runDeployPodmanStatus(cmd *cobra.Command, args []string) {
-	podman := exec.CommandContext(cmd.Context(), "podman", "pod", "ps", "--filter", "name=vectis", "--format", "table {{.Name}}\t{{.Status}}")
+	podman := exec.CommandContext(
+		cmd.Context(),
+		"podman",
+		"pod",
+		"ps",
+		"--filter",
+		"name=vectis",
+		"--format",
+		"table {{.Name}}\t{{.Status}}",
+	)
 	var podmanStdout, podmanStderr bytes.Buffer
 
 	if outputIsJSON() {

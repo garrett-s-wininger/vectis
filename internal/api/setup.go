@@ -121,9 +121,15 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	expected := strings.TrimSpace(config.APIAuthBootstrapToken())
 	if len(expected) < config.MinBootstrapTokenLen {
-		writeAPIError(w, http.StatusServiceUnavailable, string(apiErrBootstrapNotConfigured), apiErrBootstrapNotConfigured.message(), map[string]any{
-			"setting": "api.auth.bootstrap_token",
-		})
+		writeAPIError(
+			w,
+			http.StatusServiceUnavailable,
+			string(apiErrBootstrapNotConfigured),
+			apiErrBootstrapNotConfigured.message(),
+			map[string]any{
+				"setting": "api.auth.bootstrap_token",
+			},
+		)
 
 		return
 	}
@@ -265,7 +271,11 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	var externalIdentity *externalIdentityResponse
 	if setupIdentity != nil {
-		if identity, err := s.authRepo.GetExternalIdentity(ctx, setupIdentity.ProviderID, setupIdentity.Subject); err == nil {
+		if identity, err := s.authRepo.GetExternalIdentity(
+			ctx,
+			setupIdentity.ProviderID,
+			setupIdentity.Subject,
+		); err == nil {
 			resp := externalIdentityRecordToResponse(identity)
 			externalIdentity = &resp
 		} else {

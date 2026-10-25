@@ -108,13 +108,23 @@ func (d Descriptor) MatchReference(ref Reference) error {
 			return nil
 		}
 
-		return fmt.Errorf("action %q selector %q does not match resolved version %q", ref.CanonicalName(), ref.Selector, d.Version)
+		return fmt.Errorf(
+			"action %q selector %q does not match resolved version %q",
+			ref.CanonicalName(),
+			ref.Selector,
+			d.Version,
+		)
 	case SelectorDigest:
 		if d.Digest == ref.Selector {
 			return nil
 		}
 
-		return fmt.Errorf("action %q digest %q does not match resolved digest %q", ref.CanonicalName(), ref.Selector, d.Digest)
+		return fmt.Errorf(
+			"action %q digest %q does not match resolved digest %q",
+			ref.CanonicalName(),
+			ref.Selector,
+			d.Digest,
+		)
 	default:
 		return fmt.Errorf("action %q has unsupported selector kind %q", ref.CanonicalName(), ref.SelectorKind)
 	}

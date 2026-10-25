@@ -74,9 +74,19 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 	}
 
 	pinnedQueueAddress := config.CellIngressQueueAddress()
-	queue, err := queueclient.NewManagingQueueService(ctx, logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, logger, pinnedQueueAddress, config.CellIngressRegistryDialAddress(), retryMetrics)
-	})
+	queue, err := queueclient.NewManagingQueueService(
+		ctx,
+		logger,
+		func(ctx context.Context) (*grpc.ClientConn, func(), error) {
+			return resolver.DialQueue(
+				ctx,
+				logger,
+				pinnedQueueAddress,
+				config.CellIngressRegistryDialAddress(),
+				retryMetrics,
+			)
+		},
+	)
 	if err != nil {
 		logger.Fatal("Failed to connect to queue: %v", err)
 	}
@@ -117,7 +127,14 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 	httpSrv := cellingress.HTTPServer(addr, handler)
 	logger.Info("Cell ingress listening on %s://%s; execution repair polling every %v", scheme, addr, repairInterval)
 
-	if err := cli.ServeHTTP(ctx, httpSrv, func() error { return httpSrv.Serve(ln) }, 10*time.Second, "Cell ingress HTTP", logger); err != nil {
+	if err := cli.ServeHTTP(
+		ctx,
+		httpSrv,
+		func() error { return httpSrv.Serve(ln) },
+		10*time.Second,
+		"Cell ingress HTTP",
+		logger,
+	); err != nil {
 		logger.Fatal("Cell ingress HTTP server failed: %v", err)
 	}
 }
@@ -130,14 +147,20 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
-	rootCmd.PersistentFlags().String("host", config.CellIngressHost(), "Host/IP for the cell ingress HTTP server to bind")
+	rootCmd.PersistentFlags().
+		String("host", config.CellIngressHost(), "Host/IP for the cell ingress HTTP server to bind")
 	rootCmd.PersistentFlags().Int("port", config.CellIngressPort(), "HTTP port for the cell ingress server")
-	rootCmd.PersistentFlags().StringSlice("allowed-host", nil, "Allowed Host header for the cell ingress HTTP server; may be repeated or comma-separated")
-	rootCmd.PersistentFlags().String("metrics-host", config.CellIngressMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().
+		StringSlice("allowed-host", nil, "Allowed Host header for the cell ingress HTTP server; may be repeated or comma-separated")
+	rootCmd.PersistentFlags().
+		String("metrics-host", config.CellIngressMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.CellIngressMetricsPort(), "HTTP port for Prometheus /metrics")
-	rootCmd.PersistentFlags().Duration("repair-interval", config.CellIngressRepairInterval(), "How often to retry accepted executions that missed local queue handoff")
-	rootCmd.PersistentFlags().String("queue-address", config.CellIngressQueueAddress(), "Pinned local queue gRPC address; empty uses registry discovery")
-	rootCmd.PersistentFlags().String("registry-address", config.CellIngressRegistryAddress(), "Registry gRPC address for queue discovery")
+	rootCmd.PersistentFlags().
+		Duration("repair-interval", config.CellIngressRepairInterval(), "How often to retry accepted executions that missed local queue handoff")
+	rootCmd.PersistentFlags().
+		String("queue-address", config.CellIngressQueueAddress(), "Pinned local queue gRPC address; empty uses registry discovery")
+	rootCmd.PersistentFlags().
+		String("registry-address", config.CellIngressRegistryAddress(), "Registry gRPC address for queue discovery")
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("allowed_hosts", rootCmd.PersistentFlags().Lookup("allowed-host"))

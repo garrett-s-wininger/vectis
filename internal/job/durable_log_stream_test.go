@@ -160,7 +160,9 @@ func TestDurableLogStream_FlushesAllChunksOnClose(t *testing.T) {
 		rid := "run-test"
 		seq := int64(i + 1)
 		st := api.Stream_STREAM_STDOUT
-		if err := d.Send(&api.LogChunk{RunId: &rid, Sequence: &seq, Stream: &st, Data: fmt.Appendf(nil, "line-%d", i)}); err != nil {
+		if err := d.Send(
+			&api.LogChunk{RunId: &rid, Sequence: &seq, Stream: &st, Data: fmt.Appendf(nil, "line-%d", i)},
+		); err != nil {
 			t.Fatalf("send %d: %v", i, err)
 		}
 	}
@@ -200,7 +202,14 @@ func TestDurableLogStream_FlushesAllChunksWithConcurrentSenders(t *testing.T) {
 				rid := "run-test-concurrent"
 				seq := int64((worker * perWorker) + i + 1)
 				st := api.Stream_STREAM_STDOUT
-				_ = d.Send(&api.LogChunk{RunId: &rid, Sequence: &seq, Stream: &st, Data: fmt.Appendf(nil, "w%d-%d", worker, i)})
+				_ = d.Send(
+					&api.LogChunk{
+						RunId:    &rid,
+						Sequence: &seq,
+						Stream:   &st,
+						Data:     fmt.Appendf(nil, "w%d-%d", worker, i),
+					},
+				)
 			}
 		}(w)
 	}
@@ -396,7 +405,8 @@ func TestDurableLogStream_WarnsWhenWaitingForRecoveryDuringClose(t *testing.T) {
 	warnCalls := logger.GetWarnCalls()
 	waitWarn := false
 	for _, msg := range warnCalls {
-		if strings.Contains(msg, "flush will continue in background") && strings.Contains(msg, "run outcome is independent") {
+		if strings.Contains(msg, "flush will continue in background") &&
+			strings.Contains(msg, "run outcome is independent") {
 			waitWarn = true
 			break
 		}
@@ -453,7 +463,8 @@ func TestDurableLogStream_BlockingConnectEmitsOutageAndWaitWarnings(t *testing.T
 			outageWarn = true
 		}
 
-		if strings.Contains(msg, "flush will continue in background") && strings.Contains(msg, "run outcome is independent") {
+		if strings.Contains(msg, "flush will continue in background") &&
+			strings.Contains(msg, "run outcome is independent") {
 			waitWarn = true
 		}
 	}

@@ -50,7 +50,11 @@ func TestExtensionsDoNotImportVectisInternals(t *testing.T) {
 			}
 
 			if strings.HasPrefix(importPath, "vectis/") && !allowedVectisExtensionImport(importPath) {
-				t.Errorf("%s imports %q; extensions may only depend on api/gen/go, sdk, or extensions packages", path, importPath)
+				t.Errorf(
+					"%s imports %q; extensions may only depend on api/gen/go, sdk, or extensions packages",
+					path,
+					importPath,
+				)
 			}
 		}
 
@@ -61,26 +65,56 @@ func TestExtensionsDoNotImportVectisInternals(t *testing.T) {
 }
 
 func TestCoreImportsSecretProvidersOnlyAtCompositionPoints(t *testing.T) {
-	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/secrets/", allowedSecretProviderImportFile, "standard secret providers")
+	assertExtensionImportsOnlyAtCompositionPoints(
+		t,
+		"vectis/extensions/secrets/",
+		allowedSecretProviderImportFile,
+		"standard secret providers",
+	)
 }
 
 func TestCoreImportsArtifactProvidersOnlyAtCompositionPoints(t *testing.T) {
-	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/artifacts/", allowedArtifactProviderImportFile, "artifact storage providers")
+	assertExtensionImportsOnlyAtCompositionPoints(
+		t,
+		"vectis/extensions/artifacts/",
+		allowedArtifactProviderImportFile,
+		"artifact storage providers",
+	)
 }
 
 func TestCoreImportsAuthProvidersOnlyAtCompositionPoints(t *testing.T) {
-	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/auth/", allowedAuthProviderImportFile, "auth providers")
+	assertExtensionImportsOnlyAtCompositionPoints(
+		t,
+		"vectis/extensions/auth/",
+		allowedAuthProviderImportFile,
+		"auth providers",
+	)
 }
 
 func TestCoreImportsActionExtensionsOnlyAtCompositionPoints(t *testing.T) {
-	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/actions/", allowedActionExtensionImportFile, "action extensions")
+	assertExtensionImportsOnlyAtCompositionPoints(
+		t,
+		"vectis/extensions/actions/",
+		allowedActionExtensionImportFile,
+		"action extensions",
+	)
 }
 
 func TestCoreImportsSCMProvidersOnlyAtCompositionPoints(t *testing.T) {
-	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/scm/", allowedSCMProviderImportFile, "SCM providers")
+	assertExtensionImportsOnlyAtCompositionPoints(
+		t,
+		"vectis/extensions/scm/",
+		allowedSCMProviderImportFile,
+		"SCM providers",
+	)
 }
 
-func assertExtensionImportsOnlyAtCompositionPoints(t *testing.T, importPrefix string, allowFile func(string) bool, label string) {
+func assertExtensionImportsOnlyAtCompositionPoints(
+	t *testing.T,
+	importPrefix string,
+	allowFile func(string) bool,
+	label string,
+) {
 	t.Helper()
 
 	root := ".."

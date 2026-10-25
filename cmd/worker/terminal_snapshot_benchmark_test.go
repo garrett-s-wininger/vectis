@@ -91,7 +91,13 @@ func BenchmarkWorker_MirrorExecutionClaim(b *testing.B) {
 		start := time.Now()
 
 		for i, env := range envs {
-			if err := worker.mirrorExecutionClaim(ctx, &api.Job{}, env, fmt.Sprintf("claim-sql-%d", i), leaseUntil); err != nil {
+			if err := worker.mirrorExecutionClaim(
+				ctx,
+				&api.Job{},
+				env,
+				fmt.Sprintf("claim-sql-%d", i),
+				leaseUntil,
+			); err != nil {
 				b.Fatalf("mirror SQL root claim: %v", err)
 			}
 		}
@@ -121,7 +127,13 @@ func BenchmarkWorker_RenewMirroredExecutionClaim(b *testing.B) {
 		start := time.Now()
 
 		for i := 0; i < b.N; i++ {
-			if err := worker.renewMirroredExecutionClaim(ctx, &api.Job{}, env, "claim-hot-state", leaseUntil); err != nil {
+			if err := worker.renewMirroredExecutionClaim(
+				ctx,
+				&api.Job{},
+				env,
+				"claim-hot-state",
+				leaseUntil,
+			); err != nil {
 				b.Fatalf("renew hot-state root claim: %v", err)
 			}
 		}
@@ -234,7 +246,11 @@ func benchmarkWorkerPersistTerminalExecutionSnapshotConcurrent(b *testing.B, tot
 		wg.Add(1)
 		go func(workerIndex int) {
 			defer wg.Done()
-			worker := newTerminalSnapshotBenchmarkWorker(ctx, runs, fmt.Sprintf("worker-terminal-snapshot-bench-%d", workerIndex))
+			worker := newTerminalSnapshotBenchmarkWorker(
+				ctx,
+				runs,
+				fmt.Sprintf("worker-terminal-snapshot-bench-%d", workerIndex),
+			)
 			for fixture := range workCh {
 				if err := worker.persistTerminalExecutionSnapshot(ctx, fixture, "", ""); err != nil {
 					select {
@@ -304,8 +320,18 @@ func newTerminalSnapshotBenchmarkDB(b *testing.B) *sql.DB {
 		b.Fatalf("open benchmark db: %v", err)
 	}
 
-	db.SetMaxOpenConns(terminalSnapshotBenchmarkEnvInt("VECTIS_PERF_DATABASE_MAX_OPEN_CONNS", terminalSnapshotBenchmarkDefaultMaxOpenConns(driver)))
-	db.SetMaxIdleConns(terminalSnapshotBenchmarkEnvInt("VECTIS_PERF_DATABASE_MAX_IDLE_CONNS", terminalSnapshotBenchmarkDefaultMaxIdleConns(driver)))
+	db.SetMaxOpenConns(
+		terminalSnapshotBenchmarkEnvInt(
+			"VECTIS_PERF_DATABASE_MAX_OPEN_CONNS",
+			terminalSnapshotBenchmarkDefaultMaxOpenConns(driver),
+		),
+	)
+	db.SetMaxIdleConns(
+		terminalSnapshotBenchmarkEnvInt(
+			"VECTIS_PERF_DATABASE_MAX_IDLE_CONNS",
+			terminalSnapshotBenchmarkDefaultMaxIdleConns(driver),
+		),
+	)
 
 	if err := migrations.Run(db, driver); err != nil {
 		_ = db.Close()
@@ -346,7 +372,12 @@ func terminalSnapshotBenchmarkEnvInt(name string, defaultValue int) int {
 	return value
 }
 
-func terminalSnapshotBenchmarkFixture(b *testing.B, ctx context.Context, runs dal.RunsRepository, totalTasks, runIndex int) dal.ExecutionFinalizationResult {
+func terminalSnapshotBenchmarkFixture(
+	b *testing.B,
+	ctx context.Context,
+	runs dal.RunsRepository,
+	totalTasks, runIndex int,
+) dal.ExecutionFinalizationResult {
 	b.Helper()
 
 	jobID := terminalSnapshotBenchmarkJobID("job-terminal-snapshot", runIndex)
@@ -396,7 +427,12 @@ func terminalSnapshotBenchmarkFixture(b *testing.B, ctx context.Context, runs da
 	}
 }
 
-func terminalSnapshotBenchmarkRootEnvelope(b *testing.B, ctx context.Context, runs dal.RunsRepository, runIndex int) *cell.ExecutionEnvelope {
+func terminalSnapshotBenchmarkRootEnvelope(
+	b *testing.B,
+	ctx context.Context,
+	runs dal.RunsRepository,
+	runIndex int,
+) *cell.ExecutionEnvelope {
 	b.Helper()
 
 	jobID := terminalSnapshotBenchmarkJobID("job-root-claim", runIndex)
@@ -436,19 +472,43 @@ func terminalSnapshotRecordFromDispatch(dispatch dal.ExecutionDispatchRecord) da
 
 type terminalSnapshotBenchmarkChoreographer struct{}
 
-func (terminalSnapshotBenchmarkChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope, []orchestrator.TaskExecutionSnapshot) error {
+func (terminalSnapshotBenchmarkChoreographer) LoadRun(
+	context.Context,
+	*api.Job,
+	*cell.ExecutionEnvelope,
+	[]orchestrator.TaskExecutionSnapshot,
+) error {
 	return nil
 }
 
-func (terminalSnapshotBenchmarkChoreographer) ClaimAndStartExecution(context.Context, *cell.ExecutionEnvelope, string, time.Time) (dal.ExecutionClaimResult, error) {
+func (terminalSnapshotBenchmarkChoreographer) ClaimAndStartExecution(
+	context.Context,
+	*cell.ExecutionEnvelope,
+	string,
+	time.Time,
+) (dal.ExecutionClaimResult, error) {
 	return dal.ExecutionClaimResult{}, nil
 }
 
-func (terminalSnapshotBenchmarkChoreographer) RenewExecutionLease(context.Context, *cell.ExecutionEnvelope, string, string, time.Time) error {
+func (terminalSnapshotBenchmarkChoreographer) RenewExecutionLease(
+	context.Context,
+	*cell.ExecutionEnvelope,
+	string,
+	string,
+	time.Time,
+) error {
 	return nil
 }
 
-func (terminalSnapshotBenchmarkChoreographer) CompleteExecution(context.Context, *cell.ExecutionEnvelope, string, string, string, string, string) (dal.ExecutionFinalizationResult, error) {
+func (terminalSnapshotBenchmarkChoreographer) CompleteExecution(
+	context.Context,
+	*cell.ExecutionEnvelope,
+	string,
+	string,
+	string,
+	string,
+	string,
+) (dal.ExecutionFinalizationResult, error) {
 	return dal.ExecutionFinalizationResult{}, nil
 }
 

@@ -506,7 +506,10 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 							Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
 						}
 
-						if err := s.appendLogEntryBatch(ctx, []streamLogEntry{{runID: lastRunID, entry: synthetic}}); err != nil {
+						if err := s.appendLogEntryBatch(
+							ctx,
+							[]streamLogEntry{{runID: lastRunID, entry: synthetic}},
+						); err != nil {
 							s.logger.Warn("Failed to store synthetic completion for run %s: %v", lastRunID, err)
 						}
 
@@ -716,7 +719,11 @@ func (s *Server) assignRunSequences(entries []streamLogEntry) {
 	}
 }
 
-func (s *Server) publishLogEntryGroups(ctx context.Context, groups []runLogEntryGroup, lastRunID string) (string, *JobBuffer) {
+func (s *Server) publishLogEntryGroups(
+	ctx context.Context,
+	groups []runLogEntryGroup,
+	lastRunID string,
+) (string, *JobBuffer) {
 	var lastBuffer *JobBuffer
 	var terminalSeen bool
 
@@ -732,7 +739,13 @@ func (s *Server) publishLogEntryGroups(ctx context.Context, groups []runLogEntry
 		if dropped > 0 {
 			firstDropped := group.entries[len(group.entries)-dropped].Sequence
 			lastDropped := group.entries[len(group.entries)-1].Sequence
-			s.logger.Warn("Log buffer full for run %s, dropping %d log lines from flush (seq %d-%d)", group.runID, dropped, firstDropped, lastDropped)
+			s.logger.Warn(
+				"Log buffer full for run %s, dropping %d log lines from flush (seq %d-%d)",
+				group.runID,
+				dropped,
+				firstDropped,
+				lastDropped,
+			)
 		}
 
 		buffer.BroadcastBatch(ctx, group.runID, group.entries)
@@ -840,7 +853,13 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 	}()
 
 	// Phase 1: Replay historical entries
-	entries, terminalAlreadyConsumed, replayTruncated := s.replayHistoricalEntries(runID, sinceSeq, tail, replayLimit, buffer)
+	entries, terminalAlreadyConsumed, replayTruncated := s.replayHistoricalEntries(
+		runID,
+		sinceSeq,
+		tail,
+		replayLimit,
+		buffer,
+	)
 
 	var maxReplayedSeq = sinceSeq
 	var sawCompletionDuringReplay bool
@@ -951,7 +970,13 @@ func sendLogEntryChunk(stream api.LogService_GetLogsServer, runID string, entry 
 	})
 }
 
-func sendBufferedTerminalIfReady(stream api.LogService_GetLogsServer, runID string, buffer *JobBuffer, maxReplayedSeq int64, outCh chan LogEntry) (bool, error) {
+func sendBufferedTerminalIfReady(
+	stream api.LogService_GetLogsServer,
+	runID string,
+	buffer *JobBuffer,
+	maxReplayedSeq int64,
+	outCh chan LogEntry,
+) (bool, error) {
 	if len(outCh) != 0 {
 		return false, nil
 	}
@@ -970,7 +995,12 @@ func sendBufferedTerminalIfReady(stream api.LogService_GetLogsServer, runID stri
 	return true, nil
 }
 
-func (s *Server) replayHistoricalEntries(runID string, sinceSeq int64, tail, replayLimit int, buffer *JobBuffer) ([]LogEntry, bool, bool) {
+func (s *Server) replayHistoricalEntries(
+	runID string,
+	sinceSeq int64,
+	tail, replayLimit int,
+	buffer *JobBuffer,
+) ([]LogEntry, bool, bool) {
 	if replayStore, ok := s.store.(RunLogReplayStore); ok {
 		result, err := replayStore.Replay(runID, LogReplayOptions{
 			SinceSequence: sinceSeq,
@@ -1126,7 +1156,9 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 		return err
 	}
 
-	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
+	srvOpts, err := config.GRPCServerOptionsForRole(
+		config.ServiceIdentityRoleLog,
+	) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
 	if err != nil {
 		return err
 	}
@@ -1147,7 +1179,13 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metri
 	return RunWithOptions(ctx, logger, store, metrics, RunOptions{})
 }
 
-func RunWithOptions(ctx context.Context, logger interfaces.Logger, store RunLogStore, metrics *observability.LogMetrics, opts RunOptions) error {
+func RunWithOptions(
+	ctx context.Context,
+	logger interfaces.Logger,
+	store RunLogStore,
+	metrics *observability.LogMetrics,
+	opts RunOptions,
+) error {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonLog); err != nil {
 		return err
 	}
@@ -1180,7 +1218,12 @@ func RunWithOptions(ctx context.Context, logger interfaces.Logger, store RunLogS
 	return server.RunGRPC(ctx, config.LogGRPCListenAddr())
 }
 
-func registerLogWithHeartbeat(ctx context.Context, registryAddress, instanceID, publishAddress string, store RunLogStore, logger interfaces.Logger) (func(), error) {
+func registerLogWithHeartbeat(
+	ctx context.Context,
+	registryAddress, instanceID, publishAddress string,
+	store RunLogStore,
+	logger interfaces.Logger,
+) (func(), error) {
 	interval := config.RegistryRegistrationRefresh()
 	if interval <= 0 {
 		interval = 45 * time.Second

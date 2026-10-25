@@ -182,7 +182,12 @@ func RunCoreServerSuite(t *testing.T, factory CoreEndpointFactory, opts Options)
 		}
 
 		if resp.GetOutcome() != api.RunOutcome_RUN_OUTCOME_SUCCESS {
-			t.Fatalf("outcome = %s message=%q reason=%q, want success", resp.GetOutcome(), resp.GetMessage(), resp.GetReasonCode())
+			t.Fatalf(
+				"outcome = %s message=%q reason=%q, want success",
+				resp.GetOutcome(),
+				resp.GetMessage(),
+				resp.GetReasonCode(),
+			)
 		}
 
 		if got := resp.GetReasonCode(); got != "" {
@@ -239,7 +244,11 @@ func validateDescription(t *testing.T, desc sdk.Description, allowEmptyProtocol 
 	}
 }
 
-func dialCoreServer(t *testing.T, ctx context.Context, factory CoreEndpointFactory) (*grpc.ClientConn, api.WorkerCoreServiceClient) {
+func dialCoreServer(
+	t *testing.T,
+	ctx context.Context,
+	factory CoreEndpointFactory,
+) (*grpc.ClientConn, api.WorkerCoreServiceClient) {
 	t.Helper()
 
 	endpoint := factory(t)
@@ -400,7 +409,10 @@ func serveGRPC(t *testing.T, server *grpc.Server, listener net.Listener) {
 func shortSocketPath(t *testing.T, name string) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-core-conf-") //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
+	dir, err := os.MkdirTemp(
+		shortTempRoot(),
+		"vectis-core-conf-",
+	) //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}

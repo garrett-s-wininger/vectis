@@ -69,7 +69,14 @@ func TestParseGitCredentials(t *testing.T) {
 				creds.Password != tc.password ||
 				creds.SSHPrivateKey != tc.sshPrivateKey ||
 				creds.SSHKnownHosts != tc.sshKnownHosts {
-				t.Fatalf("credentials = %+v, want username=%q password=%q ssh_private_key=%q known_hosts=%q", creds, tc.username, tc.password, tc.sshPrivateKey, tc.sshKnownHosts)
+				t.Fatalf(
+					"credentials = %+v, want username=%q password=%q ssh_private_key=%q known_hosts=%q",
+					creds,
+					tc.username,
+					tc.password,
+					tc.sshPrivateKey,
+					tc.sshKnownHosts,
+				)
 			}
 		})
 	}

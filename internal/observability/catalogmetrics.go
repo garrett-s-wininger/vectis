@@ -54,9 +54,13 @@ func NewCatalogMetrics() (*CatalogMetrics, error) {
 		return nil, fmt.Errorf("vectis_catalog_events_retryable_total: %w", err)
 	}
 
-	processErrors, err := m.Int64Counter("vectis_catalog_process_errors_total",
-		metric.WithDescription("Total catalog inbox process attempts that failed before event-level status updates completed"),
-		metric.WithUnit("{error}"))
+	processErrors, err := m.Int64Counter(
+		"vectis_catalog_process_errors_total",
+		metric.WithDescription(
+			"Total catalog inbox process attempts that failed before event-level status updates completed",
+		),
+		metric.WithUnit("{error}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_catalog_process_errors_total: %w", err)
 	}

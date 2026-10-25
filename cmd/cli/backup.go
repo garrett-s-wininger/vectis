@@ -371,7 +371,16 @@ byte-level integrity evidence for each storage-backed local state path in the
 manifest.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		runCLIError(writeBackupManifestVerification(os.Stdout, args[0], backupVerifyExpectPath, backupVerifyStorageReportPaths, backupVerifyStorageMaxAge, time.Now().UTC()))
+		runCLIError(
+			writeBackupManifestVerification(
+				os.Stdout,
+				args[0],
+				backupVerifyExpectPath,
+				backupVerifyStorageReportPaths,
+				backupVerifyStorageMaxAge,
+				time.Now().UTC(),
+			),
+		)
 	},
 }
 
@@ -435,8 +444,19 @@ func writeBackupManifest(w io.Writer, inventoryPaths []string, generatedAt time.
 	return writeBackupManifestText(w, manifest)
 }
 
-func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath string, storageReportPaths []string, storageMaxAge time.Duration, checkedAt time.Time) error {
-	manifest, expected, storageReports, err := readBackupVerificationInputs(manifestPath, expectPath, storageReportPaths, storageMaxAge)
+func writeBackupManifestVerification(
+	w io.Writer,
+	manifestPath, expectPath string,
+	storageReportPaths []string,
+	storageMaxAge time.Duration,
+	checkedAt time.Time,
+) error {
+	manifest, expected, storageReports, err := readBackupVerificationInputs(
+		manifestPath,
+		expectPath,
+		storageReportPaths,
+		storageMaxAge,
+	)
 	if err != nil {
 		return err
 	}
@@ -457,7 +477,12 @@ func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath strin
 	return nil
 }
 
-func writeBackupRestoreValidation(w io.Writer, opts backupRestoreValidationOptions, checkedAt time.Time, fetchRun backupRunDetailFetcher) error {
+func writeBackupRestoreValidation(
+	w io.Writer,
+	opts backupRestoreValidationOptions,
+	checkedAt time.Time,
+	fetchRun backupRunDetailFetcher,
+) error {
 	if strings.TrimSpace(opts.SmokeRunID) == "" {
 		return fmt.Errorf("--smoke-run is required")
 	}
@@ -465,7 +490,12 @@ func writeBackupRestoreValidation(w io.Writer, opts backupRestoreValidationOptio
 		return fmt.Errorf("restore validation smoke run fetcher is required")
 	}
 
-	manifest, expected, storageReports, err := readBackupVerificationInputs(opts.ManifestPath, opts.ExpectPath, opts.StorageReportPaths, opts.StorageMaxAge)
+	manifest, expected, storageReports, err := readBackupVerificationInputs(
+		opts.ManifestPath,
+		opts.ExpectPath,
+		opts.StorageReportPaths,
+		opts.StorageMaxAge,
+	)
 	if err != nil {
 		return err
 	}
@@ -520,12 +550,20 @@ func writeBackupRestoreValidation(w io.Writer, opts backupRestoreValidationOptio
 	return nil
 }
 
-func readBackupVerificationInputs(manifestPath, expectPath string, storageReportPaths []string, storageMaxAge time.Duration) (backupManifest, *backupExpectedTopologyInput, []backupStorageReportInput, error) {
+func readBackupVerificationInputs(
+	manifestPath, expectPath string,
+	storageReportPaths []string,
+	storageMaxAge time.Duration,
+) (backupManifest, *backupExpectedTopologyInput, []backupStorageReportInput, error) {
 	if manifestPath == "-" && (expectPath == "-" || backupStorageReportPathsContainStdin(storageReportPaths)) {
-		return backupManifest{}, nil, nil, fmt.Errorf("manifest, expected topology, and storage reports cannot share stdin")
+		return backupManifest{}, nil, nil, fmt.Errorf(
+			"manifest, expected topology, and storage reports cannot share stdin",
+		)
 	}
 	if expectPath == "-" && backupStorageReportPathsContainStdin(storageReportPaths) {
-		return backupManifest{}, nil, nil, fmt.Errorf("expected topology and storage reports cannot both be read from stdin")
+		return backupManifest{}, nil, nil, fmt.Errorf(
+			"expected topology and storage reports cannot both be read from stdin",
+		)
 	}
 	if storageMaxAge > 0 && len(storageReportPaths) == 0 {
 		return backupManifest{}, nil, nil, fmt.Errorf("--storage-max-age requires --storage-report")
@@ -592,12 +630,54 @@ func collectBackupInventory(generatedAt time.Time) backupInventory {
 	cronInstanceID, cronInstanceSource := backupEnvOrEmpty("VECTIS_CRON_INSTANCE_ID")
 
 	localState := []backupPathInventory{
-		backupPath("queue.persistence", "directory", backupQueuePersistenceDir(queueInstanceID), backupQueuePersistenceSource(), true, "Back up this directory when queue persistence is enabled."),
-		backupPath("log.storage", "directory", backupLogStorageDir(logInstanceID), backupPathSource("VECTIS_LOG_STORAGE_DIR", logInstanceSource), true, "Back up durable run logs for this log shard."),
-		backupPath("artifact.storage", "directory", backupArtifactStorageDir(artifactInstanceID), backupPathSource("VECTIS_ARTIFACT_STORAGE_DIR", artifactInstanceSource), true, "Back up content-addressed artifact blobs for this artifact shard."),
-		backupPath("log_forwarder.spool", "directory", backupEnvOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir()), backupPathSource("VECTIS_LOG_FORWARDER_SPOOL_DIR", "default"), true, "Back up pending worker-side log batches when this host owns the spool."),
-		backupPath("source.checkout_root", "directory", config.SourceCheckoutRoot(platform.DataHome()), backupSourceCheckoutRootSource(), true, "Back up managed checkouts only when the deployment relies on local source checkout state."),
-		backupPath("worker.pending_log_spool", "directory", filepath.Join(os.TempDir(), "vectis-log-spool", "pending"), "derived from os.TempDir", true, "Temp-backed worker pending log spool; treat as best-effort until it becomes configurable."),
+		backupPath(
+			"queue.persistence",
+			"directory",
+			backupQueuePersistenceDir(queueInstanceID),
+			backupQueuePersistenceSource(),
+			true,
+			"Back up this directory when queue persistence is enabled.",
+		),
+		backupPath(
+			"log.storage",
+			"directory",
+			backupLogStorageDir(logInstanceID),
+			backupPathSource("VECTIS_LOG_STORAGE_DIR", logInstanceSource),
+			true,
+			"Back up durable run logs for this log shard.",
+		),
+		backupPath(
+			"artifact.storage",
+			"directory",
+			backupArtifactStorageDir(artifactInstanceID),
+			backupPathSource("VECTIS_ARTIFACT_STORAGE_DIR", artifactInstanceSource),
+			true,
+			"Back up content-addressed artifact blobs for this artifact shard.",
+		),
+		backupPath(
+			"log_forwarder.spool",
+			"directory",
+			backupEnvOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir()),
+			backupPathSource("VECTIS_LOG_FORWARDER_SPOOL_DIR", "default"),
+			true,
+			"Back up pending worker-side log batches when this host owns the spool.",
+		),
+		backupPath(
+			"source.checkout_root",
+			"directory",
+			config.SourceCheckoutRoot(platform.DataHome()),
+			backupSourceCheckoutRootSource(),
+			true,
+			"Back up managed checkouts only when the deployment relies on local source checkout state.",
+		),
+		backupPath(
+			"worker.pending_log_spool",
+			"directory",
+			filepath.Join(os.TempDir(), "vectis-log-spool", "pending"),
+			"derived from os.TempDir",
+			true,
+			"Temp-backed worker pending log spool; treat as best-effort until it becomes configurable.",
+		),
 	}
 
 	secretStores := backupSecretStorePaths()
@@ -865,10 +945,30 @@ func buildBackupManifest(inputs []backupInventoryInput, generatedAt time.Time) b
 			})
 		}
 
-		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "local_state", inventory.LocalState)
-		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "secret_stores", inventory.SecretStores)
-		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "tls_files", inventory.TLSFiles)
-		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "config_paths", inventory.ConfigPaths)
+		manifest.RequiredPaths = appendBackupManifestPaths(
+			manifest.RequiredPaths,
+			source,
+			"local_state",
+			inventory.LocalState,
+		)
+		manifest.RequiredPaths = appendBackupManifestPaths(
+			manifest.RequiredPaths,
+			source,
+			"secret_stores",
+			inventory.SecretStores,
+		)
+		manifest.RequiredPaths = appendBackupManifestPaths(
+			manifest.RequiredPaths,
+			source,
+			"tls_files",
+			inventory.TLSFiles,
+		)
+		manifest.RequiredPaths = appendBackupManifestPaths(
+			manifest.RequiredPaths,
+			source,
+			"config_paths",
+			inventory.ConfigPaths,
+		)
 	}
 
 	return manifest
@@ -927,9 +1027,18 @@ func backupPodmanExpectedTopology(profile string) (backupExpectedTopology, strin
 		})
 	}
 
-	expected.Paths = append(expected.Paths,
-		backupExpectedPath{Category: "secret_stores", ID: "secrets.encryptedfs.root", Path: "/data/vectis/secrets/encryptedfs"},
-		backupExpectedPath{Category: "secret_stores", ID: "secrets.encryptedfs.key_file", Path: "/run/vectis/secrets/encryptedfs.key"},
+	expected.Paths = append(
+		expected.Paths,
+		backupExpectedPath{
+			Category: "secret_stores",
+			ID:       "secrets.encryptedfs.root",
+			Path:     "/data/vectis/secrets/encryptedfs",
+		},
+		backupExpectedPath{
+			Category: "secret_stores",
+			ID:       "secrets.encryptedfs.key_file",
+			Path:     "/run/vectis/secrets/encryptedfs.key",
+		},
 	)
 
 	return expected, profile, nil
@@ -1071,7 +1180,11 @@ func backupNormalizePodmanProfile(profile string) (string, error) {
 	}
 }
 
-func appendBackupManifestPaths(out []backupManifestPath, inventorySource, category string, paths []backupPathInventory) []backupManifestPath {
+func appendBackupManifestPaths(
+	out []backupManifestPath,
+	inventorySource, category string,
+	paths []backupPathInventory,
+) []backupManifestPath {
 	for _, path := range paths {
 		if !path.Enabled {
 			continue
@@ -1097,11 +1210,21 @@ func appendBackupManifestPaths(out []backupManifestPath, inventorySource, catego
 	return out
 }
 
-func verifyBackupManifest(manifest backupManifest, expected *backupExpectedTopologyInput, checkedAt time.Time) backupManifestVerification {
+func verifyBackupManifest(
+	manifest backupManifest,
+	expected *backupExpectedTopologyInput,
+	checkedAt time.Time,
+) backupManifestVerification {
 	return verifyBackupManifestWithStorage(manifest, expected, nil, 0, checkedAt)
 }
 
-func verifyBackupManifestWithStorage(manifest backupManifest, expected *backupExpectedTopologyInput, storageReports []backupStorageReportInput, storageMaxAge time.Duration, checkedAt time.Time) backupManifestVerification {
+func verifyBackupManifestWithStorage(
+	manifest backupManifest,
+	expected *backupExpectedTopologyInput,
+	storageReports []backupStorageReportInput,
+	storageMaxAge time.Duration,
+	checkedAt time.Time,
+) backupManifestVerification {
 	result := backupManifestVerification{
 		Status:              backupManifestStatusOK,
 		CheckedAt:           checkedAt.Format(time.RFC3339),
@@ -1146,7 +1269,10 @@ func verifyBackupManifestWithStorage(manifest backupManifest, expected *backupEx
 	}
 
 	if manifest.SchemaVersion != backupManifestSchemaVersion {
-		addError("manifest.schema_version", fmt.Sprintf("unsupported manifest schema version %d", manifest.SchemaVersion))
+		addError(
+			"manifest.schema_version",
+			fmt.Sprintf("unsupported manifest schema version %d", manifest.SchemaVersion),
+		)
 	}
 
 	if len(manifest.Inventories) == 0 {
@@ -1236,7 +1362,10 @@ func verifyBackupManifestWithStorage(manifest backupManifest, expected *backupEx
 	}
 
 	if !manifestHasPathCategory(manifest, "database") {
-		addWarning("database.local_path.missing", "manifest has no local database path; this is expected for Postgres-only deployments")
+		addWarning(
+			"database.local_path.missing",
+			"manifest has no local database path; this is expected for Postgres-only deployments",
+		)
 	}
 
 	if !manifestHasPathCategory(manifest, "secret_stores") {
@@ -1270,7 +1399,13 @@ func verifyBackupManifestWithStorage(manifest backupManifest, expected *backupEx
 	return result
 }
 
-func verifyBackupStorageReports(manifest backupManifest, inputs []backupStorageReportInput, maxAge time.Duration, checkedAt time.Time, result *backupManifestVerification) {
+func verifyBackupStorageReports(
+	manifest backupManifest,
+	inputs []backupStorageReportInput,
+	maxAge time.Duration,
+	checkedAt time.Time,
+	result *backupManifestVerification,
+) {
 	required := backupStorageRequiredPaths(manifest)
 	result.Summary.StoragePathsRequired = len(required)
 
@@ -1305,16 +1440,27 @@ func verifyBackupStorageReports(manifest backupManifest, inputs []backupStorageR
 				result.Errors = append(result.Errors, backupManifestFinding{
 					Severity: backupFindingSeverityError,
 					ID:       "storage_report.checked_at_future",
-					Message:  fmt.Sprintf("storage report %s checked_at %s is after verification time %s", input.Source, evidence.CheckedAt, checkedAt.Format(time.RFC3339)),
-					Path:     report.Path,
+					Message: fmt.Sprintf(
+						"storage report %s checked_at %s is after verification time %s",
+						input.Source,
+						evidence.CheckedAt,
+						checkedAt.Format(time.RFC3339),
+					),
+					Path: report.Path,
 				})
 			} else if maxAge > 0 && age > maxAge {
 				reportOK = false
 				result.Errors = append(result.Errors, backupManifestFinding{
 					Severity: backupFindingSeverityError,
 					ID:       "storage_report.stale",
-					Message:  fmt.Sprintf("storage report %s is stale: checked_at=%s age=%s max_age=%s", input.Source, evidence.CheckedAt, age, maxAge),
-					Path:     report.Path,
+					Message: fmt.Sprintf(
+						"storage report %s is stale: checked_at=%s age=%s max_age=%s",
+						input.Source,
+						evidence.CheckedAt,
+						age,
+						maxAge,
+					),
+					Path: report.Path,
 				})
 			}
 		} else {
@@ -1351,8 +1497,13 @@ func verifyBackupStorageReports(manifest backupManifest, inputs []backupStorageR
 			result.Errors = append(result.Errors, backupManifestFinding{
 				Severity: backupFindingSeverityError,
 				ID:       "storage_report.failed",
-				Message:  fmt.Sprintf("storage report %s status is %s with %d error(s)", input.Source, backupDash(report.Status), len(report.Errors)),
-				Path:     report.Path,
+				Message: fmt.Sprintf(
+					"storage report %s status is %s with %d error(s)",
+					input.Source,
+					backupDash(report.Status),
+					len(report.Errors),
+				),
+				Path: report.Path,
 			})
 		}
 
@@ -1381,8 +1532,11 @@ func verifyBackupStorageReports(manifest backupManifest, inputs []backupStorageR
 			result.Errors = append(result.Errors, backupManifestFinding{
 				Severity: backupFindingSeverityError,
 				ID:       "storage_report.unmatched",
-				Message:  fmt.Sprintf("storage report %s does not match any storage-backed local_state path in the manifest", input.Source),
-				Path:     report.Path,
+				Message: fmt.Sprintf(
+					"storage report %s does not match any storage-backed local_state path in the manifest",
+					input.Source,
+				),
+				Path: report.Path,
 			})
 		}
 
@@ -1474,7 +1628,12 @@ func backupCleanStoragePath(path string) string {
 	return filepath.Clean(path)
 }
 
-func verifyBackupExpectedTopology(manifest backupManifest, source string, expected backupExpectedTopology, result *backupManifestVerification) {
+func verifyBackupExpectedTopology(
+	manifest backupManifest,
+	source string,
+	expected backupExpectedTopology,
+	result *backupManifestVerification,
+) {
 	if expected.SchemaVersion != 0 && expected.SchemaVersion != backupExpectedTopologySchemaVersion {
 		result.Errors = append(result.Errors, backupManifestFinding{
 			Severity: backupFindingSeverityError,
@@ -1767,7 +1926,8 @@ func inspectBackupSchema(dsn string) backupSchemaInventory {
 
 	var version int
 	var dirty bool
-	err = db.QueryRowContext(ctx, "SELECT version, dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&version, &dirty)
+	err = db.QueryRowContext(ctx, "SELECT version, dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").
+		Scan(&version, &dirty)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return backupSchemaInventory{Inspectable: true, Error: "schema_migrations has no rows"}
@@ -1798,7 +1958,9 @@ func backupLogInstanceID() (string, string) {
 		return value, source
 	}
 
-	return logserver.DefaultInstanceID(backupListenAddr("VECTIS_LOG_GRPC_PORT", config.LogGRPCPort())), "derived from hostname and log grpc port"
+	return logserver.DefaultInstanceID(
+		backupListenAddr("VECTIS_LOG_GRPC_PORT", config.LogGRPCPort()),
+	), "derived from hostname and log grpc port"
 }
 
 func backupArtifactInstanceID() (string, string) {
@@ -1806,7 +1968,9 @@ func backupArtifactInstanceID() (string, string) {
 		return value, source
 	}
 
-	return artifact.DefaultInstanceID(backupListenAddr("VECTIS_ARTIFACT_GRPC_PORT", config.ArtifactGRPCPort())), "derived from hostname and artifact grpc port"
+	return artifact.DefaultInstanceID(
+		backupListenAddr("VECTIS_ARTIFACT_GRPC_PORT", config.ArtifactGRPCPort()),
+	), "derived from hostname and artifact grpc port"
 }
 
 func backupQueuePersistenceDir(instanceID string) string {
@@ -1834,7 +1998,10 @@ func backupLogStorageDir(instanceID string) string {
 }
 
 func backupArtifactStorageDir(instanceID string) string {
-	return backupEnvOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", filepath.Join(platform.DataHome(), "vectis", "artifact", instanceID))
+	return backupEnvOrDefault(
+		"VECTIS_ARTIFACT_STORAGE_DIR",
+		filepath.Join(platform.DataHome(), "vectis", "artifact", instanceID),
+	)
 }
 
 func backupListenAddr(portEnv string, fallbackPort int) string {
@@ -1864,7 +2031,13 @@ func backupDefaultQueueInstanceID(port int) string {
 }
 
 func backupDefaultQueuePersistenceDir(pool, instanceID string) string {
-	return filepath.Join(platform.DataHome(), "vectis", "queue", backupSanitizeQueuePathComponent(pool), backupSanitizeQueuePathComponent(instanceID))
+	return filepath.Join(
+		platform.DataHome(),
+		"vectis",
+		"queue",
+		backupSanitizeQueuePathComponent(pool),
+		backupSanitizeQueuePathComponent(instanceID),
+	)
 }
 
 func backupSanitizeQueuePathComponent(value string) string {
@@ -1899,10 +2072,30 @@ func backupSecretStorePaths() []backupPathInventory {
 	root := backupEnvOrDefault(encryptedfs.EnvRoot, "")
 	keyFile := backupEnvOrDefault(encryptedfs.EnvKeyFile, "")
 	if root != "" {
-		paths = append(paths, backupPath("secrets.encryptedfs.root", "directory", root, backupPathSource(encryptedfs.EnvRoot, "extension config"), true, "Back up encrypted secret envelopes."))
+		paths = append(
+			paths,
+			backupPath(
+				"secrets.encryptedfs.root",
+				"directory",
+				root,
+				backupPathSource(encryptedfs.EnvRoot, "extension config"),
+				true,
+				"Back up encrypted secret envelopes.",
+			),
+		)
 	}
 	if keyFile != "" {
-		paths = append(paths, backupPath("secrets.encryptedfs.key_file", "file", keyFile, backupPathSource(encryptedfs.EnvKeyFile, "extension config"), true, "Back up provider key material separately with secret-handling controls."))
+		paths = append(
+			paths,
+			backupPath(
+				"secrets.encryptedfs.key_file",
+				"file",
+				keyFile,
+				backupPathSource(encryptedfs.EnvKeyFile, "extension config"),
+				true,
+				"Back up provider key material separately with secret-handling controls.",
+			),
+		)
 	}
 	return paths
 }
@@ -1915,19 +2108,84 @@ func backupTLSPaths() []backupPathInventory {
 		note string
 	}{
 		{id: "grpc.ca_file", kind: "file", env: "VECTIS_GRPC_TLS_CA_FILE", note: "Back up gRPC trust material."},
-		{id: "grpc.cert_file", kind: "file", env: "VECTIS_GRPC_TLS_CERT_FILE", note: "Back up gRPC server certificate material."},
-		{id: "grpc.key_file", kind: "file", env: "VECTIS_GRPC_TLS_KEY_FILE", note: "Back up gRPC server private key material with secret-handling controls."},
-		{id: "grpc.client_ca_file", kind: "file", env: "VECTIS_GRPC_TLS_CLIENT_CA_FILE", note: "Back up gRPC client CA material."},
-		{id: "grpc.client_cert_file", kind: "file", env: "VECTIS_GRPC_TLS_CLIENT_CERT_FILE", note: "Back up gRPC client certificate material."},
-		{id: "grpc.client_key_file", kind: "file", env: "VECTIS_GRPC_TLS_CLIENT_KEY_FILE", note: "Back up gRPC client private key material with secret-handling controls."},
-		{id: "metrics.cert_file", kind: "file", env: "VECTIS_METRICS_TLS_CERT_FILE", note: "Back up metrics TLS certificate material."},
-		{id: "metrics.key_file", kind: "file", env: "VECTIS_METRICS_TLS_KEY_FILE", note: "Back up metrics TLS private key material with secret-handling controls."},
-		{id: "api.cert_file", kind: "file", env: "VECTIS_API_TLS_CERT_FILE", note: "Back up API HTTPS certificate material."},
-		{id: "api.key_file", kind: "file", env: "VECTIS_API_TLS_KEY_FILE", note: "Back up API HTTPS private key material with secret-handling controls."},
-		{id: "api.server_cert_file", kind: "file", env: "VECTIS_API_SERVER_TLS_CERT_FILE", note: "Back up API HTTPS certificate material."},
-		{id: "api.server_key_file", kind: "file", env: "VECTIS_API_SERVER_TLS_KEY_FILE", note: "Back up API HTTPS private key material with secret-handling controls."},
-		{id: "docs.cert_file", kind: "file", env: "VECTIS_DOCS_TLS_CERT_FILE", note: "Back up docs HTTPS certificate material."},
-		{id: "docs.key_file", kind: "file", env: "VECTIS_DOCS_TLS_KEY_FILE", note: "Back up docs HTTPS private key material with secret-handling controls."},
+		{
+			id:   "grpc.cert_file",
+			kind: "file",
+			env:  "VECTIS_GRPC_TLS_CERT_FILE",
+			note: "Back up gRPC server certificate material.",
+		},
+		{
+			id:   "grpc.key_file",
+			kind: "file",
+			env:  "VECTIS_GRPC_TLS_KEY_FILE",
+			note: "Back up gRPC server private key material with secret-handling controls.",
+		},
+		{
+			id:   "grpc.client_ca_file",
+			kind: "file",
+			env:  "VECTIS_GRPC_TLS_CLIENT_CA_FILE",
+			note: "Back up gRPC client CA material.",
+		},
+		{
+			id:   "grpc.client_cert_file",
+			kind: "file",
+			env:  "VECTIS_GRPC_TLS_CLIENT_CERT_FILE",
+			note: "Back up gRPC client certificate material.",
+		},
+		{
+			id:   "grpc.client_key_file",
+			kind: "file",
+			env:  "VECTIS_GRPC_TLS_CLIENT_KEY_FILE",
+			note: "Back up gRPC client private key material with secret-handling controls.",
+		},
+		{
+			id:   "metrics.cert_file",
+			kind: "file",
+			env:  "VECTIS_METRICS_TLS_CERT_FILE",
+			note: "Back up metrics TLS certificate material.",
+		},
+		{
+			id:   "metrics.key_file",
+			kind: "file",
+			env:  "VECTIS_METRICS_TLS_KEY_FILE",
+			note: "Back up metrics TLS private key material with secret-handling controls.",
+		},
+		{
+			id:   "api.cert_file",
+			kind: "file",
+			env:  "VECTIS_API_TLS_CERT_FILE",
+			note: "Back up API HTTPS certificate material.",
+		},
+		{
+			id:   "api.key_file",
+			kind: "file",
+			env:  "VECTIS_API_TLS_KEY_FILE",
+			note: "Back up API HTTPS private key material with secret-handling controls.",
+		},
+		{
+			id:   "api.server_cert_file",
+			kind: "file",
+			env:  "VECTIS_API_SERVER_TLS_CERT_FILE",
+			note: "Back up API HTTPS certificate material.",
+		},
+		{
+			id:   "api.server_key_file",
+			kind: "file",
+			env:  "VECTIS_API_SERVER_TLS_KEY_FILE",
+			note: "Back up API HTTPS private key material with secret-handling controls.",
+		},
+		{
+			id:   "docs.cert_file",
+			kind: "file",
+			env:  "VECTIS_DOCS_TLS_CERT_FILE",
+			note: "Back up docs HTTPS certificate material.",
+		},
+		{
+			id:   "docs.key_file",
+			kind: "file",
+			env:  "VECTIS_DOCS_TLS_KEY_FILE",
+			note: "Back up docs HTTPS private key material with secret-handling controls.",
+		},
 	}
 
 	out := []backupPathInventory{}
@@ -1950,10 +2208,30 @@ func backupTLSPaths() []backupPathInventory {
 func backupConfigPaths() []backupPathInventory {
 	paths := []backupPathInventory{}
 	if deployDir := strings.TrimSpace(os.Getenv("VECTIS_DEPLOY_CONFIG_DIR")); deployDir != "" {
-		paths = append(paths, backupPath("deploy.config_dir", "directory", deployDir, "VECTIS_DEPLOY_CONFIG_DIR", true, "Back up rendered deployment secrets and manifests when using reference deploy helpers."))
+		paths = append(
+			paths,
+			backupPath(
+				"deploy.config_dir",
+				"directory",
+				deployDir,
+				"VECTIS_DEPLOY_CONFIG_DIR",
+				true,
+				"Back up rendered deployment secrets and manifests when using reference deploy helpers.",
+			),
+		)
 	}
 	if configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); configHome != "" {
-		paths = append(paths, backupPath("linux.config_dir", "directory", filepath.Join(configHome, "vectis"), "XDG_CONFIG_HOME", true, "Back up Linux service environment files and host-local Vectis configuration."))
+		paths = append(
+			paths,
+			backupPath(
+				"linux.config_dir",
+				"directory",
+				filepath.Join(configHome, "vectis"),
+				"XDG_CONFIG_HOME",
+				true,
+				"Back up Linux service environment files and host-local Vectis configuration.",
+			),
+		)
 	}
 	return paths
 }
@@ -2013,7 +2291,12 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 		return err
 	}
 
-	if _, err := fmt.Fprintf(w, "Database driver: %s (%s)\n", inventory.Database.Driver, inventory.Database.DriverSource); err != nil {
+	if _, err := fmt.Fprintf(
+		w,
+		"Database driver: %s (%s)\n",
+		inventory.Database.Driver,
+		inventory.Database.DriverSource,
+	); err != nil {
 		return err
 	}
 
@@ -2025,12 +2308,24 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 
 		schema := "schema=unknown"
 		if role.Schema.CurrentVersion != nil {
-			schema = fmt.Sprintf("schema=%d dirty=%t", *role.Schema.CurrentVersion, role.Schema.Dirty != nil && *role.Schema.Dirty)
+			schema = fmt.Sprintf(
+				"schema=%d dirty=%t",
+				*role.Schema.CurrentVersion,
+				role.Schema.Dirty != nil && *role.Schema.Dirty,
+			)
 		} else if role.Schema.Error != "" {
 			schema = "schema_error=" + role.Schema.Error
 		}
 
-		if _, err := fmt.Fprintf(w, "  db[%s]: %s source=%s%s %s\n", role.Role, role.DSN, role.DSNSource, sameAs, schema); err != nil {
+		if _, err := fmt.Fprintf(
+			w,
+			"  db[%s]: %s source=%s%s %s\n",
+			role.Role,
+			role.DSN,
+			role.DSNSource,
+			sameAs,
+			schema,
+		); err != nil {
 			return err
 		}
 	}
@@ -2040,7 +2335,13 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 	}
 
 	for _, instance := range inventory.Instances {
-		if _, err := fmt.Fprintf(w, "  %s: %s (%s)\n", instance.Service, backupDash(instance.InstanceID), instance.Source); err != nil {
+		if _, err := fmt.Fprintf(
+			w,
+			"  %s: %s (%s)\n",
+			instance.Service,
+			backupDash(instance.InstanceID),
+			instance.Source,
+		); err != nil {
 			return err
 		}
 	}
@@ -2090,7 +2391,15 @@ func writeBackupManifestText(w io.Writer, manifest backupManifest) error {
 	}
 
 	for _, inventory := range manifest.Inventories {
-		if _, err := fmt.Fprintf(w, "  %s: generated=%s version=%s db_driver=%s split_global_cell=%t\n", inventory.Source, inventory.GeneratedAt, inventory.Version, inventory.DatabaseDriver, inventory.SplitGlobalCell); err != nil {
+		if _, err := fmt.Fprintf(
+			w,
+			"  %s: generated=%s version=%s db_driver=%s split_global_cell=%t\n",
+			inventory.Source,
+			inventory.GeneratedAt,
+			inventory.Version,
+			inventory.DatabaseDriver,
+			inventory.SplitGlobalCell,
+		); err != nil {
 			return err
 		}
 	}
@@ -2117,7 +2426,16 @@ func writeBackupManifestText(w io.Writer, manifest backupManifest) error {
 			status = "unreadable"
 		}
 
-		if _, err := fmt.Fprintf(w, "  %s/%s: %s [%s] source=%s inventory=%s\n", path.Category, path.ID, backupDash(path.Path), status, path.Source, path.InventorySource); err != nil {
+		if _, err := fmt.Fprintf(
+			w,
+			"  %s/%s: %s [%s] source=%s inventory=%s\n",
+			path.Category,
+			path.ID,
+			backupDash(path.Path),
+			status,
+			path.Source,
+			path.InventorySource,
+		); err != nil {
 			return err
 		}
 	}
@@ -2128,7 +2446,12 @@ func writeBackupManifestText(w io.Writer, manifest backupManifest) error {
 		}
 
 		for _, warning := range manifest.Warnings {
-			if _, err := fmt.Fprintf(w, "  - %s: %s\n", backupDash(warning.InventorySource), warning.Message); err != nil {
+			if _, err := fmt.Fprintf(
+				w,
+				"  - %s: %s\n",
+				backupDash(warning.InventorySource),
+				warning.Message,
+			); err != nil {
 				return err
 			}
 		}
@@ -2163,7 +2486,11 @@ func writeBackupExpectedTopologyText(w io.Writer, source, profile string, expect
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(w, "Required categories: %s\n", strings.Join(expected.RequireCategories, ", ")); err != nil {
+	if _, err := fmt.Fprintf(
+		w,
+		"Required categories: %s\n",
+		strings.Join(expected.RequireCategories, ", "),
+	); err != nil {
 		return err
 	}
 
@@ -2191,12 +2518,25 @@ func writeBackupManifestVerificationText(w io.Writer, result backupManifestVerif
 		}
 	}
 
-	if _, err := fmt.Fprintf(w, "Summary: inventories=%d database_roles=%d instances=%d required_paths=%d\n", result.Summary.Inventories, result.Summary.DatabaseRoles, result.Summary.Instances, result.Summary.RequiredPaths); err != nil {
+	if _, err := fmt.Fprintf(
+		w,
+		"Summary: inventories=%d database_roles=%d instances=%d required_paths=%d\n",
+		result.Summary.Inventories,
+		result.Summary.DatabaseRoles,
+		result.Summary.Instances,
+		result.Summary.RequiredPaths,
+	); err != nil {
 		return err
 	}
 
 	if len(result.StorageReports) > 0 {
-		if _, err := fmt.Fprintf(w, "Storage reports: reports=%d verified=%d required_paths=%d", result.Summary.StorageReports, result.Summary.StorageReportsVerified, result.Summary.StoragePathsRequired); err != nil {
+		if _, err := fmt.Fprintf(
+			w,
+			"Storage reports: reports=%d verified=%d required_paths=%d",
+			result.Summary.StorageReports,
+			result.Summary.StorageReportsVerified,
+			result.Summary.StoragePathsRequired,
+		); err != nil {
 			return err
 		}
 		if result.StorageReportMaxAge != "" {
@@ -2208,14 +2548,31 @@ func writeBackupManifestVerificationText(w io.Writer, result backupManifestVerif
 			return err
 		}
 		for _, report := range result.StorageReports {
-			if _, err := fmt.Fprintf(w, "  %s: %s path=%s checked_at=%s warnings=%d errors=%d\n", report.Surface, report.Status, backupDash(report.Path), backupDash(report.CheckedAt), report.Warnings, report.Errors); err != nil {
+			if _, err := fmt.Fprintf(
+				w,
+				"  %s: %s path=%s checked_at=%s warnings=%d errors=%d\n",
+				report.Surface,
+				report.Status,
+				backupDash(report.Path),
+				backupDash(report.CheckedAt),
+				report.Warnings,
+				report.Errors,
+			); err != nil {
 				return err
 			}
 		}
 	}
 
 	if result.ExpectationSource != "" {
-		if _, err := fmt.Fprintf(w, "Expected: inventory_sources=%d database_roles=%d instances=%d paths=%d required_categories=%d\n", result.Summary.ExpectedInventorySources, result.Summary.ExpectedDatabaseRoles, result.Summary.ExpectedInstances, result.Summary.ExpectedPaths, result.Summary.ExpectedRequiredCategories); err != nil {
+		if _, err := fmt.Fprintf(
+			w,
+			"Expected: inventory_sources=%d database_roles=%d instances=%d paths=%d required_categories=%d\n",
+			result.Summary.ExpectedInventorySources,
+			result.Summary.ExpectedDatabaseRoles,
+			result.Summary.ExpectedInstances,
+			result.Summary.ExpectedPaths,
+			result.Summary.ExpectedRequiredCategories,
+		); err != nil {
 			return err
 		}
 	}
@@ -2280,7 +2637,13 @@ func writeBackupRestoreValidationText(w io.Writer, validation backupRestoreValid
 	); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "Smoke run: id=%s status=%s passed=%t\n", validation.SmokeRun.RunID, backupDash(validation.SmokeRun.Status), validation.SmokeRun.Passed); err != nil {
+	if _, err := fmt.Fprintf(
+		w,
+		"Smoke run: id=%s status=%s passed=%t\n",
+		validation.SmokeRun.RunID,
+		backupDash(validation.SmokeRun.Status),
+		validation.SmokeRun.Passed,
+	); err != nil {
 		return err
 	}
 
@@ -2325,7 +2688,14 @@ func writeBackupPathText(w io.Writer, title string, paths []backupPathInventory)
 			status = "unreadable"
 		}
 
-		if _, err := fmt.Fprintf(w, "  %s: %s [%s] source=%s\n", path.ID, backupDash(path.Path), status, path.Source); err != nil {
+		if _, err := fmt.Fprintf(
+			w,
+			"  %s: %s [%s] source=%s\n",
+			path.ID,
+			backupDash(path.Path),
+			status,
+			path.Source,
+		); err != nil {
 			return err
 		}
 	}

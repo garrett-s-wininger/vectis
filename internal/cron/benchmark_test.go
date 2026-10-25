@@ -94,7 +94,15 @@ func BenchmarkCron_ProcessSchedules_AllDue(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				b.StopTimer()
 				db, _ := newCronBenchmarkDBAndRepos(b)
-				seedCronBenchmarkSchedules(b, ctx, db, dal.NewSQLRepositories(db), fmt.Sprintf("bench-cron-process-%d-%d", schedules, i), schedules, now)
+				seedCronBenchmarkSchedules(
+					b,
+					ctx,
+					db,
+					dal.NewSQLRepositories(db),
+					fmt.Sprintf("bench-cron-process-%d-%d", schedules, i),
+					schedules,
+					now,
+				)
 				service := cron.NewCronService(mocks.NopLogger{}, db)
 				service.SetClock(fixedCronBenchmarkClock{now: now})
 				service.SetExecutionIngress(noopCronBenchmarkIngress{})
@@ -155,7 +163,15 @@ func cronBenchmarkNow() time.Time {
 	return time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
 }
 
-func seedCronBenchmarkSchedules(b *testing.B, ctx context.Context, db *sql.DB, repos *dal.SQLRepositories, jobID string, count int, nextRun time.Time) []int64 {
+func seedCronBenchmarkSchedules(
+	b *testing.B,
+	ctx context.Context,
+	db *sql.DB,
+	repos *dal.SQLRepositories,
+	jobID string,
+	count int,
+	nextRun time.Time,
+) []int64 {
 	b.Helper()
 
 	definition := fmt.Sprintf(cronBenchmarkJobDefinition, jobID)

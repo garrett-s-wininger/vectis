@@ -138,7 +138,13 @@ func NewQueueExecutionIngress(queue interfaces.QueueService, logger interfaces.L
 	}
 }
 
-func SubmitToLocalQueue(ctx context.Context, localCellID string, queue interfaces.QueueService, req *api.JobRequest, logger interfaces.Logger) error {
+func SubmitToLocalQueue(
+	ctx context.Context,
+	localCellID string,
+	queue interfaces.QueueService,
+	req *api.JobRequest,
+	logger interfaces.Logger,
+) error {
 	submission, err := NewExecutionSubmission(req)
 	if err != nil {
 		return err

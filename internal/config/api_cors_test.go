@@ -26,7 +26,13 @@ func TestAPICORSAllowedOriginsOverrides(t *testing.T) {
 	}
 
 	t.Setenv(envAPICORSAllowedOrigins, "https://a.example, https://b.example/")
-	if got, want := APICORSAllowedOrigins(), []string{"https://a.example", "https://b.example"}; !reflect.DeepEqual(got, want) {
+	if got, want := APICORSAllowedOrigins(), []string{
+		"https://a.example",
+		"https://b.example",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("APICORSAllowedOrigins() env = %v, want %v", got, want)
 	}
 }
@@ -53,7 +59,10 @@ func TestValidateAPICORSConfigRejectsUnsafeOrigins(t *testing.T) {
 }
 
 func TestValidateAPICORSConfigAllowsHTTPSAndLocalHTTPOrigins(t *testing.T) {
-	t.Setenv(envAPICORSAllowedOrigins, "https://ui.example,http://localhost:3000,http://127.0.0.1:3000,http://[::1]:3000,http://dev.localhost:3000")
+	t.Setenv(
+		envAPICORSAllowedOrigins,
+		"https://ui.example,http://localhost:3000,http://127.0.0.1:3000,http://[::1]:3000,http://dev.localhost:3000",
+	)
 	if err := ValidateAPICORSConfig(); err != nil {
 		t.Fatalf("ValidateAPICORSConfig(): %v", err)
 	}

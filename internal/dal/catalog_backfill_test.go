@@ -14,7 +14,13 @@ func TestCatalogStatusBackfillRepository_ListMissingRunEvents(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 
-	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-run", `{"id":"job-backfill-run","root":{"uses":"builtins/script"}}`, nil, "iad-a")
+	runID, _, err := repos.CreateDefinitionAndRunInCell(
+		ctx,
+		"job-backfill-run",
+		`{"id":"job-backfill-run","root":{"uses":"builtins/script"}}`,
+		nil,
+		"iad-a",
+	)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -31,7 +37,8 @@ func TestCatalogStatusBackfillRepository_ListMissingRunEvents(t *testing.T) {
 		t.Fatalf("missing run events: %+v", missing)
 	}
 
-	if _, _, err := repos.CatalogEvents().Record(ctx, "iad-a", cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"`+runID+`","status":"running"}`)); err != nil {
+	if _, _, err := repos.CatalogEvents().
+		Record(ctx, "iad-a", cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"`+runID+`","status":"running"}`)); err != nil {
 		t.Fatalf("record catalog event: %v", err)
 	}
 
@@ -49,7 +56,13 @@ func TestCatalogStatusBackfillRepository_ListMissingExecutionEvents(t *testing.T
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "pdx-b")
 
-	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-execution", `{"id":"job-backfill-execution","root":{"uses":"builtins/script"}}`, nil, "pdx-b")
+	runID, _, err := repos.CreateDefinitionAndRunInCell(
+		ctx,
+		"job-backfill-execution",
+		`{"id":"job-backfill-execution","root":{"uses":"builtins/script"}}`,
+		nil,
+		"pdx-b",
+	)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -67,11 +80,13 @@ func TestCatalogStatusBackfillRepository_ListMissingExecutionEvents(t *testing.T
 	if err != nil {
 		t.Fatalf("ListMissingExecutionStatusCatalogEvents: %v", err)
 	}
-	if len(missing) != 1 || missing[0].ExecutionID != dispatch.ExecutionID || missing[0].Status != dal.ExecutionStatusRunning {
+	if len(missing) != 1 || missing[0].ExecutionID != dispatch.ExecutionID ||
+		missing[0].Status != dal.ExecutionStatusRunning {
 		t.Fatalf("missing execution events: %+v", missing)
 	}
 
-	if _, _, err := repos.CatalogEvents().Record(ctx, "pdx-b", cell.CatalogExecutionStatusEventKey(dispatch.ExecutionID, dal.ExecutionStatusRunning), cell.CatalogEventTypeExecutionStatus, []byte(`{"execution_id":"`+dispatch.ExecutionID+`","status":"running"}`)); err != nil {
+	if _, _, err := repos.CatalogEvents().
+		Record(ctx, "pdx-b", cell.CatalogExecutionStatusEventKey(dispatch.ExecutionID, dal.ExecutionStatusRunning), cell.CatalogEventTypeExecutionStatus, []byte(`{"execution_id":"`+dispatch.ExecutionID+`","status":"running"}`)); err != nil {
 		t.Fatalf("record catalog event: %v", err)
 	}
 
@@ -90,7 +105,13 @@ func TestCatalogStatusBackfillRepository_ListMissingExecutionSecurityEvents(t *t
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "pdx-b")
 
-	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-security", `{"id":"job-backfill-security","root":{"uses":"builtins/script"}}`, nil, "pdx-b")
+	runID, _, err := repos.CreateDefinitionAndRunInCell(
+		ctx,
+		"job-backfill-security",
+		`{"id":"job-backfill-security","root":{"uses":"builtins/script"}}`,
+		nil,
+		"pdx-b",
+	)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -126,7 +147,8 @@ func TestCatalogStatusBackfillRepository_ListMissingExecutionSecurityEvents(t *t
 		t.Fatalf("missing security events: %+v", missing)
 	}
 
-	if _, _, err := repos.CatalogEvents().Record(ctx, "pdx-b", event.EventKey, cell.CatalogEventTypeExecutionSecurity, []byte(`{"event_key":"`+event.EventKey+`","run_id":"`+runID+`","event_type":"secret_resolution","outcome":"denied"}`)); err != nil {
+	if _, _, err := repos.CatalogEvents().
+		Record(ctx, "pdx-b", event.EventKey, cell.CatalogEventTypeExecutionSecurity, []byte(`{"event_key":"`+event.EventKey+`","run_id":"`+runID+`","event_type":"secret_resolution","outcome":"denied"}`)); err != nil {
 		t.Fatalf("record catalog event: %v", err)
 	}
 

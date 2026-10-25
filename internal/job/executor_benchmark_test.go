@@ -109,7 +109,12 @@ func benchmarkExecutorLogSinkCases(b *testing.B, jobFactory func(string) *api.Jo
 	}
 }
 
-func benchmarkExecutorExecuteJob(b *testing.B, jobFactory func(string) *api.Job, logSink interfaces.LogClient, opts ...job.ExecutorOption) {
+func benchmarkExecutorExecuteJob(
+	b *testing.B,
+	jobFactory func(string) *api.Job,
+	logSink interfaces.LogClient,
+	opts ...job.ExecutorOption,
+) {
 	b.Helper()
 
 	ctx := context.Background()

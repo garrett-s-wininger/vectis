@@ -17,7 +17,10 @@ func CiQuick() error {
 	}
 
 	if status != "" {
-		return fmt.Errorf("ci-quick requires a clean git tree. Commit, stash, or discard local changes before running it.\n%s", status)
+		return fmt.Errorf(
+			"ci-quick requires a clean git tree. Commit, stash, or discard local changes before running it.\n%s",
+			status,
+		)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "vectis-ci-quick.*")
@@ -125,7 +128,11 @@ func buildPerf() (string, error) {
 
 	args := append([]string{"build"}, strings.Fields(os.Getenv("BUILD_OPTS"))...)
 	args = append(args, "-o", bin, "./scripts/perf")
-	if err := run("", map[string]string{"CGO_ENABLED": envDefault("CGO_ENABLED", "1")}, goCommand(), args...); err != nil {
+	if err := run(
+		"",
+		map[string]string{"CGO_ENABLED": envDefault("CGO_ENABLED", "1")},
+		goCommand(),
+		args...); err != nil {
 		return "", err
 	}
 

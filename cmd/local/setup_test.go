@@ -81,7 +81,8 @@ func TestFinishLocalSetupGeneratesAdminAndToken(t *testing.T) {
 				t.Errorf("decode setup body: %v", err)
 			}
 
-			if body["bootstrap_token"] != "bootstrap-token" || body["admin_username"] != "admin" || len(body["admin_password"]) < localAdminPasswordMinLen {
+			if body["bootstrap_token"] != "bootstrap-token" || body["admin_username"] != "admin" ||
+				len(body["admin_password"]) < localAdminPasswordMinLen {
 				t.Errorf("setup body = %#v", body)
 			}
 
@@ -94,7 +95,16 @@ func TestFinishLocalSetupGeneratesAdminAndToken(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	in, _ := nonInteractivePipe(t)
-	result := finishLocalSetup(t.Context(), interfaces.NewLogger("test"), server.URL, nil, "bootstrap-token", "written to token", in, os.Stderr)
+	result := finishLocalSetup(
+		t.Context(),
+		interfaces.NewLogger("test"),
+		server.URL,
+		nil,
+		"bootstrap-token",
+		"written to token",
+		in,
+		os.Stderr,
+	)
 	if result.Err != nil {
 		t.Fatalf("finishLocalSetup: %v", result.Err)
 	}
@@ -159,7 +169,16 @@ func TestFinishLocalSetupLeavesExistingCLIToken(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	in, _ := nonInteractivePipe(t)
-	result := finishLocalSetup(t.Context(), interfaces.NewLogger("test"), server.URL, nil, "bootstrap-token", "written to token", in, os.Stderr)
+	result := finishLocalSetup(
+		t.Context(),
+		interfaces.NewLogger("test"),
+		server.URL,
+		nil,
+		"bootstrap-token",
+		"written to token",
+		in,
+		os.Stderr,
+	)
 	if result.Err != nil {
 		t.Fatalf("finishLocalSetup: %v", result.Err)
 	}
@@ -200,7 +219,16 @@ func TestFinishLocalSetupConflictDoesNotWriteToken(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	in, _ := nonInteractivePipe(t)
-	result := finishLocalSetup(t.Context(), interfaces.NewLogger("test"), server.URL, nil, "bootstrap-token", "written to token", in, os.Stderr)
+	result := finishLocalSetup(
+		t.Context(),
+		interfaces.NewLogger("test"),
+		server.URL,
+		nil,
+		"bootstrap-token",
+		"written to token",
+		in,
+		os.Stderr,
+	)
 	if result.Err != nil {
 		t.Fatalf("finishLocalSetup: %v", result.Err)
 	}
@@ -229,7 +257,16 @@ func TestFinishLocalSetupAlreadyCompleteSkipsCreate(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	in, _ := nonInteractivePipe(t)
-	result := finishLocalSetup(t.Context(), interfaces.NewLogger("test"), server.URL, nil, "bootstrap-token", "written to token", in, os.Stderr)
+	result := finishLocalSetup(
+		t.Context(),
+		interfaces.NewLogger("test"),
+		server.URL,
+		nil,
+		"bootstrap-token",
+		"written to token",
+		in,
+		os.Stderr,
+	)
 	if result.Err != nil {
 		t.Fatalf("finishLocalSetup: %v", result.Err)
 	}
@@ -251,7 +288,16 @@ func TestFinishLocalSetupUsesServerURL(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	in, _ := nonInteractivePipe(t)
-	result := finishLocalSetup(t.Context(), interfaces.NewLogger("test"), server.URL, nil, "bootstrap-token", "written to token", in, os.Stderr)
+	result := finishLocalSetup(
+		t.Context(),
+		interfaces.NewLogger("test"),
+		server.URL,
+		nil,
+		"bootstrap-token",
+		"written to token",
+		in,
+		os.Stderr,
+	)
 	if result.Err != nil || !result.Skipped || called {
 		t.Fatalf("result=%#v called=%v", result, called)
 	}

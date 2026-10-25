@@ -96,15 +96,21 @@ func ValidateGRPCTLSForRole(role GRPCTLSDaemonRole) error {
 	switch role {
 	case GRPCTLSDaemonRegistry:
 		if o.ServerCert == "" || o.ServerKey == "" {
-			return errors.New("grpc_tls: cert_file and key_file are required for vectis-registry when grpc_tls.insecure is false")
+			return errors.New(
+				"grpc_tls: cert_file and key_file are required for vectis-registry when grpc_tls.insecure is false",
+			)
 		}
 	case GRPCTLSDaemonSecrets:
 		if o.ServerCert == "" || o.ServerKey == "" {
-			return errors.New("grpc_tls: cert_file and key_file are required for vectis-secrets when grpc_tls.insecure is false")
+			return errors.New(
+				"grpc_tls: cert_file and key_file are required for vectis-secrets when grpc_tls.insecure is false",
+			)
 		}
 
 		if o.ClientCA == "" {
-			return errors.New("grpc_tls: client_ca_file is required for vectis-secrets when grpc_tls.insecure is false so workload client certificates are verified")
+			return errors.New(
+				"grpc_tls: client_ca_file is required for vectis-secrets when grpc_tls.insecure is false so workload client certificates are verified",
+			)
 		}
 	case GRPCTLSDaemonQueue, GRPCTLSDaemonLog, GRPCTLSDaemonArtifact, GRPCTLSDaemonWorker, GRPCTLSDaemonOrchestrator:
 		if o.ServerCert == "" || o.ServerKey == "" {
@@ -169,7 +175,10 @@ func GRPCServerOptionsForRole(role ServiceIdentityRole) ([]grpc.ServerOption, er
 		}
 
 		if grpctlsOptionsFromViper().ClientCA == "" {
-			return nil, fmt.Errorf("%s requires grpc_tls.client_ca_file so peer certificates are verified", serviceIdentityAllowlistLabel(role))
+			return nil, fmt.Errorf(
+				"%s requires grpc_tls.client_ca_file so peer certificates are verified",
+				serviceIdentityAllowlistLabel(role),
+			)
 		}
 
 		opts = append(opts,
@@ -204,12 +213,21 @@ func grpcServiceIdentityAllowlist(role ServiceIdentityRole) ([]string, error) {
 	switch role {
 	case ServiceIdentityRoleNone:
 		return nil, nil
-	case ServiceIdentityRoleRegistry, ServiceIdentityRoleQueue, ServiceIdentityRoleLog, ServiceIdentityRoleArtifact, ServiceIdentityRoleOrchestrator, ServiceIdentityRoleWorkerControl, ServiceIdentityRoleSecrets:
+	case ServiceIdentityRoleRegistry,
+		ServiceIdentityRoleQueue,
+		ServiceIdentityRoleLog,
+		ServiceIdentityRoleArtifact,
+		ServiceIdentityRoleOrchestrator,
+		ServiceIdentityRoleWorkerControl,
+		ServiceIdentityRoleSecrets:
 	default:
 		return nil, fmt.Errorf("service_identity: unknown gRPC service identity role %d", role)
 	}
 
-	return validateServiceIdentityAllowlist(serviceIdentityAllowlistLabel(role), ServiceIdentityAllowedClientIdentities(role))
+	return validateServiceIdentityAllowlist(
+		serviceIdentityAllowlistLabel(role),
+		ServiceIdentityAllowedClientIdentities(role),
+	)
 }
 
 func serviceIdentityAllowlistLabel(role ServiceIdentityRole) string {
@@ -243,7 +261,10 @@ func serviceIdentityUnaryInterceptor(role ServiceIdentityRole, allowedIdentities
 	}
 }
 
-func serviceIdentityStreamInterceptor(role ServiceIdentityRole, allowedIdentities []string) grpc.StreamServerInterceptor {
+func serviceIdentityStreamInterceptor(
+	role ServiceIdentityRole,
+	allowedIdentities []string,
+) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if err := authorizeGRPCPeerIdentity(ss.Context(), role, allowedIdentities); err != nil {
 			return err
@@ -264,7 +285,10 @@ func authorizeGRPCPeerIdentity(ctx context.Context, role ServiceIdentityRole, al
 		return status.Error(codes.Unauthenticated, "service identity: verified mTLS peer certificate is required")
 	}
 
-	if _, err := serviceidentity.AuthorizePeerCertificate(tlsInfo.State.PeerCertificates, allowedIdentities); err != nil {
+	if _, err := serviceidentity.AuthorizePeerCertificate(
+		tlsInfo.State.PeerCertificates,
+		allowedIdentities,
+	); err != nil {
 		switch {
 		case errors.Is(err, serviceidentity.ErrNoPeerCertificate), errors.Is(err, serviceidentity.ErrNoPeerIdentity):
 			return status.Error(codes.Unauthenticated, err.Error())
@@ -325,7 +349,10 @@ func GRPCClientDialOptions(directHostPort string) ([]grpc.DialOption, error) {
 	}, nil
 }
 
-func GRPCClientDialOptionsWithClientCertificate(directHostPort string, cert tls.Certificate) ([]grpc.DialOption, error) {
+func GRPCClientDialOptionsWithClientCertificate(
+	directHostPort string,
+	cert tls.Certificate,
+) ([]grpc.DialOption, error) {
 	if GRPCTLSInsecure() {
 		return nil, errors.New("grpc_tls: client certificate requires grpc_tls.insecure=false")
 	}

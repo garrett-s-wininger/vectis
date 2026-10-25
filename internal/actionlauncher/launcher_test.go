@@ -26,7 +26,10 @@ func TestCommandBuildsLaunchSpecInvocation(t *testing.T) {
 			t.Fatalf("launcher path = target path %q, want re-exec launcher", command.Path)
 		}
 
-		if len(command.Args) != 5 || command.Args[0] != modeArg || command.Args[1] == "" || command.Args[2] != "/bin/echo" || command.Args[3] != "hello" || command.Args[4] != "world" {
+		if len(command.Args) != 5 || command.Args[0] != modeArg || command.Args[1] == "" ||
+			command.Args[2] != "/bin/echo" ||
+			command.Args[3] != "hello" ||
+			command.Args[4] != "world" {
 			t.Fatalf("launcher args = %#v, want mode, auth token, target, and copied target args", command.Args)
 		}
 
@@ -123,7 +126,10 @@ func TestRunReportsResolveFailure(t *testing.T) {
 		t.Fatalf("exit code = %d, want 127", code)
 	}
 
-	if got := stderr.String(); !strings.Contains(got, `vectis action launcher: resolve "definitely-not-a-vectis-command"`) {
+	if got := stderr.String(); !strings.Contains(
+		got,
+		`vectis action launcher: resolve "definitely-not-a-vectis-command"`,
+	) {
 		t.Fatalf("stderr = %q, want stable resolve error", got)
 	}
 }
@@ -151,7 +157,8 @@ func TestRunLauncherModeAcceptsMatchingAuth(t *testing.T) {
 		t.Fatalf("exit code = %d, want 127 after auth passes and target path is missing", code)
 	}
 
-	if got := stderr.String(); !strings.Contains(got, "vectis action launcher: command path is required") || strings.Contains(got, "unauthorized") {
+	if got := stderr.String(); !strings.Contains(got, "vectis action launcher: command path is required") ||
+		strings.Contains(got, "unauthorized") {
 		t.Fatalf("stderr = %q, want missing path error after successful auth", got)
 	}
 }

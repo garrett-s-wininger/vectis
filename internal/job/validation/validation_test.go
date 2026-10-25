@@ -606,7 +606,10 @@ func TestValidateJob_BoundInputsRejectUnknownField(t *testing.T) {
 		t.Fatal("expected validation error for unknown bound input")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.commnad: unknown input "commnad" for action "builtins/test"`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.steps[1].inputs.commnad: unknown input "commnad" for action "builtins/test"`,
+	) {
 		t.Fatalf("expected unknown input error, got %q", msg)
 	}
 }
@@ -636,7 +639,10 @@ func TestValidateJob_BoundInputsRejectWithConflict(t *testing.T) {
 		t.Fatal("expected validation error for input conflict")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.command: cannot be set together with with.command`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.steps[1].inputs.command: cannot be set together with with.command`,
+	) {
 		t.Fatalf("expected input conflict error, got %q", msg)
 	}
 }
@@ -665,7 +671,10 @@ func TestValidateJob_BoundInputsRejectForwardReference(t *testing.T) {
 		t.Fatal("expected validation error for forward reference")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].inputs.command.from.node: must reference an earlier node id, got "script-command"`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.steps[0].inputs.command.from.node: must reference an earlier node id, got "script-command"`,
+	) {
 		t.Fatalf("expected forward reference error, got %q", msg)
 	}
 }
@@ -698,7 +707,10 @@ func TestValidateJob_BoundInputsRejectDistributedConsumerScope(t *testing.T) {
 		t.Fatal("expected validation error for cross-scope binding")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.command.from.node: must reference an earlier node in the same local execution scope`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.steps[1].inputs.command.from.node: must reference an earlier node in the same local execution scope`,
+	) {
 		t.Fatalf("expected same-scope binding error, got %q", msg)
 	}
 }
@@ -731,7 +743,10 @@ func TestValidateJob_BoundInputsRejectPostBoundaryScope(t *testing.T) {
 		t.Fatal("expected validation error for post-boundary binding")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.command.from.node: must reference an earlier node in the same local execution scope`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.steps[1].inputs.command.from.node: must reference an earlier node in the same local execution scope`,
+	) {
 		t.Fatalf("expected same-scope binding error, got %q", msg)
 	}
 }
@@ -967,7 +982,10 @@ func TestValidateJob_RejectsUnknownPort(t *testing.T) {
 		t.Fatal("expected validation error for unknown port")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.ports.condition: unknown port "condition" for action "builtins/sequence"`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.ports.condition: unknown port "condition" for action "builtins/sequence"`,
+	) {
 		t.Fatalf("expected unknown port error, got %q", msg)
 	}
 }
@@ -1011,7 +1029,10 @@ func TestValidateJob_RejectsLeafChildPorts(t *testing.T) {
 		t.Fatal("expected validation error for leaf child port")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].ports.steps: unknown port "steps" for action "builtins/script"`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.steps[0].ports.steps: unknown port "steps" for action "builtins/script"`,
+	) {
 		t.Fatalf("expected leaf port error, got %q", msg)
 	}
 }
@@ -1317,7 +1338,10 @@ func TestValidateJob_TimeoutRejectsDistributedParallelBody(t *testing.T) {
 		t.Fatal("expected validation error for distributed parallel inside timeout")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `action "builtins/timeout" only supports local child ports for now; root.ports.body.nodes[0] is a distributed boundary`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`action "builtins/timeout" only supports local child ports for now; root.ports.body.nodes[0] is a distributed boundary`,
+	) {
 		t.Fatalf("expected timeout distributed boundary error, got %q", msg)
 	}
 }
@@ -1390,7 +1414,10 @@ func TestValidateJob_TimeoutRejectsNestedDistributedBoundary(t *testing.T) {
 		t.Fatal("expected validation error for nested distributed boundary inside timeout")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `action "builtins/timeout" only supports local child ports for now; root.ports.body.nodes[0].steps[1] is a distributed boundary`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`action "builtins/timeout" only supports local child ports for now; root.ports.body.nodes[0].steps[1] is a distributed boundary`,
+	) {
 		t.Fatalf("expected nested timeout distributed boundary error, got %q", msg)
 	}
 }
@@ -1432,7 +1459,10 @@ func TestValidateJob_ControlExecutionModeMustBeKnown(t *testing.T) {
 		t.Fatal("expected validation error for invalid execution mode")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.with.execution: must be "local" or "distributed", got "remote"`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.with.execution: must be "local" or "distributed", got "remote"`,
+	) {
 		t.Fatalf("expected execution mode error, got %q", msg)
 	}
 }
@@ -1465,7 +1495,10 @@ func TestValidateJob_LeafExecutionModeMustBeKnown(t *testing.T) {
 		t.Fatal("expected validation error for invalid execution mode")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].with.execution: must be "local" or "distributed", got "remote"`) {
+	if msg := err.Error(); !strings.Contains(
+		msg,
+		`root.steps[0].with.execution: must be "local" or "distributed", got "remote"`,
+	) {
 		t.Fatalf("expected execution mode error, got %q", msg)
 	}
 }
@@ -1559,7 +1592,10 @@ func TestValidateJob_CheckoutRef(t *testing.T) {
 
 	job := validJob()
 	job.Root.Steps[0].Uses = strp("builtins/checkout")
-	job.Root.Steps[0].With = map[string]string{"url": "https://github.com/example/repo.git", "ref": "refs/changes/01/1/1"}
+	job.Root.Steps[0].With = map[string]string{
+		"url": "https://github.com/example/repo.git",
+		"ref": "refs/changes/01/1/1",
+	}
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected valid checkout ref: %v", err)

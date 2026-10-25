@@ -284,7 +284,10 @@ func normalizeChanges(changes []scm.Change) (map[string]string, []pollChange, er
 		}
 
 		if existing, ok := current[identity]; ok && existing != revision {
-			return nil, nil, fmt.Errorf("gerrit query returned duplicate change %q with different current revisions", identity)
+			return nil, nil, fmt.Errorf(
+				"gerrit query returned duplicate change %q with different current revisions",
+				identity,
+			)
 		}
 
 		current[identity] = revision
@@ -309,7 +312,12 @@ func normalizeChanges(changes []scm.Change) (map[string]string, []pollChange, er
 }
 
 func changeIdentity(change scm.Change) string {
-	if identity := canonicalChangeIdentity(change.Project, change.Branch, change.ChangeID, change.Number); identity != "" {
+	if identity := canonicalChangeIdentity(
+		change.Project,
+		change.Branch,
+		change.ChangeID,
+		change.Number,
+	); identity != "" {
 		return identity
 	}
 
@@ -332,7 +340,12 @@ type eventPayload struct {
 	Ref              string `json:"ref"`
 }
 
-func eventForChange(spec scm.PollSpec, serverHash, query string, change pollChange, previousRevision string) (scm.Event, error) {
+func eventForChange(
+	spec scm.PollSpec,
+	serverHash, query string,
+	change pollChange,
+	previousRevision string,
+) (scm.Event, error) {
 	payload := eventPayload{
 		Provider:         providerName(spec.Provider),
 		ServerHash:       serverHash,
@@ -387,7 +400,12 @@ func canonicalChangeIdentity(project, branch, changeID string, number int) strin
 }
 
 func gerritEventKey(serverHash, identity, revision string) string {
-	return fmt.Sprintf("gerrit:%s:%s:%s", shortServerHash(serverHash), strings.TrimSpace(identity), strings.TrimSpace(revision))
+	return fmt.Sprintf(
+		"gerrit:%s:%s:%s",
+		shortServerHash(serverHash),
+		strings.TrimSpace(identity),
+		strings.TrimSpace(revision),
+	)
 }
 
 func providerName(name string) string {

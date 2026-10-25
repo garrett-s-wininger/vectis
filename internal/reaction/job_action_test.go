@@ -115,7 +115,8 @@ func TestTriggerJobActionExecuteCreatesAuditedRunsAndReusesOnRetry(t *testing.T)
 		t.Fatalf("retry dispatch count=%d recorded=%+v", second.Dispatched, dispatcher.runs)
 	}
 
-	if len(second.Runs) != len(first.Runs) || second.Runs[0].RunID != first.Runs[0].RunID || second.Runs[1].RunID != first.Runs[1].RunID {
+	if len(second.Runs) != len(first.Runs) || second.Runs[0].RunID != first.Runs[0].RunID ||
+		second.Runs[1].RunID != first.Runs[1].RunID {
 		t.Fatalf("retry runs: got %+v want %+v", second.Runs, first.Runs)
 	}
 
@@ -175,7 +176,13 @@ func TestTriggerJobActionReturnsDispatchErrorAfterDurableRunCreate(t *testing.T)
 	dispatchErr := errors.New("queue unavailable")
 	dispatcher := &recordingTriggerDispatcher{err: dispatchErr}
 	action := &reaction.TriggerJobAction{Store: newJobTriggerStore(repos), Dispatcher: dispatcher}
-	if _, err := action.Execute(ctx, reaction.TriggerJobActionRequest{Event: event, Invocation: invocation}); !errors.Is(err, dispatchErr) {
+	if _, err := action.Execute(
+		ctx,
+		reaction.TriggerJobActionRequest{Event: event, Invocation: invocation},
+	); !errors.Is(
+		err,
+		dispatchErr,
+	) {
 		t.Fatalf("expected dispatch error %v, got %v", dispatchErr, err)
 	}
 
@@ -316,10 +323,13 @@ func TestTriggerJobActionRejectsDirectSelfCycle(t *testing.T) {
 	}
 
 	invocation := createTriggerJobInvocation(t, ctx, reactions, event.EventID, "self-target", "self-job")
-	_, err = (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(ctx, reaction.TriggerJobActionRequest{
-		Event:      event,
-		Invocation: invocation,
-	})
+	_, err = (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(
+		ctx,
+		reaction.TriggerJobActionRequest{
+			Event:      event,
+			Invocation: invocation,
+		},
+	)
 
 	if !dal.IsConflict(err) {
 		t.Fatalf("expected self-cycle conflict, got %v", err)
@@ -366,10 +376,13 @@ func TestTriggerJobActionRejectsConfiguredCycle(t *testing.T) {
 	}
 
 	invocation := createTriggerJobInvocation(t, ctx, reactions, event.EventID, "target-b", "job-b")
-	_, err = (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(ctx, reaction.TriggerJobActionRequest{
-		Event:      event,
-		Invocation: invocation,
-	})
+	_, err = (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(
+		ctx,
+		reaction.TriggerJobActionRequest{
+			Event:      event,
+			Invocation: invocation,
+		},
+	)
 
 	if !dal.IsConflict(err) {
 		t.Fatalf("expected configured cycle conflict, got %v", err)
@@ -415,10 +428,13 @@ func TestTriggerJobActionRejectsWildcardCompletionSelfTrigger(t *testing.T) {
 	}
 
 	invocation := createTriggerJobInvocation(t, ctx, reactions, event.EventID, "direct-target-b", "job-b")
-	_, err = (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(ctx, reaction.TriggerJobActionRequest{
-		Event:      event,
-		Invocation: invocation,
-	})
+	_, err = (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(
+		ctx,
+		reaction.TriggerJobActionRequest{
+			Event:      event,
+			Invocation: invocation,
+		},
+	)
 
 	if !dal.IsConflict(err) {
 		t.Fatalf("expected wildcard self-trigger conflict, got %v", err)
@@ -464,11 +480,21 @@ func TestTriggerJobActionAllowsWildcardCompletionForDifferentTriggerType(t *test
 		t.Fatalf("record event: %v", err)
 	}
 
-	invocation := createTriggerJobInvocation(t, ctx, reactions, event.EventID, "direct-manual-filtered-target", "manual-filtered-target")
-	result, err := (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(ctx, reaction.TriggerJobActionRequest{
-		Event:      event,
-		Invocation: invocation,
-	})
+	invocation := createTriggerJobInvocation(
+		t,
+		ctx,
+		reactions,
+		event.EventID,
+		"direct-manual-filtered-target",
+		"manual-filtered-target",
+	)
+	result, err := (&reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}).Execute(
+		ctx,
+		reaction.TriggerJobActionRequest{
+			Event:      event,
+			Invocation: invocation,
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("manual-filtered wildcard should not block reaction trigger: %v", err)
@@ -486,7 +512,12 @@ func createStoredJob(t *testing.T, ctx context.Context, jobs dal.JobsRepository,
 	}
 }
 
-func createTriggerJobInvocation(t *testing.T, ctx context.Context, reactions dal.ReactionsRepository, eventID, targetName, targetJobID string) dal.ReactionInvocationRecord {
+func createTriggerJobInvocation(
+	t *testing.T,
+	ctx context.Context,
+	reactions dal.ReactionsRepository,
+	eventID, targetName, targetJobID string,
+) dal.ReactionInvocationRecord {
 	t.Helper()
 	target, err := reactions.CreateTarget(ctx, dal.ReactionTargetCreate{
 		Name:       targetName,

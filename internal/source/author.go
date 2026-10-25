@@ -109,7 +109,10 @@ func AuthoringCapabilityFromRecord(rec dal.SourceRepositoryRecord) AuthoringCapa
 	return out
 }
 
-func (a LocalCommitDefinitionAuthor) WriteDefinition(ctx context.Context, req WriteDefinitionRequest) (WrittenDefinition, error) {
+func (a LocalCommitDefinitionAuthor) WriteDefinition(
+	ctx context.Context,
+	req WriteDefinitionRequest,
+) (WrittenDefinition, error) {
 	if a.Checkout == nil {
 		return WrittenDefinition{}, fmt.Errorf("%w: checkout is required", ErrInvalidReference)
 	}
@@ -143,7 +146,10 @@ func (a LocalCommitDefinitionAuthor) WriteDefinition(ctx context.Context, req Wr
 	return WrittenDefinition(commit), nil
 }
 
-func (a LocalCommitDefinitionAuthor) DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) (WrittenDefinition, error) {
+func (a LocalCommitDefinitionAuthor) DeleteDefinition(
+	ctx context.Context,
+	req DeleteDefinitionRequest,
+) (WrittenDefinition, error) {
 	if a.Checkout == nil {
 		return WrittenDefinition{}, fmt.Errorf("%w: checkout is required", ErrInvalidReference)
 	}

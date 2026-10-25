@@ -464,8 +464,17 @@ type CellExecutionAcceptancesRepository interface {
 }
 
 type EphemeralRunStarter interface {
-	CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error)
-	CreateDefinitionAndRunInCell(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string) (runID string, runIndexOut int, err error)
+	CreateDefinitionAndRun(
+		ctx context.Context,
+		jobID, definitionJSON string,
+		runIndex *int,
+	) (runID string, runIndexOut int, err error)
+	CreateDefinitionAndRunInCell(
+		ctx context.Context,
+		jobID, definitionJSON string,
+		runIndex *int,
+		targetCellID string,
+	) (runID string, runIndexOut int, err error)
 }
 
 type IdempotencyRecord struct {
@@ -829,12 +838,22 @@ type ArtifactsRepository interface {
 	Record(ctx context.Context, create ArtifactCreate) (ArtifactRecord, error)
 	GetByRunAndName(ctx context.Context, runID, name string) (ArtifactRecord, error)
 	ListByRun(ctx context.Context, runID string, cursor int64, limit int) ([]ArtifactRecord, int64, error)
-	ListByRunFiltered(ctx context.Context, runID string, cursor int64, limit int, filter ArtifactListFilter) ([]ArtifactRecord, int64, error)
+	ListByRunFiltered(
+		ctx context.Context,
+		runID string,
+		cursor int64,
+		limit int,
+		filter ArtifactListFilter,
+	) ([]ArtifactRecord, int64, error)
 	GetRunUsageExcludingName(ctx context.Context, runID, name string) (ArtifactRunUsage, error)
 }
 
 type CatalogEventsRepository interface {
-	Record(ctx context.Context, sourceCell, eventKey, eventType string, payload []byte) (CatalogEventRecord, bool, error)
+	Record(
+		ctx context.Context,
+		sourceCell, eventKey, eventType string,
+		payload []byte,
+	) (CatalogEventRecord, bool, error)
 	ListPending(ctx context.Context, limit int) ([]CatalogEventRecord, error)
 	MarkApplied(ctx context.Context, id int64) error
 	MarkFailed(ctx context.Context, id int64, message string) error
@@ -860,7 +879,12 @@ type ReactionsRepository interface {
 	MarkInvocationSucceeded(ctx context.Context, invocationID, owner string, completedAtUnixNano int64) error
 	MarkInvocationFailed(ctx context.Context, invocationID, owner, message string, nextAttemptAtUnixNano int64) error
 	RecordLocalMessage(ctx context.Context, create ReactionLocalMessageCreate) (ReactionLocalMessageRecord, error)
-	ListLocalMessages(ctx context.Context, mailbox string, cursor int64, limit int) ([]ReactionLocalMessageRecord, int64, error)
+	ListLocalMessages(
+		ctx context.Context,
+		mailbox string,
+		cursor int64,
+		limit int,
+	) ([]ReactionLocalMessageRecord, int64, error)
 	ListJobTriggerEdges(ctx context.Context) ([]ReactionJobTriggerEdge, error)
 }
 
@@ -870,8 +894,16 @@ type TriggerInvocationsRepository interface {
 
 type CatalogStatusBackfillRepository interface {
 	ListMissingRunStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]RunStatusUpdate, error)
-	ListMissingExecutionStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionStatusUpdate, error)
-	ListMissingExecutionSecurityCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionSecurityEvent, error)
+	ListMissingExecutionStatusCatalogEvents(
+		ctx context.Context,
+		sourceCell string,
+		limit int,
+	) ([]ExecutionStatusUpdate, error)
+	ListMissingExecutionSecurityCatalogEvents(
+		ctx context.Context,
+		sourceCell string,
+		limit int,
+	) ([]ExecutionSecurityEvent, error)
 }
 
 type CronSchedule struct {
@@ -1046,16 +1078,61 @@ type RunsRepository interface {
 	TouchDispatched(ctx context.Context, runID string) error
 	GetLogShard(ctx context.Context, runID string) (shardID string, assigned bool, err error)
 	AssignLogShard(ctx context.Context, runID, shardID string) (assignedShardID string, err error)
-	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
-	CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error)
-	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
-	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
+	CreateRun(
+		ctx context.Context,
+		jobID string,
+		runIndex *int,
+		definitionVersion int,
+	) (runID string, runIndexOut int, err error)
+	CreateRunInCell(
+		ctx context.Context,
+		jobID string,
+		runIndex *int,
+		definitionVersion int,
+		targetCellID string,
+	) (runID string, runIndexOut int, err error)
+	CreateRunsInCells(
+		ctx context.Context,
+		jobID string,
+		runIndex *int,
+		definitionVersion int,
+		targetCellIDs []string,
+	) ([]CreatedRun, error)
+	CreateRunsInCellsWithAudit(
+		ctx context.Context,
+		jobID string,
+		runIndex *int,
+		definitionVersion int,
+		targetCellIDs []string,
+		audit RunAuditMetadata,
+	) ([]CreatedRun, error)
 	ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]CreatedRun, error)
-	CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error)
-	CreateSCMEventRun(ctx context.Context, triggerID int64, eventKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error)
-	CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error)
+	CreateScheduledSourceDefinitionRun(
+		ctx context.Context,
+		scheduleID int64,
+		scheduledFor time.Time,
+		jobID, definitionJSON string,
+		source JobDefinitionSourceRecord,
+		audit RunAuditMetadata,
+	) (runID string, runIndexOut int, definitionVersion int, created bool, err error)
+	CreateSCMEventRun(
+		ctx context.Context,
+		triggerID int64,
+		eventKey, jobID string,
+		definitionVersion int,
+		audit RunAuditMetadata,
+	) (runID string, runIndexOut int, created bool, err error)
+	CreateReplayRun(
+		ctx context.Context,
+		sourceRunID string,
+		targetCellID string,
+		audit RunAuditMetadata,
+	) (CreatedRun, error)
 	ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error)
-	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
+	RecordExecutionPayload(
+		ctx context.Context,
+		runID, payloadJSON, definitionHash string,
+	) (payloadHash string, recordedPayloadJSON string, err error)
 	GetExecutionPayloadHashForRun(ctx context.Context, runID string) (string, error)
 	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
@@ -1063,7 +1140,15 @@ type RunsRepository interface {
 	ClearRunHotStateOwner(ctx context.Context, runID string) error
 	GetRunHotStateOwner(ctx context.Context, runID string) (RunHotStateOwnerRecord, bool, error)
 	ListAll(ctx context.Context, cursor int64, limit int) ([]RunRecord, int64, error)
-	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
+	ListByJob(
+		ctx context.Context,
+		jobID string,
+		afterIndex *int,
+		since *time.Time,
+		owningCell string,
+		cursor int64,
+		limit int,
+	) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
 	GetRunNamespacePath(ctx context.Context, runID string) (string, error)
 	RecordExecutionSecurityEvent(ctx context.Context, event RecordExecutionSecurityEventParams) error
@@ -1088,11 +1173,18 @@ type RunsRepository interface {
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
 	EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error)
 	GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (ExecutionDispatchRecord, error)
-	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error)
+	TryClaimExecution(
+		ctx context.Context,
+		executionID, owner string,
+		leaseUntil time.Time,
+	) (ExecutionClaimResult, error)
 	MirrorExecutionClaim(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
 	RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
 	ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error
-	CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error)
+	CompleteExecutionAndFinalizeRunByClaim(
+		ctx context.Context,
+		executionID, owner, claimToken, status, failureCode, reason string,
+	) (ExecutionFinalizationResult, error)
 	MarkExecutionStarted(ctx context.Context, executionID string) error
 	CountByStatus(ctx context.Context, status string) (int64, error)
 	CountByStatusByCell(ctx context.Context, status string) ([]RunCountByCell, error)
@@ -1104,7 +1196,15 @@ type RunsRepository interface {
 }
 
 type SourceRepositoryRunLister interface {
-	ListBySourceRepositoryJob(ctx context.Context, repositoryID, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
+	ListBySourceRepositoryJob(
+		ctx context.Context,
+		repositoryID, jobID string,
+		afterIndex *int,
+		since *time.Time,
+		owningCell string,
+		cursor int64,
+		limit int,
+	) ([]RunRecord, int64, error)
 }
 
 type SchedulesRepository interface {
@@ -1113,11 +1213,21 @@ type SchedulesRepository interface {
 	GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
 	ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]CronScheduleRecord, error)
 	CountSourceCronSchedules(ctx context.Context, declaredScheduleIDs []string) (SourceCronScheduleCountSummary, error)
-	SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override SourceScheduleOverride) (CronScheduleRecord, error)
+	SetSourceCronScheduleOverride(
+		ctx context.Context,
+		scheduleID string,
+		override SourceScheduleOverride,
+	) (CronScheduleRecord, error)
 	ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
 	DeleteSourceCronSchedule(ctx context.Context, scheduleID string) error
 	GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error)
-	ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
+	ClaimDue(
+		ctx context.Context,
+		scheduleID int64,
+		observedNextRun time.Time,
+		claimToken string,
+		claimedUntil, now time.Time,
+	) (bool, error)
 	CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error)
 	ReleaseClaim(ctx context.Context, scheduleID int64, claimToken string) error
 	CountCronSchedules(ctx context.Context) (int64, error)
@@ -1127,7 +1237,13 @@ type SchedulesRepository interface {
 type SCMPollTriggersRepository interface {
 	GetReady(ctx context.Context, at time.Time, limit int) ([]SCMPollTriggerSpec, error)
 	ListEnabledByProvider(ctx context.Context, provider string, limit int) ([]SCMPollTriggerSpec, error)
-	ClaimDue(ctx context.Context, specID int64, observedNextPoll time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
+	ClaimDue(
+		ctx context.Context,
+		specID int64,
+		observedNextPoll time.Time,
+		claimToken string,
+		claimedUntil, now time.Time,
+	) (bool, error)
 	CompleteClaim(ctx context.Context, specID int64, claimToken string, nextPoll time.Time, cursor string) (bool, error)
 	ReleaseClaim(ctx context.Context, specID int64, claimToken string) error
 	RecordEvent(ctx context.Context, event SCMTriggerEvent) (SCMTriggerEventRecord, bool, error)
@@ -1140,7 +1256,12 @@ type ServiceLeasesRepository interface {
 
 type JobsRepository interface {
 	Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error
-	CreateWithTriggers(ctx context.Context, jobID, definitionJSON string, namespaceID int64, triggers []JobTriggerConfig) error
+	CreateWithTriggers(
+		ctx context.Context,
+		jobID, definitionJSON string,
+		namespaceID int64,
+		triggers []JobTriggerConfig,
+	) error
 	CreateDefinitionSnapshot(ctx context.Context, jobID, definitionJSON string) error
 	Delete(ctx context.Context, jobID string) error
 	List(ctx context.Context, cursor int64, limit int) ([]JobRecord, int64, error)
@@ -1150,7 +1271,11 @@ type JobsRepository interface {
 	GetEnabledTriggerID(ctx context.Context, jobID, triggerType, triggerKey string) (int64, error)
 	GetNamespaceID(ctx context.Context, jobID string) (int64, error)
 	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
-	UpdateDefinitionWithTriggers(ctx context.Context, jobID, definitionJSON string, triggers []JobTriggerConfig) (newVersion int, err error)
+	UpdateDefinitionWithTriggers(
+		ctx context.Context,
+		jobID, definitionJSON string,
+		triggers []JobTriggerConfig,
+	) (newVersion int, err error)
 }
 
 type SourcesRepository interface {
@@ -1170,11 +1295,23 @@ type SourcesRepository interface {
 
 type EphemeralRunStarterWithAudit interface {
 	EphemeralRunStarter
-	CreateDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, err error)
+	CreateDefinitionAndRunInCellWithAudit(
+		ctx context.Context,
+		jobID, definitionJSON string,
+		runIndex *int,
+		targetCellID string,
+		audit RunAuditMetadata,
+	) (runID string, runIndexOut int, err error)
 }
 
 type SourceDefinitionRunStarter interface {
-	CreateSourceDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, source JobDefinitionSourceRecord, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, err error)
+	CreateSourceDefinitionAndRunInCellWithAudit(
+		ctx context.Context,
+		jobID, definitionJSON string,
+		source JobDefinitionSourceRecord,
+		targetCellID string,
+		audit RunAuditMetadata,
+	) (runID string, runIndexOut int, definitionVersion int, err error)
 }
 
 type SQLRepositories struct {
@@ -1311,7 +1448,12 @@ func normalizeTargetCellID(cellID, fallback string) string {
 	return cellID
 }
 
-func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string, startDeadlineUnixNano int64) (TaskExecutionRecord, error) {
+func createInitialSegmentExecutionTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID, cellID string,
+	startDeadlineUnixNano int64,
+) (TaskExecutionRecord, error) {
 	if err := createInitialRootTaskAttemptTx(ctx, tx, runID, cellID); err != nil {
 		return TaskExecutionRecord{}, err
 	}
@@ -1330,8 +1472,11 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		return TaskExecutionRecord{}, normalizeSQLError(err)
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		),
 		executionID,
 		segmentID,
 		runID,
@@ -1411,8 +1556,11 @@ func createInitialRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, runID, cell
 		return normalizeSQLError(err)
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?)"),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?)",
+		),
 		rootTaskAttemptID(runID, 1),
 		taskID,
 		runID,
@@ -1426,15 +1574,37 @@ func createInitialRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, runID, cell
 	return nil
 }
 
-func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error) {
+func (r *SQLRepositories) CreateDefinitionAndRun(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	runIndex *int,
+) (runID string, runIndexOut int, err error) {
 	return r.CreateDefinitionAndRunInCell(ctx, jobID, definitionJSON, runIndex, r.cellID)
 }
 
-func (r *SQLRepositories) CreateDefinitionAndRunInCell(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string) (runID string, runIndexOut int, err error) {
-	return r.CreateDefinitionAndRunInCellWithAudit(ctx, jobID, definitionJSON, runIndex, targetCellID, RunAuditMetadata{})
+func (r *SQLRepositories) CreateDefinitionAndRunInCell(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	runIndex *int,
+	targetCellID string,
+) (runID string, runIndexOut int, err error) {
+	return r.CreateDefinitionAndRunInCellWithAudit(
+		ctx,
+		jobID,
+		definitionJSON,
+		runIndex,
+		targetCellID,
+		RunAuditMetadata{},
+	)
 }
 
-func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, err error) {
+func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	runIndex *int,
+	targetCellID string,
+	audit RunAuditMetadata,
+) (runID string, runIndexOut int, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, err
@@ -1443,9 +1613,15 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 
 	targetCellID = normalizeTargetCellID(targetCellID, r.cellID)
 	definitionHash := DefinitionHash(definitionJSON)
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, 1, ?, ?)`),
-		newGlobalID(), jobID, definitionJSON, definitionHash,
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, 1, ?, ?)`,
+		),
+		newGlobalID(),
+		jobID,
+		definitionJSON,
+		definitionHash,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
@@ -1469,8 +1645,11 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 		namespacePath = RootNamespacePath
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?, ?, ?)`),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?, ?, ?)`,
+		),
 		runID,
 		jobID,
 		idx,
@@ -1485,7 +1664,13 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 		return "", 0, normalizeSQLError(err)
 	}
 
-	if _, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+	if _, err := createInitialSegmentExecutionTx(
+		ctx,
+		tx,
+		runID,
+		targetCellID,
+		audit.StartDeadlineUnixNano,
+	); err != nil {
 		return "", 0, err
 	}
 
@@ -1496,7 +1681,13 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 	return runID, idx, nil
 }
 
-func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, source JobDefinitionSourceRecord, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, err error) {
+func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	source JobDefinitionSourceRecord,
+	targetCellID string,
+	audit RunAuditMetadata,
+) (runID string, runIndexOut int, definitionVersion int, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, 0, err
@@ -1517,9 +1708,16 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx contex
 	}
 
 	definitionHash := DefinitionHash(definitionJSON)
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)`),
-		newGlobalID(), jobID, nextVersion, definitionJSON, definitionHash,
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)`,
+		),
+		newGlobalID(),
+		jobID,
+		nextVersion,
+		definitionJSON,
+		definitionHash,
 	); err != nil {
 		return "", 0, 0, normalizeSQLError(err)
 	}
@@ -1544,8 +1742,11 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx contex
 		namespacePath = RootNamespacePath
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+		),
 		runID,
 		jobID,
 		runIndexOut,
@@ -1561,7 +1762,13 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx contex
 		return "", 0, 0, normalizeSQLError(err)
 	}
 
-	if _, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+	if _, err := createInitialSegmentExecutionTx(
+		ctx,
+		tx,
+		runID,
+		targetCellID,
+		audit.StartDeadlineUnixNano,
+	); err != nil {
 		return "", 0, 0, err
 	}
 

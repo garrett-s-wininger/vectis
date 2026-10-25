@@ -135,7 +135,13 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 		t.Fatal("artifacts_enabled = false, want true")
 	}
 
-	if got, want := session.GetCheckoutCacheRemoteUrls(), []string{"https://mirror.invalid/vectis.git", "https://tier1.invalid/vectis.git"}; !reflect.DeepEqual(got, want) {
+	if got, want := session.GetCheckoutCacheRemoteUrls(), []string{
+		"https://mirror.invalid/vectis.git",
+		"https://tier1.invalid/vectis.git",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("checkout cache remote urls = %+v, want %+v", got, want)
 	}
 
@@ -171,7 +177,8 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 		t.Fatalf("runtime config = %#v", desc.GetRuntimeConfig())
 	}
 
-	if !desc.GetInputSchema().GetAllowUnknown() || desc.GetInputSchema().GetFields()[0].GetType() != string(action.FieldURL) {
+	if !desc.GetInputSchema().GetAllowUnknown() ||
+		desc.GetInputSchema().GetFields()[0].GetType() != string(action.FieldURL) {
 		t.Fatalf("input schema = %#v", desc.GetInputSchema())
 	}
 
@@ -299,7 +306,9 @@ func TestRemoteCoreDescribe(t *testing.T) {
 	core := NewRemoteCore(fakeWorkerCoreClient{
 		describe: func(context.Context, *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error) {
 			return CoreDescriptionProto(CoreDescription{
-				Capabilities:       []CoreCapability{{Name: "external-runner", Version: "v1", Metadata: map[string]string{"provider": "jenkins"}}},
+				Capabilities: []CoreCapability{
+					{Name: "external-runner", Version: "v1", Metadata: map[string]string{"provider": "jenkins"}},
+				},
 				SupportedIsolation: []string{action.IsolationHost},
 				Metadata:           map[string]string{"name": "test-core"},
 			}), nil
@@ -340,26 +349,39 @@ func TestValidateCoreDescription(t *testing.T) {
 
 	badProtocol := valid
 	badProtocol.ProtocolVersion = "workercore.v0"
-	if err := ValidateCoreDescription(badProtocol, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "protocol version") {
+	if err := ValidateCoreDescription(
+		badProtocol,
+		RequiredWorkerCoreCapabilities(),
+	); err == nil ||
+		!strings.Contains(err.Error(), "protocol version") {
 		t.Fatalf("ValidateCoreDescription protocol error = %v, want protocol version error", err)
 	}
 
 	missingCapability := valid
 	missingCapability.Capabilities = missingCapability.Capabilities[:2]
 	err := ValidateCoreDescription(missingCapability, RequiredWorkerCoreCapabilities())
-	if err == nil || !strings.Contains(err.Error(), workersdk.CapabilityShellLogCallback) || !strings.Contains(err.Error(), workersdk.CapabilityShellArtifactPush) {
+	if err == nil || !strings.Contains(err.Error(), workersdk.CapabilityShellLogCallback) ||
+		!strings.Contains(err.Error(), workersdk.CapabilityShellArtifactPush) {
 		t.Fatalf("ValidateCoreDescription missing capability error = %v", err)
 	}
 
 	missingIsolation := valid
 	missingIsolation.SupportedIsolation = nil
-	if err := ValidateCoreDescription(missingIsolation, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "supported isolation") {
+	if err := ValidateCoreDescription(
+		missingIsolation,
+		RequiredWorkerCoreCapabilities(),
+	); err == nil ||
+		!strings.Contains(err.Error(), "supported isolation") {
 		t.Fatalf("ValidateCoreDescription missing isolation error = %v", err)
 	}
 
 	badIsolation := valid
 	badIsolation.SupportedIsolation = []string{action.IsolationHost, "container"}
-	if err := ValidateCoreDescription(badIsolation, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "unsupported isolation") {
+	if err := ValidateCoreDescription(
+		badIsolation,
+		RequiredWorkerCoreCapabilities(),
+	); err == nil ||
+		!strings.Contains(err.Error(), "unsupported isolation") {
 		t.Fatalf("ValidateCoreDescription bad isolation error = %v", err)
 	}
 }
@@ -409,7 +431,9 @@ func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
 			{
 				RemoteURL:          "https://mirror.invalid/warm.git",
 				FallbackRemoteURLs: []string{"https://tier1.invalid/warm.git"},
-				Credentials:        source.GitCredentials{SSHPrivateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----"},
+				Credentials: source.GitCredentials{
+					SSHPrivateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----",
+				},
 			},
 		},
 	})
@@ -419,10 +443,16 @@ func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
 	}
 
 	if captured == nil ||
-		!reflect.DeepEqual(captured.GetRemoteUrls(), []string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"}) ||
+		!reflect.DeepEqual(
+			captured.GetRemoteUrls(),
+			[]string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"},
+		) ||
 		len(captured.GetRemotes()) != 1 ||
 		captured.GetRemotes()[0].GetRemoteUrl() != "https://mirror.invalid/warm.git" ||
-		!reflect.DeepEqual(captured.GetRemotes()[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/warm.git"}) ||
+		!reflect.DeepEqual(
+			captured.GetRemotes()[0].GetFallbackRemoteUrls(),
+			[]string{"https://tier1.invalid/warm.git"},
+		) ||
 		captured.GetRemotes()[0].GetCredentials().GetSshPrivateKey() == "" {
 		t.Fatalf("captured warm request = %+v", captured)
 	}
@@ -457,7 +487,8 @@ func TestRemoteCoreCancelTask(t *testing.T) {
 		t.Fatalf("CancelTask: %v", err)
 	}
 
-	if captured.GetSessionId() != "execution-1" || captured.GetRunId() != "run-1" || captured.GetReason() != "remote request" {
+	if captured.GetSessionId() != "execution-1" || captured.GetRunId() != "run-1" ||
+		captured.GetReason() != "remote request" {
 		t.Fatalf("cancel request = %#v", captured)
 	}
 }
@@ -502,7 +533,11 @@ type fakeWorkerCoreClient struct {
 	warm     func(context.Context, *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error)
 }
 
-func (f fakeWorkerCoreClient) DescribeCore(ctx context.Context, req *api.DescribeWorkerCoreRequest, _ ...grpc.CallOption) (*api.DescribeWorkerCoreResponse, error) {
+func (f fakeWorkerCoreClient) DescribeCore(
+	ctx context.Context,
+	req *api.DescribeWorkerCoreRequest,
+	_ ...grpc.CallOption,
+) (*api.DescribeWorkerCoreResponse, error) {
 	if f.describe != nil {
 		return f.describe(ctx, req)
 	}
@@ -510,7 +545,11 @@ func (f fakeWorkerCoreClient) DescribeCore(ctx context.Context, req *api.Describ
 	return &api.DescribeWorkerCoreResponse{}, nil
 }
 
-func (f fakeWorkerCoreClient) ExecuteTask(ctx context.Context, req *api.ExecuteWorkerCoreTaskRequest, _ ...grpc.CallOption) (*api.ExecuteWorkerCoreTaskResponse, error) {
+func (f fakeWorkerCoreClient) ExecuteTask(
+	ctx context.Context,
+	req *api.ExecuteWorkerCoreTaskRequest,
+	_ ...grpc.CallOption,
+) (*api.ExecuteWorkerCoreTaskResponse, error) {
 	if f.execute != nil {
 		return f.execute(ctx, req)
 	}
@@ -518,7 +557,11 @@ func (f fakeWorkerCoreClient) ExecuteTask(ctx context.Context, req *api.ExecuteW
 	return &api.ExecuteWorkerCoreTaskResponse{}, nil
 }
 
-func (f fakeWorkerCoreClient) CancelTask(ctx context.Context, req *api.CancelWorkerCoreTaskRequest, _ ...grpc.CallOption) (*api.Empty, error) {
+func (f fakeWorkerCoreClient) CancelTask(
+	ctx context.Context,
+	req *api.CancelWorkerCoreTaskRequest,
+	_ ...grpc.CallOption,
+) (*api.Empty, error) {
 	if f.cancel != nil {
 		return f.cancel(ctx, req)
 	}
@@ -526,7 +569,11 @@ func (f fakeWorkerCoreClient) CancelTask(ctx context.Context, req *api.CancelWor
 	return &api.Empty{}, nil
 }
 
-func (f fakeWorkerCoreClient) WarmCheckoutCache(ctx context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest, _ ...grpc.CallOption) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
+func (f fakeWorkerCoreClient) WarmCheckoutCache(
+	ctx context.Context,
+	req *api.WarmWorkerCoreCheckoutCacheRequest,
+	_ ...grpc.CallOption,
+) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
 	if f.warm != nil {
 		return f.warm(ctx, req)
 	}
@@ -539,6 +586,9 @@ type fakeArtifactPublisher struct {
 	err    error
 }
 
-func (p fakeArtifactPublisher) PublishArtifact(context.Context, action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+func (p fakeArtifactPublisher) PublishArtifact(
+	context.Context,
+	action.ArtifactPublishRequest,
+) (action.ArtifactPublishResult, error) {
 	return p.result, p.err
 }

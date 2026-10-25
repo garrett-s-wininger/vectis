@@ -92,47 +92,54 @@ func metricsServerHandlerForHost(bindHost string, handler http.Handler) http.Han
 		handler = http.NotFoundHandler()
 	}
 
-	return httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		setMetricsNoStore(w)
+	return httpsecurity.HeaderMiddleware(
+		httpsecurity.APIHeaderPolicy(),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			setMetricsNoStore(w)
 
-		if !config.MetricsHostAllowed(bindHost, r.Host) {
-			http.Error(w, "invalid host header", http.StatusBadRequest)
-			return
-		}
+			if !config.MetricsHostAllowed(bindHost, r.Host) {
+				http.Error(w, "invalid host header", http.StatusBadRequest)
+				return
+			}
 
-		if !httpsecurity.SafeRequestTarget(r) {
-			http.Error(w, "invalid request target", http.StatusBadRequest)
-			return
-		}
+			if !httpsecurity.SafeRequestTarget(r) {
+				http.Error(w, "invalid request target", http.StatusBadRequest)
+				return
+			}
 
-		if _, ok := httpsecurity.MethodOverrideHeader(r); ok {
-			http.Error(w, "method override headers are not allowed", http.StatusBadRequest)
-			return
-		}
+			if _, ok := httpsecurity.MethodOverrideHeader(r); ok {
+				http.Error(w, "method override headers are not allowed", http.StatusBadRequest)
+				return
+			}
 
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
+			if r.URL.Path != "/metrics" {
+				http.NotFound(w, r)
+				return
+			}
 
-		if !httpsecurity.MethodAllowed(r.Method, http.MethodGet) {
-			w.Header().Set("Allow", httpsecurity.AllowHeader(http.MethodGet))
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+			if !httpsecurity.MethodAllowed(r.Method, http.MethodGet) {
+				w.Header().Set("Allow", httpsecurity.AllowHeader(http.MethodGet))
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
 
-		if httpsecurity.RequestHasBody(r) {
-			http.Error(w, "request body is not allowed", http.StatusBadRequest)
-			return
-		}
+			if httpsecurity.RequestHasBody(r) {
+				http.Error(w, "request body is not allowed", http.StatusBadRequest)
+				return
+			}
 
-		if !httpsecurity.AcceptsAny(r.Header.Get("Accept"), httpsecurity.MediaTypePlainText, httpsecurity.MediaTypeOpenMetricsText) {
-			http.Error(w, "not acceptable", http.StatusNotAcceptable)
-			return
-		}
+			if !httpsecurity.AcceptsAny(
+				r.Header.Get("Accept"),
+				httpsecurity.MediaTypePlainText,
+				httpsecurity.MediaTypeOpenMetricsText,
+			) {
+				http.Error(w, "not acceptable", http.StatusNotAcceptable)
+				return
+			}
 
-		handler.ServeHTTP(w, r)
-	}))
+			handler.ServeHTTP(w, r)
+		}),
+	)
 }
 
 func setMetricsNoStore(w http.ResponseWriter) {

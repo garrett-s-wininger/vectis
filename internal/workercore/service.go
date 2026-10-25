@@ -41,7 +41,10 @@ func NewService(core Core, opts ServiceOptions) *Service {
 	}
 }
 
-func (s *Service) DescribeCore(context.Context, *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error) {
+func (s *Service) DescribeCore(
+	context.Context,
+	*api.DescribeWorkerCoreRequest,
+) (*api.DescribeWorkerCoreResponse, error) {
 	if s == nil {
 		return nil, status.Error(codes.FailedPrecondition, "worker core service is not configured")
 	}
@@ -49,7 +52,10 @@ func (s *Service) DescribeCore(context.Context, *api.DescribeWorkerCoreRequest) 
 	return CoreDescriptionProto(s.description), nil
 }
 
-func (s *Service) ExecuteTask(ctx context.Context, req *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+func (s *Service) ExecuteTask(
+	ctx context.Context,
+	req *api.ExecuteWorkerCoreTaskRequest,
+) (*api.ExecuteWorkerCoreTaskResponse, error) {
 	if s == nil || s.core == nil {
 		return nil, status.Error(codes.FailedPrecondition, "worker core is not configured")
 	}
@@ -102,7 +108,10 @@ func (s *Service) CancelTask(ctx context.Context, req *api.CancelWorkerCoreTaskR
 	return &api.Empty{}, nil
 }
 
-func (s *Service) WarmCheckoutCache(ctx context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
+func (s *Service) WarmCheckoutCache(
+	ctx context.Context,
+	req *api.WarmWorkerCoreCheckoutCacheRequest,
+) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
 	if s == nil || s.core == nil {
 		return nil, status.Error(codes.FailedPrecondition, "worker core is not configured")
 	}
@@ -120,7 +129,10 @@ func (s *Service) WarmCheckoutCache(ctx context.Context, req *api.WarmWorkerCore
 	return WarmCheckoutCacheResultProto(result), nil
 }
 
-func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorkerCoreTaskRequest) (ExecuteTaskRequest, func(), error) {
+func (s *Service) executeTaskRequest(
+	ctx context.Context,
+	req *api.ExecuteWorkerCoreTaskRequest,
+) (ExecuteTaskRequest, func(), error) {
 	if req == nil {
 		return ExecuteTaskRequest{}, func() {}, fmt.Errorf("execute task request is required")
 	}
@@ -145,7 +157,9 @@ func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorker
 
 	shellEndpoint := strings.TrimSpace(session.GetShellEndpoint())
 	if (session.GetLogsEnabled() || session.GetArtifactsEnabled()) && shellEndpoint == "" {
-		return ExecuteTaskRequest{}, func() {}, fmt.Errorf("shell endpoint is required for callback-enabled task sessions")
+		return ExecuteTaskRequest{}, func() {}, fmt.Errorf(
+			"shell endpoint is required for callback-enabled task sessions",
+		)
 	}
 
 	workloadIdentity := workloadIdentityFromProto(session.GetWorkloadIdentity())

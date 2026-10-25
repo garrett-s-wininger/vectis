@@ -163,11 +163,21 @@ func (s *Store) Put(ctx context.Context, r io.Reader, opts sdkartifact.PutOption
 	digest := hex.EncodeToString(h.Sum(nil))
 	desc := sdkartifact.DescriptorForSHA256(digest, size)
 	if expectedDigest != "" && digest != expectedDigest {
-		return sdkartifact.BlobDescriptor{}, fmt.Errorf("%w: got %s want %s", sdkartifact.ErrBlobDigestMismatch, desc.Key, sdkartifact.BlobKeySHA256(expectedDigest))
+		return sdkartifact.BlobDescriptor{}, fmt.Errorf(
+			"%w: got %s want %s",
+			sdkartifact.ErrBlobDigestMismatch,
+			desc.Key,
+			sdkartifact.BlobKeySHA256(expectedDigest),
+		)
 	}
 
 	if opts.RequireSize && size != opts.ExpectedSize {
-		return sdkartifact.BlobDescriptor{}, fmt.Errorf("%w: got %d want %d", sdkartifact.ErrBlobSizeMismatch, size, opts.ExpectedSize)
+		return sdkartifact.BlobDescriptor{}, fmt.Errorf(
+			"%w: got %d want %d",
+			sdkartifact.ErrBlobSizeMismatch,
+			size,
+			opts.ExpectedSize,
+		)
 	}
 
 	existing, err := s.Stat(ctx, desc.Key)
@@ -187,11 +197,20 @@ func (s *Store) Put(ctx context.Context, r io.Reader, opts sdkartifact.PutOption
 		return sdkartifact.BlobDescriptor{}, fmt.Errorf("rewind artifact s3 temp file: %w", err)
 	}
 
-	req, err := s.newRequestWithHeaders(ctx, http.MethodPut, s.objectKey(desc.Digest), nil, tmp, size, digest, map[string]string{
-		"Content-Type":                "application/octet-stream",
-		"x-amz-meta-vectis-algorithm": desc.Algorithm,
-		"x-amz-meta-vectis-digest":    desc.Digest,
-	})
+	req, err := s.newRequestWithHeaders(
+		ctx,
+		http.MethodPut,
+		s.objectKey(desc.Digest),
+		nil,
+		tmp,
+		size,
+		digest,
+		map[string]string{
+			"Content-Type":                "application/octet-stream",
+			"x-amz-meta-vectis-algorithm": desc.Algorithm,
+			"x-amz-meta-vectis-digest":    desc.Digest,
+		},
+	)
 
 	if err != nil {
 		return sdkartifact.BlobDescriptor{}, err
@@ -369,11 +388,26 @@ type listBucketResult struct {
 	} `xml:"Contents"`
 }
 
-func (s *Store) newRequest(ctx context.Context, method, objectKey string, query url.Values, body io.Reader, contentLength int64, payloadHash string) (*http.Request, error) {
+func (s *Store) newRequest(
+	ctx context.Context,
+	method, objectKey string,
+	query url.Values,
+	body io.Reader,
+	contentLength int64,
+	payloadHash string,
+) (*http.Request, error) {
 	return s.newRequestWithHeaders(ctx, method, objectKey, query, body, contentLength, payloadHash, nil)
 }
 
-func (s *Store) newRequestWithHeaders(ctx context.Context, method, objectKey string, query url.Values, body io.Reader, contentLength int64, payloadHash string, headers map[string]string) (*http.Request, error) {
+func (s *Store) newRequestWithHeaders(
+	ctx context.Context,
+	method, objectKey string,
+	query url.Values,
+	body io.Reader,
+	contentLength int64,
+	payloadHash string,
+	headers map[string]string,
+) (*http.Request, error) {
 	u := *s.endpoint
 	if s.pathStyle {
 		u.Path = joinEscapedPath(u.EscapedPath(), s.bucket, objectKey)
@@ -473,7 +507,16 @@ func (s *Store) sign(req *http.Request, payloadHash string) error {
 
 	signingKey := sigV4SigningKey(s.secretAccessKey, date, s.region, "s3")
 	signature := hmacSHA256Hex(signingKey, stringToSign)
-	req.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s", s.accessKeyID, scope, signedHeaders, signature))
+	req.Header.Set(
+		"Authorization",
+		fmt.Sprintf(
+			"AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
+			s.accessKeyID,
+			scope,
+			signedHeaders,
+			signature,
+		),
+	)
 	return nil
 }
 

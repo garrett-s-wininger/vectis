@@ -486,7 +486,13 @@ func mustCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey, []byte) {
 	return cert, key, certBuf.Bytes()
 }
 
-func mustServerCert(t *testing.T, caKey *ecdsa.PrivateKey, caPEM []byte, dns []string, ttl time.Duration) (certPEM, keyPEM []byte) {
+func mustServerCert(
+	t *testing.T,
+	caKey *ecdsa.PrivateKey,
+	caPEM []byte,
+	dns []string,
+	ttl time.Duration,
+) (certPEM, keyPEM []byte) {
 	t.Helper()
 	caBlock, _ := pem.Decode(caPEM)
 	caCert, err := x509.ParseCertificate(caBlock.Bytes)

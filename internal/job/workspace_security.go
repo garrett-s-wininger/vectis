@@ -47,7 +47,11 @@ func warnIfExplicitWorkspaceBroadPermissions(workspace string, logger interfaces
 	}
 
 	if info.Mode().Perm()&0o077 != 0 && logger != nil {
-		logger.Warn("Workspace %s is group/world accessible (%v); use owner-only permissions for stronger local isolation", workspace, info.Mode().Perm())
+		logger.Warn(
+			"Workspace %s is group/world accessible (%v); use owner-only permissions for stronger local isolation",
+			workspace,
+			info.Mode().Perm(),
+		)
 	}
 
 	return nil

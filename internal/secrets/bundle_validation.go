@@ -51,7 +51,13 @@ func ValidateResolvedBundle(req ResolveRequest, bundle Bundle) error {
 		}
 
 		if path != expectedFile.path {
-			return fmt.Errorf("%w: file material for secret %q targets %q, want %q", ErrInvalidBundle, id, path, expectedFile.path)
+			return fmt.Errorf(
+				"%w: file material for secret %q targets %q, want %q",
+				ErrInvalidBundle,
+				id,
+				path,
+				expectedFile.path,
+			)
 		}
 
 		if err := validateSecretFileMode(file.Mode); err != nil {
@@ -86,7 +92,12 @@ func expectedFileMaterials(refs []Reference) (map[string]expectedFileMaterial, e
 		}
 
 		if ref.Delivery.Type != DeliveryTypeFile {
-			return nil, fmt.Errorf("%w: requested secret %q has unsupported delivery type %q", ErrInvalidBundle, id, ref.Delivery.Type)
+			return nil, fmt.Errorf(
+				"%w: requested secret %q has unsupported delivery type %q",
+				ErrInvalidBundle,
+				id,
+				ref.Delivery.Type,
+			)
 		}
 
 		path, err := canonicalFileDeliveryPath(ref.Delivery.Path)
@@ -95,11 +106,22 @@ func expectedFileMaterials(refs []Reference) (map[string]expectedFileMaterial, e
 		}
 
 		if path != ref.Delivery.Path {
-			return nil, fmt.Errorf("%w: requested secret %q file path %q is not canonical", ErrInvalidBundle, id, ref.Delivery.Path)
+			return nil, fmt.Errorf(
+				"%w: requested secret %q file path %q is not canonical",
+				ErrInvalidBundle,
+				id,
+				ref.Delivery.Path,
+			)
 		}
 
 		if firstID, ok := paths[path]; ok {
-			return nil, fmt.Errorf("%w: requested secret %q duplicates file path %q first used by secret %q", ErrInvalidBundle, id, path, firstID)
+			return nil, fmt.Errorf(
+				"%w: requested secret %q duplicates file path %q first used by secret %q",
+				ErrInvalidBundle,
+				id,
+				path,
+				firstID,
+			)
 		}
 
 		expected[id] = expectedFileMaterial{path: path}
@@ -121,7 +143,10 @@ func canonicalFileDeliveryPath(raw string) (string, error) {
 
 	for _, part := range strings.Split(path, "/") {
 		if part == "" || part == "." || part == ".." {
-			return "", fmt.Errorf("file path %q must not contain empty, current-directory, or parent-directory segments", path)
+			return "", fmt.Errorf(
+				"file path %q must not contain empty, current-directory, or parent-directory segments",
+				path,
+			)
 		}
 	}
 

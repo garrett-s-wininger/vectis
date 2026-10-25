@@ -109,13 +109,25 @@ type AuditEventListFilter struct {
 // AuthRepository persists HTTP API authentication: bootstrap completion, local users, and API tokens.
 type AuthRepository interface {
 	IsSetupComplete(ctx context.Context) (bool, error)
-	CompleteInitialSetup(ctx context.Context, username, passwordHash, tokenHash, tokenLabel string) (localUserID int64, err error)
-	CompleteInitialSetupWithOptions(ctx context.Context, opts CompleteInitialSetupOptions) (localUserID int64, err error)
-	ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, tokenID int64, err error)
+	CompleteInitialSetup(
+		ctx context.Context,
+		username, passwordHash, tokenHash, tokenLabel string,
+	) (localUserID int64, err error)
+	CompleteInitialSetupWithOptions(
+		ctx context.Context,
+		opts CompleteInitialSetupOptions,
+	) (localUserID int64, err error)
+	ResolveAPIToken(
+		ctx context.Context,
+		tokenHash string,
+	) (localUserID int64, username string, tokenID int64, err error)
 	TouchAPITokenUsed(ctx context.Context, tokenHash string) error
 	UserExists(ctx context.Context, localUserID int64) (bool, error)
 	UserEnabled(ctx context.Context, localUserID int64) (bool, error)
-	GetLocalUserByUsername(ctx context.Context, username string) (id int64, passwordHash string, enabled bool, passwordAuthEnabled bool, err error)
+	GetLocalUserByUsername(
+		ctx context.Context,
+		username string,
+	) (id int64, passwordHash string, enabled bool, passwordAuthEnabled bool, err error)
 	GetUserPasswordHash(ctx context.Context, localUserID int64) (string, error)
 	UpdateUserPassword(ctx context.Context, localUserID int64, passwordHash string) error
 	DeleteAllAPITokensForUser(ctx context.Context, localUserID int64) error
@@ -123,16 +135,30 @@ type AuthRepository interface {
 	DisableLocalUserAndRevokeTokens(ctx context.Context, localUserID int64) error
 	ListAPITokens(ctx context.Context, localUserID int64) ([]*APITokenRecord, error)
 	CreateAPIToken(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time) (int64, error)
-	CreateAPITokenWithScopes(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time, scopes []*TokenScopeRecord) (int64, error)
+	CreateAPITokenWithScopes(
+		ctx context.Context,
+		localUserID int64,
+		tokenHash, label string,
+		expiresAt *time.Time,
+		scopes []*TokenScopeRecord,
+	) (int64, error)
 	DeleteAPIToken(ctx context.Context, id int64) error
 	GetAPITokenOwner(ctx context.Context, id int64) (localUserID int64, err error)
 	GetTokenScopes(ctx context.Context, tokenID int64) ([]*TokenScopeRecord, error)
 	CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error)
-	CreateLocalUserWithPasswordAuth(ctx context.Context, username, passwordHash string, passwordAuthEnabled bool) (int64, error)
+	CreateLocalUserWithPasswordAuth(
+		ctx context.Context,
+		username, passwordHash string,
+		passwordAuthEnabled bool,
+	) (int64, error)
 	EnsureAuthProvider(ctx context.Context, providerID, kind string) (*AuthProviderRecord, error)
 	GetExternalIdentity(ctx context.Context, providerID, subject string) (*ExternalIdentityRecord, error)
 	ListExternalIdentitiesForUser(ctx context.Context, localUserID int64) ([]*ExternalIdentityRecord, error)
-	LinkExternalIdentity(ctx context.Context, localUserID int64, providerID, subject, username, displayName string) (*ExternalIdentityRecord, error)
+	LinkExternalIdentity(
+		ctx context.Context,
+		localUserID int64,
+		providerID, subject, username, displayName string,
+	) (*ExternalIdentityRecord, error)
 	DeleteExternalIdentity(ctx context.Context, localUserID, externalIdentityID int64) error
 	TouchExternalIdentity(ctx context.Context, externalIdentityID int64, username, displayName string) error
 	ListLocalUsers(ctx context.Context) ([]*LocalUserRecord, error)
@@ -172,7 +198,10 @@ func (r *SQLAuthRepository) IsSetupComplete(ctx context.Context) (bool, error) {
 	return t.Valid, nil
 }
 
-func (r *SQLAuthRepository) CompleteInitialSetup(ctx context.Context, username, passwordHash, tokenHash, tokenLabel string) (localUserID int64, err error) {
+func (r *SQLAuthRepository) CompleteInitialSetup(
+	ctx context.Context,
+	username, passwordHash, tokenHash, tokenLabel string,
+) (localUserID int64, err error) {
 	return r.CompleteInitialSetupWithOptions(ctx, CompleteInitialSetupOptions{
 		Username:            username,
 		PasswordHash:        passwordHash,
@@ -182,7 +211,10 @@ func (r *SQLAuthRepository) CompleteInitialSetup(ctx context.Context, username, 
 	})
 }
 
-func (r *SQLAuthRepository) CompleteInitialSetupWithOptions(ctx context.Context, opts CompleteInitialSetupOptions) (localUserID int64, err error) {
+func (r *SQLAuthRepository) CompleteInitialSetupWithOptions(
+	ctx context.Context,
+	opts CompleteInitialSetupOptions,
+) (localUserID int64, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -216,19 +248,33 @@ WHERE id = 1 AND setup_completed_at IS NULL`),
 	}
 
 	var id int64
-	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx(`INSERT INTO local_users (global_id, username, password_hash, password_auth_enabled) VALUES (?, ?, ?, ?) RETURNING id`),
-		newGlobalID(), opts.Username, opts.PasswordHash, opts.PasswordAuthEnabled,
+	if err := tx.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO local_users (global_id, username, password_hash, password_auth_enabled) VALUES (?, ?, ?, ?) RETURNING id`,
+		),
+		newGlobalID(),
+		opts.Username,
+		opts.PasswordHash,
+		opts.PasswordAuthEnabled,
 	).Scan(&id); err != nil {
 		return 0, normalizeSQLError(err)
 	}
 
 	if opts.ExternalIdentity != nil {
 		identity := opts.ExternalIdentity
-		if _, err := tx.ExecContext(ctx,
-			rebindQueryForPgx(`INSERT INTO external_identities (global_id, local_user_id, auth_provider_id, subject, username, display_name)
-SELECT ?, ?, id, ?, ?, ? FROM auth_providers WHERE provider_id = ?`),
-			newGlobalID(), id, identity.Subject, identity.Username, identity.DisplayName, identity.ProviderID,
+		if _, err := tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				`INSERT INTO external_identities (global_id, local_user_id, auth_provider_id, subject, username, display_name)
+SELECT ?, ?, id, ?, ?, ? FROM auth_providers WHERE provider_id = ?`,
+			),
+			newGlobalID(),
+			id,
+			identity.Subject,
+			identity.Username,
+			identity.DisplayName,
+			identity.ProviderID,
 		); err != nil {
 			return 0, normalizeSQLError(err)
 		}
@@ -258,9 +304,15 @@ WHERE ei.local_user_id = ? AND ap.provider_id = ? AND ei.subject = ?
 		return 0, normalizeSQLError(err)
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO role_bindings (global_id, local_user_id, namespace_id, role) VALUES (?, ?, ?, ?)`),
-		newGlobalID(), id, rootNsID, "admin",
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO role_bindings (global_id, local_user_id, namespace_id, role) VALUES (?, ?, ?, ?)`,
+		),
+		newGlobalID(),
+		id,
+		rootNsID,
+		"admin",
 	); err != nil {
 		return 0, normalizeSQLError(err)
 	}
@@ -272,7 +324,10 @@ WHERE ei.local_user_id = ? AND ap.provider_id = ? AND ei.subject = ?
 	return id, nil
 }
 
-func (r *SQLAuthRepository) ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, tokenID int64, err error) {
+func (r *SQLAuthRepository) ResolveAPIToken(
+	ctx context.Context,
+	tokenHash string,
+) (localUserID int64, username string, tokenID int64, err error) {
 	now := time.Now().UTC()
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 SELECT t.id, u.id, u.username
@@ -334,9 +389,15 @@ func (r *SQLAuthRepository) UserEnabled(ctx context.Context, localUserID int64) 
 	return enabled, nil
 }
 
-func (r *SQLAuthRepository) GetLocalUserByUsername(ctx context.Context, username string) (id int64, passwordHash string, enabled bool, passwordAuthEnabled bool, err error) {
-	err = r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`SELECT id, password_hash, enabled, password_auth_enabled FROM local_users WHERE username = ?`),
+func (r *SQLAuthRepository) GetLocalUserByUsername(
+	ctx context.Context,
+	username string,
+) (id int64, passwordHash string, enabled bool, passwordAuthEnabled bool, err error) {
+	err = r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			`SELECT id, password_hash, enabled, password_auth_enabled FROM local_users WHERE username = ?`,
+		),
 		username,
 	).Scan(&id, &passwordHash, &enabled, &passwordAuthEnabled)
 
@@ -405,7 +466,11 @@ func (r *SQLAuthRepository) DeleteAllAPITokensForUser(ctx context.Context, local
 	return normalizeSQLError(err)
 }
 
-func (r *SQLAuthRepository) ChangePasswordAndRevokeTokens(ctx context.Context, localUserID int64, passwordHash string) error {
+func (r *SQLAuthRepository) ChangePasswordAndRevokeTokens(
+	ctx context.Context,
+	localUserID int64,
+	passwordHash string,
+) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -452,8 +517,11 @@ func (r *SQLAuthRepository) ChangePasswordAndRevokeTokens(ctx context.Context, l
 }
 
 func (r *SQLAuthRepository) ListAPITokens(ctx context.Context, localUserID int64) ([]*APITokenRecord, error) {
-	rows, err := r.db.QueryContext(ctx,
-		rebindQueryForPgx(`SELECT id, COALESCE(global_id, ''), local_user_id, label, expires_at, created_at, last_used_at FROM api_tokens WHERE local_user_id = ? ORDER BY created_at DESC`),
+	rows, err := r.db.QueryContext(
+		ctx,
+		rebindQueryForPgx(
+			`SELECT id, COALESCE(global_id, ''), local_user_id, label, expires_at, created_at, last_used_at FROM api_tokens WHERE local_user_id = ? ORDER BY created_at DESC`,
+		),
 		localUserID,
 	)
 
@@ -465,7 +533,15 @@ func (r *SQLAuthRepository) ListAPITokens(ctx context.Context, localUserID int64
 	var tokens []*APITokenRecord
 	for rows.Next() {
 		var t APITokenRecord
-		if err := rows.Scan(&t.ID, &t.GlobalID, &t.LocalUserID, &t.Label, &t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt); err != nil {
+		if err := rows.Scan(
+			&t.ID,
+			&t.GlobalID,
+			&t.LocalUserID,
+			&t.Label,
+			&t.ExpiresAt,
+			&t.CreatedAt,
+			&t.LastUsedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -479,19 +555,37 @@ func (r *SQLAuthRepository) ListAPITokens(ctx context.Context, localUserID int64
 	return tokens, nil
 }
 
-func (r *SQLAuthRepository) CreateAPIToken(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time) (int64, error) {
+func (r *SQLAuthRepository) CreateAPIToken(
+	ctx context.Context,
+	localUserID int64,
+	tokenHash, label string,
+	expiresAt *time.Time,
+) (int64, error) {
 	var id int64
 	var err error
 
 	if expiresAt != nil {
-		err = r.db.QueryRowContext(ctx,
-			rebindQueryForPgx(`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label, expires_at) VALUES (?, ?, ?, ?, ?) RETURNING id`),
-			newGlobalID(), localUserID, tokenHash, label, *expiresAt,
+		err = r.db.QueryRowContext(
+			ctx,
+			rebindQueryForPgx(
+				`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label, expires_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+			),
+			newGlobalID(),
+			localUserID,
+			tokenHash,
+			label,
+			*expiresAt,
 		).Scan(&id)
 	} else {
-		err = r.db.QueryRowContext(ctx,
-			rebindQueryForPgx(`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label) VALUES (?, ?, ?, ?) RETURNING id`),
-			newGlobalID(), localUserID, tokenHash, label,
+		err = r.db.QueryRowContext(
+			ctx,
+			rebindQueryForPgx(
+				`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label) VALUES (?, ?, ?, ?) RETURNING id`,
+			),
+			newGlobalID(),
+			localUserID,
+			tokenHash,
+			label,
 		).Scan(&id)
 	}
 
@@ -546,11 +640,21 @@ func (r *SQLAuthRepository) CreateLocalUser(ctx context.Context, username, passw
 	return r.CreateLocalUserWithPasswordAuth(ctx, username, passwordHash, true)
 }
 
-func (r *SQLAuthRepository) CreateLocalUserWithPasswordAuth(ctx context.Context, username, passwordHash string, passwordAuthEnabled bool) (int64, error) {
+func (r *SQLAuthRepository) CreateLocalUserWithPasswordAuth(
+	ctx context.Context,
+	username, passwordHash string,
+	passwordAuthEnabled bool,
+) (int64, error) {
 	var id int64
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`INSERT INTO local_users (global_id, username, password_hash, password_auth_enabled) VALUES (?, ?, ?, ?) RETURNING id`),
-		newGlobalID(), username, passwordHash, passwordAuthEnabled,
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO local_users (global_id, username, password_hash, password_auth_enabled) VALUES (?, ?, ?, ?) RETURNING id`,
+		),
+		newGlobalID(),
+		username,
+		passwordHash,
+		passwordAuthEnabled,
 	).Scan(&id)
 
 	if err != nil {
@@ -560,7 +664,10 @@ func (r *SQLAuthRepository) CreateLocalUserWithPasswordAuth(ctx context.Context,
 	return id, nil
 }
 
-func (r *SQLAuthRepository) EnsureAuthProvider(ctx context.Context, providerID, kind string) (*AuthProviderRecord, error) {
+func (r *SQLAuthRepository) EnsureAuthProvider(
+	ctx context.Context,
+	providerID, kind string,
+) (*AuthProviderRecord, error) {
 	providerID = strings.TrimSpace(providerID)
 	kind = strings.TrimSpace(kind)
 	if kind == "" {
@@ -597,10 +704,16 @@ func (r *SQLAuthRepository) EnsureAuthProvider(ctx context.Context, providerID, 
 	return r.getAuthProviderByProviderID(ctx, providerID)
 }
 
-func (r *SQLAuthRepository) getAuthProviderByProviderID(ctx context.Context, providerID string) (*AuthProviderRecord, error) {
+func (r *SQLAuthRepository) getAuthProviderByProviderID(
+	ctx context.Context,
+	providerID string,
+) (*AuthProviderRecord, error) {
 	var rec AuthProviderRecord
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`SELECT id, COALESCE(global_id, ''), provider_id, kind, enabled, created_at FROM auth_providers WHERE provider_id = ?`),
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			`SELECT id, COALESCE(global_id, ''), provider_id, kind, enabled, created_at FROM auth_providers WHERE provider_id = ?`,
+		),
 		strings.TrimSpace(providerID),
 	).Scan(&rec.ID, &rec.GlobalID, &rec.ProviderID, &rec.Kind, &rec.Enabled, &rec.CreatedAt)
 
@@ -615,7 +728,10 @@ func (r *SQLAuthRepository) getAuthProviderByProviderID(ctx context.Context, pro
 	return &rec, nil
 }
 
-func (r *SQLAuthRepository) GetExternalIdentity(ctx context.Context, providerID, subject string) (*ExternalIdentityRecord, error) {
+func (r *SQLAuthRepository) GetExternalIdentity(
+	ctx context.Context,
+	providerID, subject string,
+) (*ExternalIdentityRecord, error) {
 	var rec ExternalIdentityRecord
 	err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx(`SELECT ei.id, COALESCE(ei.global_id, ''), ei.local_user_id, ap.id, ap.provider_id, ap.kind,
@@ -641,7 +757,10 @@ WHERE ap.provider_id = ? AND ei.subject = ?`),
 	return &rec, nil
 }
 
-func (r *SQLAuthRepository) ListExternalIdentitiesForUser(ctx context.Context, localUserID int64) ([]*ExternalIdentityRecord, error) {
+func (r *SQLAuthRepository) ListExternalIdentitiesForUser(
+	ctx context.Context,
+	localUserID int64,
+) ([]*ExternalIdentityRecord, error) {
 	rows, err := r.db.QueryContext(ctx,
 		rebindQueryForPgx(`SELECT ei.id, COALESCE(ei.global_id, ''), ei.local_user_id, ap.id, ap.provider_id, ap.kind,
        ei.subject, ei.username, ei.display_name, u.username, u.enabled, ei.created_at, ei.last_seen_at
@@ -662,8 +781,19 @@ ORDER BY ap.provider_id, ei.subject`),
 	for rows.Next() {
 		var rec ExternalIdentityRecord
 		if err := rows.Scan(
-			&rec.ID, &rec.GlobalID, &rec.LocalUserID, &rec.AuthProviderID, &rec.ProviderID, &rec.ProviderKind,
-			&rec.Subject, &rec.Username, &rec.DisplayName, &rec.LocalUsername, &rec.LocalUserEnabled, &rec.CreatedAt, &rec.LastSeenAt,
+			&rec.ID,
+			&rec.GlobalID,
+			&rec.LocalUserID,
+			&rec.AuthProviderID,
+			&rec.ProviderID,
+			&rec.ProviderKind,
+			&rec.Subject,
+			&rec.Username,
+			&rec.DisplayName,
+			&rec.LocalUsername,
+			&rec.LocalUserEnabled,
+			&rec.CreatedAt,
+			&rec.LastSeenAt,
 		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
@@ -678,18 +808,30 @@ ORDER BY ap.provider_id, ei.subject`),
 	return identities, nil
 }
 
-func (r *SQLAuthRepository) LinkExternalIdentity(ctx context.Context, localUserID int64, providerID, subject, username, displayName string) (*ExternalIdentityRecord, error) {
+func (r *SQLAuthRepository) LinkExternalIdentity(
+	ctx context.Context,
+	localUserID int64,
+	providerID, subject, username, displayName string,
+) (*ExternalIdentityRecord, error) {
 	providerID = strings.TrimSpace(providerID)
 	subject = strings.TrimSpace(subject)
 	username = strings.TrimSpace(username)
 	displayName = strings.TrimSpace(displayName)
 
 	var id int64
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`INSERT INTO external_identities (global_id, local_user_id, auth_provider_id, subject, username, display_name)
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO external_identities (global_id, local_user_id, auth_provider_id, subject, username, display_name)
 SELECT ?, ?, id, ?, ?, ? FROM auth_providers WHERE provider_id = ?
-RETURNING id`),
-		newGlobalID(), localUserID, subject, username, displayName, providerID,
+RETURNING id`,
+		),
+		newGlobalID(),
+		localUserID,
+		subject,
+		username,
+		displayName,
+		providerID,
 	).Scan(&id)
 
 	if err != nil {
@@ -721,10 +863,19 @@ func (r *SQLAuthRepository) DeleteExternalIdentity(ctx context.Context, localUse
 	return nil
 }
 
-func (r *SQLAuthRepository) TouchExternalIdentity(ctx context.Context, externalIdentityID int64, username, displayName string) error {
-	res, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE external_identities SET username = ?, display_name = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`),
-		strings.TrimSpace(username), strings.TrimSpace(displayName), externalIdentityID,
+func (r *SQLAuthRepository) TouchExternalIdentity(
+	ctx context.Context,
+	externalIdentityID int64,
+	username, displayName string,
+) error {
+	res, err := r.db.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`UPDATE external_identities SET username = ?, display_name = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		),
+		strings.TrimSpace(username),
+		strings.TrimSpace(displayName),
+		externalIdentityID,
 	)
 
 	if err != nil {
@@ -744,8 +895,11 @@ func (r *SQLAuthRepository) TouchExternalIdentity(ctx context.Context, externalI
 }
 
 func (r *SQLAuthRepository) ListLocalUsers(ctx context.Context) ([]*LocalUserRecord, error) {
-	rows, err := r.db.QueryContext(ctx,
-		rebindQueryForPgx(`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users ORDER BY created_at DESC`),
+	rows, err := r.db.QueryContext(
+		ctx,
+		rebindQueryForPgx(
+			`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users ORDER BY created_at DESC`,
+		),
 	)
 
 	if err != nil {
@@ -756,7 +910,14 @@ func (r *SQLAuthRepository) ListLocalUsers(ctx context.Context) ([]*LocalUserRec
 	var users []*LocalUserRecord
 	for rows.Next() {
 		var u LocalUserRecord
-		if err := rows.Scan(&u.ID, &u.GlobalID, &u.Username, &u.PasswordAuthEnabled, &u.Enabled, &u.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&u.ID,
+			&u.GlobalID,
+			&u.Username,
+			&u.PasswordAuthEnabled,
+			&u.Enabled,
+			&u.CreatedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -772,8 +933,11 @@ func (r *SQLAuthRepository) ListLocalUsers(ctx context.Context) ([]*LocalUserRec
 
 func (r *SQLAuthRepository) GetLocalUser(ctx context.Context, id int64) (*LocalUserRecord, error) {
 	var u LocalUserRecord
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users WHERE id = ?`),
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users WHERE id = ?`,
+		),
 		id,
 	).Scan(&u.ID, &u.GlobalID, &u.Username, &u.PasswordAuthEnabled, &u.Enabled, &u.CreatedAt)
 
@@ -946,7 +1110,13 @@ func (r *SQLAuthRepository) IsUserRootAdmin(ctx context.Context, localUserID int
 	return isAdmin, nil
 }
 
-func (r *SQLAuthRepository) CreateAPITokenWithScopes(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time, scopes []*TokenScopeRecord) (int64, error) {
+func (r *SQLAuthRepository) CreateAPITokenWithScopes(
+	ctx context.Context,
+	localUserID int64,
+	tokenHash, label string,
+	expiresAt *time.Time,
+	scopes []*TokenScopeRecord,
+) (int64, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -955,14 +1125,27 @@ func (r *SQLAuthRepository) CreateAPITokenWithScopes(ctx context.Context, localU
 
 	var id int64
 	if expiresAt != nil {
-		err = tx.QueryRowContext(ctx,
-			rebindQueryForPgx(`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label, expires_at) VALUES (?, ?, ?, ?, ?) RETURNING id`),
-			newGlobalID(), localUserID, tokenHash, label, *expiresAt,
+		err = tx.QueryRowContext(
+			ctx,
+			rebindQueryForPgx(
+				`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label, expires_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+			),
+			newGlobalID(),
+			localUserID,
+			tokenHash,
+			label,
+			*expiresAt,
 		).Scan(&id)
 	} else {
-		err = tx.QueryRowContext(ctx,
-			rebindQueryForPgx(`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label) VALUES (?, ?, ?, ?) RETURNING id`),
-			newGlobalID(), localUserID, tokenHash, label,
+		err = tx.QueryRowContext(
+			ctx,
+			rebindQueryForPgx(
+				`INSERT INTO api_tokens (global_id, local_user_id, token_hash, label) VALUES (?, ?, ?, ?) RETURNING id`,
+			),
+			newGlobalID(),
+			localUserID,
+			tokenHash,
+			label,
 		).Scan(&id)
 	}
 
@@ -972,14 +1155,27 @@ func (r *SQLAuthRepository) CreateAPITokenWithScopes(ctx context.Context, localU
 
 	for _, scope := range scopes {
 		if scope.NamespaceID.Valid {
-			_, err = tx.ExecContext(ctx,
-				rebindQueryForPgx(`INSERT INTO api_token_scopes (global_id, api_token_id, action, namespace_id, propagate) VALUES (?, ?, ?, ?, ?)`),
-				newGlobalID(), id, scope.Action, scope.NamespaceID.Int64, scope.Propagate,
+			_, err = tx.ExecContext(
+				ctx,
+				rebindQueryForPgx(
+					`INSERT INTO api_token_scopes (global_id, api_token_id, action, namespace_id, propagate) VALUES (?, ?, ?, ?, ?)`,
+				),
+				newGlobalID(),
+				id,
+				scope.Action,
+				scope.NamespaceID.Int64,
+				scope.Propagate,
 			)
 		} else {
-			_, err = tx.ExecContext(ctx,
-				rebindQueryForPgx(`INSERT INTO api_token_scopes (global_id, api_token_id, action, propagate) VALUES (?, ?, ?, ?)`),
-				newGlobalID(), id, scope.Action, scope.Propagate,
+			_, err = tx.ExecContext(
+				ctx,
+				rebindQueryForPgx(
+					`INSERT INTO api_token_scopes (global_id, api_token_id, action, propagate) VALUES (?, ?, ?, ?)`,
+				),
+				newGlobalID(),
+				id,
+				scope.Action,
+				scope.Propagate,
 			)
 		}
 		if err != nil {
@@ -1039,9 +1235,18 @@ func (r *SQLAuthRepository) InsertAuditEvents(ctx context.Context, events []*Aud
 			createdAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
 		}
 
-		_, err := tx.ExecContext(ctx,
-			rebindQueryForPgx(`INSERT INTO audit_log (event_type, actor_id, target_id, metadata, ip_address, correlation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
-			event.Type, event.ActorID, event.TargetID, event.Metadata, event.IPAddress, event.CorrelationID, createdAt,
+		_, err := tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				`INSERT INTO audit_log (event_type, actor_id, target_id, metadata, ip_address, correlation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			),
+			event.Type,
+			event.ActorID,
+			event.TargetID,
+			event.Metadata,
+			event.IPAddress,
+			event.CorrelationID,
+			createdAt,
 		)
 
 		if err != nil {
@@ -1052,7 +1257,10 @@ func (r *SQLAuthRepository) InsertAuditEvents(ctx context.Context, events []*Aud
 	return tx.Commit()
 }
 
-func (r *SQLAuthRepository) ListAuditEvents(ctx context.Context, filter AuditEventListFilter) ([]*AuditEventRecord, error) {
+func (r *SQLAuthRepository) ListAuditEvents(
+	ctx context.Context,
+	filter AuditEventListFilter,
+) ([]*AuditEventRecord, error) {
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 100
@@ -1107,7 +1315,16 @@ func (r *SQLAuthRepository) ListAuditEvents(ctx context.Context, filter AuditEve
 	for rows.Next() {
 		var rec AuditEventRecord
 		var metadata sql.NullString
-		if err := rows.Scan(&rec.ID, &rec.Type, &rec.ActorID, &rec.TargetID, &metadata, &rec.IPAddress, &rec.CorrelationID, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.Type,
+			&rec.ActorID,
+			&rec.TargetID,
+			&metadata,
+			&rec.IPAddress,
+			&rec.CorrelationID,
+			&rec.CreatedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 		if metadata.Valid {

@@ -13,7 +13,10 @@ type SQLSchedulesRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLSchedulesRepository) CreateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error) {
+func (r *SQLSchedulesRepository) CreateCronSchedule(
+	ctx context.Context,
+	rec CronScheduleRecord,
+) (CronScheduleRecord, error) {
 	rec, err := normalizeCronScheduleRecord(rec)
 	if err != nil {
 		return CronScheduleRecord{}, err
@@ -76,7 +79,10 @@ func (r *SQLSchedulesRepository) CreateCronSchedule(ctx context.Context, rec Cro
 	return r.GetCronScheduleByScheduleID(ctx, rec.ScheduleID)
 }
 
-func (r *SQLSchedulesRepository) UpdateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error) {
+func (r *SQLSchedulesRepository) UpdateCronSchedule(
+	ctx context.Context,
+	rec CronScheduleRecord,
+) (CronScheduleRecord, error) {
 	rec, err := normalizeCronScheduleRecord(rec)
 	if err != nil {
 		return CronScheduleRecord{}, err
@@ -144,7 +150,10 @@ func (r *SQLSchedulesRepository) UpdateCronSchedule(ctx context.Context, rec Cro
 	return r.GetCronScheduleByScheduleID(ctx, rec.ScheduleID)
 }
 
-func (r *SQLSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (CronScheduleRecord, error) {
+func (r *SQLSchedulesRepository) GetCronScheduleByScheduleID(
+	ctx context.Context,
+	scheduleID string,
+) (CronScheduleRecord, error) {
 	scheduleID = strings.TrimSpace(scheduleID)
 	if scheduleID == "" {
 		return CronScheduleRecord{}, fmt.Errorf("%w: schedule_id is required", ErrNotFound)
@@ -182,7 +191,11 @@ func (r *SQLSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Context
 	return rec, nil
 }
 
-func (r *SQLSchedulesRepository) ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]CronScheduleRecord, error) {
+func (r *SQLSchedulesRepository) ListSourceCronSchedules(
+	ctx context.Context,
+	namespaceID int64,
+	repositoryID string,
+) ([]CronScheduleRecord, error) {
 	repositoryID = strings.TrimSpace(repositoryID)
 
 	query := `
@@ -236,7 +249,10 @@ func (r *SQLSchedulesRepository) ListSourceCronSchedules(ctx context.Context, na
 	return out, nil
 }
 
-func (r *SQLSchedulesRepository) CountSourceCronSchedules(ctx context.Context, declaredScheduleIDs []string) (SourceCronScheduleCountSummary, error) {
+func (r *SQLSchedulesRepository) CountSourceCronSchedules(
+	ctx context.Context,
+	declaredScheduleIDs []string,
+) (SourceCronScheduleCountSummary, error) {
 	declaredCTE, args := sourceCountDeclaredIDsCTE(declaredScheduleIDs)
 	query := `
 		WITH ` + declaredCTE + `
@@ -269,7 +285,11 @@ func (r *SQLSchedulesRepository) CountSourceCronSchedules(ctx context.Context, d
 	return counts, nil
 }
 
-func (r *SQLSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override SourceScheduleOverride) (CronScheduleRecord, error) {
+func (r *SQLSchedulesRepository) SetSourceCronScheduleOverride(
+	ctx context.Context,
+	scheduleID string,
+	override SourceScheduleOverride,
+) (CronScheduleRecord, error) {
 	scheduleID = strings.TrimSpace(scheduleID)
 	override = normalizeSourceScheduleOverride(override)
 	if scheduleID == "" {
@@ -322,7 +342,10 @@ func (r *SQLSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Conte
 	return r.GetCronScheduleByScheduleID(ctx, scheduleID)
 }
 
-func (r *SQLSchedulesRepository) ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (CronScheduleRecord, error) {
+func (r *SQLSchedulesRepository) ClearSourceCronScheduleOverride(
+	ctx context.Context,
+	scheduleID string,
+) (CronScheduleRecord, error) {
 	scheduleID = strings.TrimSpace(scheduleID)
 	if scheduleID == "" {
 		return CronScheduleRecord{}, fmt.Errorf("%w: schedule_id is required", ErrNotFound)
@@ -537,7 +560,13 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 	return out, nil
 }
 
-func (r *SQLSchedulesRepository) ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
+func (r *SQLSchedulesRepository) ClaimDue(
+	ctx context.Context,
+	scheduleID int64,
+	observedNextRun time.Time,
+	claimToken string,
+	claimedUntil, now time.Time,
+) (bool, error) {
 	result, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`
 			UPDATE cron_trigger_specs
@@ -565,7 +594,12 @@ func (r *SQLSchedulesRepository) ClaimDue(ctx context.Context, scheduleID int64,
 	return rows == 1, nil
 }
 
-func (r *SQLSchedulesRepository) CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error) {
+func (r *SQLSchedulesRepository) CompleteClaim(
+	ctx context.Context,
+	scheduleID int64,
+	claimToken string,
+	nextRun time.Time,
+) (bool, error) {
 	result, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`
 			UPDATE cron_trigger_specs

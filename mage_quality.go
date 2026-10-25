@@ -50,15 +50,39 @@ func Format() error {
 // FuzzAPIAuth runs the API auth fuzz targets.
 func FuzzAPIAuth() error {
 	fuzztime := envDefault("FUZZTIME", "30s")
-	if err := run("", nil, goCommand(), "test", "-fuzz=FuzzBearerToken", "-fuzztime="+fuzztime, "./internal/api"); err != nil {
+	if err := run(
+		"",
+		nil,
+		goCommand(),
+		"test",
+		"-fuzz=FuzzBearerToken",
+		"-fuzztime="+fuzztime,
+		"./internal/api",
+	); err != nil {
 		return err
 	}
 
-	if err := run("", nil, goCommand(), "test", "-fuzz=FuzzHashAPIToken", "-fuzztime="+fuzztime, "./internal/api"); err != nil {
+	if err := run(
+		"",
+		nil,
+		goCommand(),
+		"test",
+		"-fuzz=FuzzHashAPIToken",
+		"-fuzztime="+fuzztime,
+		"./internal/api",
+	); err != nil {
 		return err
 	}
 
-	return run("", nil, goCommand(), "test", "-fuzz=FuzzActionForRequest", "-fuzztime="+fuzztime, "./internal/api/authz")
+	return run(
+		"",
+		nil,
+		goCommand(),
+		"test",
+		"-fuzz=FuzzActionForRequest",
+		"-fuzztime="+fuzztime,
+		"./internal/api/authz",
+	)
 }
 
 // Lint runs route and Go static analysis checks.
@@ -80,7 +104,15 @@ func Lint() error {
 	}
 
 	version := envDefault("GOLANGCI_LINT_VERSION", "v2.6.1")
-	return run("", nil, goCommand(), "run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"+version, "run", "./...")
+	return run(
+		"",
+		nil,
+		goCommand(),
+		"run",
+		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"+version,
+		"run",
+		"./...",
+	)
 }
 
 // LintAPIRoutes runs the API route security lint.
@@ -90,7 +122,14 @@ func LintAPIRoutes() error {
 
 // LintOpenAPI validates the generated OpenAPI document.
 func LintOpenAPI() error {
-	return run("", nil, goCommand(), "run", "./tools/openapi-lint", filepath.Join("website", "static", "openapi", "v1.json"))
+	return run(
+		"",
+		nil,
+		goCommand(),
+		"run",
+		"./tools/openapi-lint",
+		filepath.Join("website", "static", "openapi", "v1.json"),
+	)
 }
 
 // LintWorkflows runs GitHub Actions workflow linting.
@@ -167,7 +206,16 @@ func LintGoStrict() error {
 	}
 
 	version := envDefault("GOLANGCI_LINT_VERSION", "v2.6.1")
-	return run("", nil, goCommand(), "run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"+version, "run", "--enable="+linters, "./...")
+	return run(
+		"",
+		nil,
+		goCommand(),
+		"run",
+		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"+version,
+		"run",
+		"--enable="+linters,
+		"./...",
+	)
 }
 
 // Vulncheck runs govulncheck with the module's declared Go toolchain.

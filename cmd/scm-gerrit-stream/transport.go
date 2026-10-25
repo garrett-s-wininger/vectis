@@ -19,7 +19,12 @@ const (
 	streamTransportSSH   = "ssh"
 )
 
-func consumeConfiguredStream(ctx context.Context, streamOpts scmgerrit.StreamOptions, handle scmgerrit.StreamHandler, logger interfaces.Logger) error {
+func consumeConfiguredStream(
+	ctx context.Context,
+	streamOpts scmgerrit.StreamOptions,
+	handle scmgerrit.StreamHandler,
+	logger interfaces.Logger,
+) error {
 	transport, err := resolveStreamTransport(viper.GetString("transport"), viper.GetString("ssh_host"))
 	if err != nil {
 		return err
@@ -36,7 +41,13 @@ func consumeConfiguredStream(ctx context.Context, streamOpts scmgerrit.StreamOpt
 		logger.Info("Gerrit stream bridge reading %s", streamInputLabel(viper.GetString("input")))
 		return scmgerrit.ConsumeStream(ctx, reader, streamOpts, handle)
 	case streamTransportSSH:
-		return consumeSSHStreamWithReconnect(ctx, sshStreamOptionsFromViper(), sshReconnectOptionsFromViper(logger), streamOpts, handle)
+		return consumeSSHStreamWithReconnect(
+			ctx,
+			sshStreamOptionsFromViper(),
+			sshReconnectOptionsFromViper(logger),
+			streamOpts,
+			handle,
+		)
 	default:
 		return fmt.Errorf("unsupported Gerrit stream transport %q", transport)
 	}

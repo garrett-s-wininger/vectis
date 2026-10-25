@@ -95,12 +95,22 @@ func cleanPeerAddresses(peers []string, self string) []string {
 	return cleaned
 }
 
-func (r *reg) register(component api.Component, instanceID, address string, metadata map[string]string, now time.Time) registrationEntry {
+func (r *reg) register(
+	component api.Component,
+	instanceID, address string,
+	metadata map[string]string,
+	now time.Time,
+) registrationEntry {
 	entry, _ := r.registerWithChange(component, instanceID, address, metadata, now)
 	return entry
 }
 
-func (r *reg) registerWithChange(component api.Component, instanceID, address string, metadata map[string]string, now time.Time) (registrationEntry, registrationChange) {
+func (r *reg) registerWithChange(
+	component api.Component,
+	instanceID, address string,
+	metadata map[string]string,
+	now time.Time,
+) (registrationEntry, registrationChange) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -319,7 +329,8 @@ func (r *reg) entriesNewerThanDigests(digests []*api.RegistryDigest, now time.Ti
 		key := makeVersionKey(entry.GetComponent(), entry.GetInstanceId(), v.GetOriginNodeId())
 		digest, ok := known[key]
 
-		if !ok || v.GetCounter() > digest.GetCounter() || (v.GetCounter() == digest.GetCounter() && entry.GetTombstone() && !digest.GetTombstone()) {
+		if !ok || v.GetCounter() > digest.GetCounter() ||
+			(v.GetCounter() == digest.GetCounter() && entry.GetTombstone() && !digest.GetTombstone()) {
 			out = append(out, entry)
 		}
 	}
@@ -336,7 +347,8 @@ func (r *reg) applyLiveLocked(entry registrationEntry, now time.Time) bool {
 		return false
 	}
 
-	if tombstone, ok := r.tombstones[makeEntryVersionKey(entry)]; ok && tombstone.version.counter >= entry.version.counter {
+	if tombstone, ok := r.tombstones[makeEntryVersionKey(entry)]; ok &&
+		tombstone.version.counter >= entry.version.counter {
 		return false
 	}
 
@@ -375,13 +387,15 @@ func (r *reg) applyTombstoneLocked(entry registrationEntry, now time.Time) bool 
 	entry.metadata = nil
 	key := makeEntryVersionKey(entry)
 	currentTombstone, hadTombstone := r.tombstones[key]
-	if hadTombstone && currentTombstone.version.counter >= entry.version.counter && !entry.tombstoneExpiresAt.After(currentTombstone.tombstoneExpiresAt) {
+	if hadTombstone && currentTombstone.version.counter >= entry.version.counter &&
+		!entry.tombstoneExpiresAt.After(currentTombstone.tombstoneExpiresAt) {
 		return false
 	}
 
 	r.tombstones[key] = entry
 	current, ok := r.registrations[makeEntryKey(entry)]
-	if ok && current.version.originNodeID == entry.version.originNodeID && current.version.counter <= entry.version.counter {
+	if ok && current.version.originNodeID == entry.version.originNodeID &&
+		current.version.counter <= entry.version.counter {
 		delete(r.registrations, makeEntryKey(entry))
 	}
 

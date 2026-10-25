@@ -46,11 +46,22 @@ type ExecutionEnvelope struct {
 	CreatedAtUnixNano     int64                       `json:"created_at_unix_nano,omitempty"`
 }
 
-func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, metadata map[string]string, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+func NewExecutionEnvelope(
+	dispatch dal.ExecutionDispatchRecord,
+	job *api.Job,
+	metadata map[string]string,
+	createdAtUnixNano int64,
+) (*ExecutionEnvelope, error) {
 	return NewExecutionEnvelopeWithActions(dispatch, job, metadata, createdAtUnixNano, nil)
 }
 
-func NewExecutionEnvelopeWithActions(dispatch dal.ExecutionDispatchRecord, job *api.Job, metadata map[string]string, createdAtUnixNano int64, resolver actionregistry.Resolver) (*ExecutionEnvelope, error) {
+func NewExecutionEnvelopeWithActions(
+	dispatch dal.ExecutionDispatchRecord,
+	job *api.Job,
+	metadata map[string]string,
+	createdAtUnixNano int64,
+	resolver actionregistry.Resolver,
+) (*ExecutionEnvelope, error) {
 	if job != nil && strings.TrimSpace(dispatch.JobID) != "" && job.GetId() != dispatch.JobID {
 		return nil, fmt.Errorf("execution envelope job_id %q does not match job.id %q", dispatch.JobID, job.GetId())
 	}
@@ -66,13 +77,19 @@ func NewExecutionEnvelopeWithActions(dispatch dal.ExecutionDispatchRecord, job *
 	}
 
 	env := &ExecutionEnvelope{
-		EnvelopeVersion:       ExecutionEnvelopeVersion,
-		RunID:                 dispatch.RunID,
-		RunIndex:              dispatch.RunIndex,
-		TaskID:                defaultTaskID(dispatch.RunID, dispatch.TaskID, dispatch.TaskKey),
-		TaskKey:               defaultTaskKey(dispatch.TaskKey),
-		TaskName:              dispatch.TaskName,
-		TaskAttemptID:         defaultTaskAttemptID(dispatch.RunID, dispatch.TaskAttemptID, dispatch.TaskID, dispatch.TaskKey, dispatch.Attempt),
+		EnvelopeVersion: ExecutionEnvelopeVersion,
+		RunID:           dispatch.RunID,
+		RunIndex:        dispatch.RunIndex,
+		TaskID:          defaultTaskID(dispatch.RunID, dispatch.TaskID, dispatch.TaskKey),
+		TaskKey:         defaultTaskKey(dispatch.TaskKey),
+		TaskName:        dispatch.TaskName,
+		TaskAttemptID: defaultTaskAttemptID(
+			dispatch.RunID,
+			dispatch.TaskAttemptID,
+			dispatch.TaskID,
+			dispatch.TaskKey,
+			dispatch.Attempt,
+		),
 		TaskAttempt:           defaultTaskAttempt(dispatch.Attempt),
 		NamespacePath:         normalizeNamespacePath(dispatch.NamespacePath),
 		SegmentID:             dispatch.SegmentID,
@@ -95,11 +112,24 @@ func NewExecutionEnvelopeWithActions(dispatch dal.ExecutionDispatchRecord, job *
 	return env, nil
 }
 
-func AttachPendingExecutionEnvelope(ctx context.Context, runs dal.RunsRepository, req *api.JobRequest, runID string, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+func AttachPendingExecutionEnvelope(
+	ctx context.Context,
+	runs dal.RunsRepository,
+	req *api.JobRequest,
+	runID string,
+	createdAtUnixNano int64,
+) (*ExecutionEnvelope, error) {
 	return AttachPendingExecutionEnvelopeWithActions(ctx, runs, req, runID, createdAtUnixNano, nil)
 }
 
-func AttachPendingExecutionEnvelopeWithActions(ctx context.Context, runs dal.RunsRepository, req *api.JobRequest, runID string, createdAtUnixNano int64, resolver actionregistry.Resolver) (*ExecutionEnvelope, error) {
+func AttachPendingExecutionEnvelopeWithActions(
+	ctx context.Context,
+	runs dal.RunsRepository,
+	req *api.JobRequest,
+	runID string,
+	createdAtUnixNano int64,
+	resolver actionregistry.Resolver,
+) (*ExecutionEnvelope, error) {
 	if runs == nil {
 		return nil, errors.New("runs repository is required")
 	}
@@ -112,11 +142,20 @@ func AttachPendingExecutionEnvelopeWithActions(ctx context.Context, runs dal.Run
 	return AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, resolver)
 }
 
-func AttachExecutionEnvelope(req *api.JobRequest, dispatch dal.ExecutionDispatchRecord, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+func AttachExecutionEnvelope(
+	req *api.JobRequest,
+	dispatch dal.ExecutionDispatchRecord,
+	createdAtUnixNano int64,
+) (*ExecutionEnvelope, error) {
 	return AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, nil)
 }
 
-func AttachExecutionEnvelopeWithActions(req *api.JobRequest, dispatch dal.ExecutionDispatchRecord, createdAtUnixNano int64, resolver actionregistry.Resolver) (*ExecutionEnvelope, error) {
+func AttachExecutionEnvelopeWithActions(
+	req *api.JobRequest,
+	dispatch dal.ExecutionDispatchRecord,
+	createdAtUnixNano int64,
+	resolver actionregistry.Resolver,
+) (*ExecutionEnvelope, error) {
 	if req == nil {
 		return nil, errors.New("job request is required")
 	}
@@ -184,7 +223,11 @@ func validateExecutionEnvelopeRequest(env *ExecutionEnvelope, req *api.JobReques
 	}
 
 	if env.RunID != job.GetRunId() {
-		return fmt.Errorf("execution envelope run_id %q does not match request job.run_id %q", env.RunID, job.GetRunId())
+		return fmt.Errorf(
+			"execution envelope run_id %q does not match request job.run_id %q",
+			env.RunID,
+			job.GetRunId(),
+		)
 	}
 
 	taskKey, ok := req.GetMetadata()[ExecutionTaskKeyMetadataKey]
@@ -193,7 +236,12 @@ func validateExecutionEnvelopeRequest(env *ExecutionEnvelope, req *api.JobReques
 	}
 
 	if taskKey != env.TaskKey {
-		return fmt.Errorf("execution envelope task_key %q does not match request metadata %s %q", env.TaskKey, ExecutionTaskKeyMetadataKey, taskKey)
+		return fmt.Errorf(
+			"execution envelope task_key %q does not match request metadata %s %q",
+			env.TaskKey,
+			ExecutionTaskKeyMetadataKey,
+			taskKey,
+		)
 	}
 
 	if !jobsEqualIgnoringDeliveryID(env.Job, job) {

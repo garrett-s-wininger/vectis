@@ -598,7 +598,8 @@ func TestQueuePersistence_RejectsInvalidRestoredHandoffs(t *testing.T) {
 				t.Fatal("NewQueueServiceWithOptions succeeded, want invalid persisted handoff error")
 			}
 
-			if !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "execution envelope metadata is required") {
+			if !strings.Contains(err.Error(), tt.want) ||
+				!strings.Contains(err.Error(), "execution envelope metadata is required") {
 				t.Fatalf("restart error %q does not contain %q and missing envelope reason", err.Error(), tt.want)
 			}
 		})
@@ -622,7 +623,8 @@ func TestQueuePersistence_RejectsInvalidWALHandoff(t *testing.T) {
 		t.Fatal("NewQueueServiceWithOptions succeeded, want invalid WAL handoff error")
 	}
 
-	if !strings.Contains(err.Error(), "restore pending[0]") || !strings.Contains(err.Error(), "execution envelope metadata is required") {
+	if !strings.Contains(err.Error(), "restore pending[0]") ||
+		!strings.Contains(err.Error(), "execution envelope metadata is required") {
 		t.Fatalf("restart error %q does not contain pending missing-envelope reason", err.Error())
 	}
 }

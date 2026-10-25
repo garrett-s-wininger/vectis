@@ -30,8 +30,26 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 	wm.RecordJobFinished(ctx, WorkerOutcomeSuccess, 50*time.Millisecond)
 	wm.RecordSPIFFESVIDCheck(ctx, WorkerSPIFFESVIDOutcomeSuccess, WorkerSPIFFESVIDReasonMatched)
 	wm.RecordSPIFFESVIDCheck(ctx, WorkerSPIFFESVIDOutcomeFailed, WorkerSPIFFESVIDReasonMismatch)
-	wm.RecordCheckoutCacheWarm(ctx, WorkerCheckoutCacheWarmOutcomePartial, WorkerCheckoutCacheWarmReasonRemoteFailures, 3, 2, 1, 1, 125*time.Millisecond)
-	wm.RecordCheckoutCacheWarm(ctx, WorkerCheckoutCacheWarmOutcomeSuccess, WorkerCheckoutCacheWarmReasonOK, 1, 0, 0, 0, 25*time.Millisecond)
+	wm.RecordCheckoutCacheWarm(
+		ctx,
+		WorkerCheckoutCacheWarmOutcomePartial,
+		WorkerCheckoutCacheWarmReasonRemoteFailures,
+		3,
+		2,
+		1,
+		1,
+		125*time.Millisecond,
+	)
+	wm.RecordCheckoutCacheWarm(
+		ctx,
+		WorkerCheckoutCacheWarmOutcomeSuccess,
+		WorkerCheckoutCacheWarmReasonOK,
+		1,
+		0,
+		0,
+		0,
+		25*time.Millisecond,
+	)
 	wm.RecordOrchestratorRecovery(ctx, "complete")
 	wm.SetLifecyclePhase(WorkerPhaseExecuting)
 	wm.SetDraining(true)
@@ -72,7 +90,10 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !metricFamilyHasLabels(families["vectis_worker_lifecycle_state"], map[string]string{"state": WorkerPhaseExecuting}) {
+	if !metricFamilyHasLabels(
+		families["vectis_worker_lifecycle_state"],
+		map[string]string{"state": WorkerPhaseExecuting},
+	) {
 		t.Fatalf("lifecycle metric missing executing state: %v", families["vectis_worker_lifecycle_state"])
 	}
 
@@ -90,38 +111,59 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 		t.Fatalf("SPIFFE SVID metric missing failure labels: %v", families["vectis_worker_spiffe_svid_checks_total"])
 	}
 
-	if !metricFamilyHasLabels(families["vectis_worker_orchestrator_recoveries_total"], map[string]string{"stage": "complete"}) {
-		t.Fatalf("orchestrator recovery metric missing stage label: %v", families["vectis_worker_orchestrator_recoveries_total"])
+	if !metricFamilyHasLabels(
+		families["vectis_worker_orchestrator_recoveries_total"],
+		map[string]string{"stage": "complete"},
+	) {
+		t.Fatalf(
+			"orchestrator recovery metric missing stage label: %v",
+			families["vectis_worker_orchestrator_recoveries_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_passes_total"], map[string]string{
 		"outcome": WorkerCheckoutCacheWarmOutcomePartial,
 		"reason":  WorkerCheckoutCacheWarmReasonRemoteFailures,
 	}) {
-		t.Fatalf("checkout cache warm pass metric missing labels: %v", families["vectis_worker_checkout_cache_warm_passes_total"])
+		t.Fatalf(
+			"checkout cache warm pass metric missing labels: %v",
+			families["vectis_worker_checkout_cache_warm_passes_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{
 		"outcome": WorkerCheckoutCacheWarmRemoteOutcomeChanged,
 	}) {
-		t.Fatalf("checkout cache warm remotes metric missing changed label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
+		t.Fatalf(
+			"checkout cache warm remotes metric missing changed label: %v",
+			families["vectis_worker_checkout_cache_warm_remotes_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{
 		"outcome": WorkerCheckoutCacheWarmRemoteOutcomeUnchanged,
 	}) {
-		t.Fatalf("checkout cache warm remotes metric missing unchanged label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
+		t.Fatalf(
+			"checkout cache warm remotes metric missing unchanged label: %v",
+			families["vectis_worker_checkout_cache_warm_remotes_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{
 		"outcome": WorkerCheckoutCacheWarmRemoteOutcomeWarmed,
 	}) {
-		t.Fatalf("checkout cache warm remotes metric missing warmed fallback label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
+		t.Fatalf(
+			"checkout cache warm remotes metric missing warmed fallback label: %v",
+			families["vectis_worker_checkout_cache_warm_remotes_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{
 		"outcome": WorkerCheckoutCacheWarmRemoteOutcomeFailed,
 	}) {
-		t.Fatalf("checkout cache warm remotes metric missing failed label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
+		t.Fatalf(
+			"checkout cache warm remotes metric missing failed label: %v",
+			families["vectis_worker_checkout_cache_warm_remotes_total"],
+		)
 	}
 }

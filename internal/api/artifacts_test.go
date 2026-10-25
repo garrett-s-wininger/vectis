@@ -77,7 +77,8 @@ func TestAPIServer_RunArtifacts_ListAndGet(t *testing.T) {
 		t.Fatalf("unexpected artifact row identity: %+v", row)
 	}
 
-	if row.ContentType != "application/json" || row.BlobDigest != "aaaaaaaa" || row.SizeBytes != 12 || row.ArtifactShardID != "artifact-1" {
+	if row.ContentType != "application/json" || row.BlobDigest != "aaaaaaaa" || row.SizeBytes != 12 ||
+		row.ArtifactShardID != "artifact-1" {
 		t.Fatalf("unexpected artifact row content fields: %+v", row)
 	}
 
@@ -177,7 +178,10 @@ func TestAPIServer_RunArtifacts_ListFiltersByAttribution(t *testing.T) {
 	}
 
 	row := listResp.Data[0]
-	if row.Name != "coverage" || row.TaskID == nil || *row.TaskID != dispatch.TaskID || row.TaskAttemptID == nil || *row.TaskAttemptID != dispatch.TaskAttemptID || row.ExecutionID == nil || *row.ExecutionID != dispatch.ExecutionID {
+	if row.Name != "coverage" || row.TaskID == nil || *row.TaskID != dispatch.TaskID || row.TaskAttemptID == nil ||
+		*row.TaskAttemptID != dispatch.TaskAttemptID ||
+		row.ExecutionID == nil ||
+		*row.ExecutionID != dispatch.ExecutionID {
 		t.Fatalf("unexpected filtered artifact row: %+v", row)
 	}
 }
@@ -235,7 +239,9 @@ func TestAPIServer_DownloadRunArtifact(t *testing.T) {
 		t.Fatalf("Content-Length = %q", got)
 	}
 
-	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") || !strings.Contains(got, "coverage.txt") {
+	if got := rec.Header().
+		Get("Content-Disposition"); !strings.Contains(got, "attachment") ||
+		!strings.Contains(got, "coverage.txt") {
 		t.Fatalf("Content-Disposition = %q", got)
 	}
 }

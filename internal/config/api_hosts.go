@@ -286,7 +286,8 @@ func parseAPIAllowedHost(raw string) (apiAllowedHost, error) {
 		return apiAllowedHost{}, fmt.Errorf("api host validation: wildcard hosts are not allowed")
 	}
 
-	if strings.Contains(value, "://") || strings.ContainsAny(value, "/?#@") || strings.ContainsFunc(value, isHostHeaderSpaceOrControl) {
+	if strings.Contains(value, "://") || strings.ContainsAny(value, "/?#@") ||
+		strings.ContainsFunc(value, isHostHeaderSpaceOrControl) {
 		return apiAllowedHost{}, fmt.Errorf("api host validation: invalid host %q", raw)
 	}
 

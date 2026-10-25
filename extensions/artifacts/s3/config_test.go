@@ -94,7 +94,8 @@ func TestConfigBindsEnv(t *testing.T) {
 	}
 
 	cfg := ConfigFromViper(v)
-	if cfg.Endpoint != "http://127.0.0.1:9000" || cfg.Bucket != "vectis-env" || cfg.PathStyle || cfg.TempDir != "/env/tmp" {
+	if cfg.Endpoint != "http://127.0.0.1:9000" || cfg.Bucket != "vectis-env" || cfg.PathStyle ||
+		cfg.TempDir != "/env/tmp" {
 		t.Fatalf("unexpected env config: %+v", cfg)
 	}
 }

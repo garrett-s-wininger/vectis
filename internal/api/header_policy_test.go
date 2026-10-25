@@ -9,9 +9,13 @@ import (
 
 func TestRouteHeaderMiddlewareRejectsUnsupportedIdempotencyKey(t *testing.T) {
 	metrics := &fakeSecurityRejectionMetrics{}
-	handler := routeHeaderMiddleware(routeHeaderPolicy{}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}), routeHeaderTestRecorder(metrics))
+	handler := routeHeaderMiddleware(
+		routeHeaderPolicy{},
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		routeHeaderTestRecorder(metrics),
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
 	req.Pattern = "GET /api/v1/version"
@@ -24,9 +28,12 @@ func TestRouteHeaderMiddlewareRejectsUnsupportedIdempotencyKey(t *testing.T) {
 }
 
 func TestRouteHeaderMiddlewareAllowsValidIdempotencyKeyOnOptInRoute(t *testing.T) {
-	handler := routeHeaderMiddleware(routeHeadersIdempotencyPolicy(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	handler := routeHeaderMiddleware(
+		routeHeadersIdempotencyPolicy(),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", nil)
 	req.Header.Set(idempotencyKeyHeaderName, "run-key_123.456")
@@ -51,9 +58,12 @@ func TestRouteHeaderMiddlewareRejectsInvalidIdempotencyKeys(t *testing.T) {
 
 	for name, value := range tests {
 		t.Run(name, func(t *testing.T) {
-			handler := routeHeaderMiddleware(routeHeadersIdempotencyPolicy(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusNoContent)
-			}))
+			handler := routeHeaderMiddleware(
+				routeHeadersIdempotencyPolicy(),
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusNoContent)
+				}),
+			)
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", nil)
 			req.Header.Set(idempotencyKeyHeaderName, value)
@@ -82,9 +92,12 @@ func TestRouteHeaderMiddlewareRejectsDuplicateSingletonHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := routeHeaderMiddleware(routeHeadersIdempotencyPolicy(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusNoContent)
-			}))
+			handler := routeHeaderMiddleware(
+				routeHeadersIdempotencyPolicy(),
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusNoContent)
+				}),
+			)
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", nil)
 			req.Header.Add(tt.header, tt.first)
@@ -108,7 +121,13 @@ func TestAPIServerRejectsIdempotencyKeyOnRoutesWithoutOptIn(t *testing.T) {
 	s.Handler().ServeHTTP(rec, req)
 
 	assertRouteHeaderAPIError(t, rec)
-	requireSecurityRejection(t, metrics, securityReasonInvalidRequestHeader, "GET /api/v1/version", http.StatusBadRequest)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonInvalidRequestHeader,
+		"GET /api/v1/version",
+		http.StatusBadRequest,
+	)
 }
 
 func TestRequestHeaderGuardMiddlewareAllowsWellFormedBrowserSecurityHeaders(t *testing.T) {
@@ -192,8 +211,16 @@ func TestRequestHeaderGuardMiddlewareRejectsMalformedEarlyHeaders(t *testing.T) 
 		{name: "origin control", header: "Origin", value: "https://ui.example\nInjected: true"},
 		{name: "preflight method list", header: "Access-Control-Request-Method", value: "POST, GET"},
 		{name: "preflight method spaced", header: "Access-Control-Request-Method", value: " POST"},
-		{name: "preflight headers empty part", header: "Access-Control-Request-Headers", value: "Authorization,,Content-Type"},
-		{name: "preflight headers duplicate", header: "Access-Control-Request-Headers", value: "Authorization, authorization"},
+		{
+			name:   "preflight headers empty part",
+			header: "Access-Control-Request-Headers",
+			value:  "Authorization,,Content-Type",
+		},
+		{
+			name:   "preflight headers duplicate",
+			header: "Access-Control-Request-Headers",
+			value:  "Authorization, authorization",
+		},
 		{name: "preflight headers invalid token", header: "Access-Control-Request-Headers", value: "X Bad"},
 		{name: "fetch site list", header: "Sec-Fetch-Site", value: "cross-site, same-site"},
 		{name: "fetch mode control", header: "Sec-Fetch-Mode", value: "cors\n"},
@@ -207,7 +234,11 @@ func TestRequestHeaderGuardMiddlewareRejectsMalformedEarlyHeaders(t *testing.T) 
 		{name: "forwarded proto open quote", header: "X-Forwarded-Proto", value: `"https`},
 		{name: "real ip list", header: "X-Real-IP", value: "203.0.113.2, 198.51.100.1"},
 		{name: "real ip host port", header: "X-Real-IP", value: "203.0.113.2:443"},
-		{name: "forwarded multi element", header: "Forwarded", value: "for=203.0.113.5; proto=https, for=198.51.100.1; proto=http"},
+		{
+			name:   "forwarded multi element",
+			header: "Forwarded",
+			value:  "for=203.0.113.5; proto=https, for=198.51.100.1; proto=http",
+		},
 		{name: "forwarded duplicate proto", header: "Forwarded", value: "for=203.0.113.5; proto=https; proto=http"},
 		{name: "forwarded unsupported proto", header: "Forwarded", value: "for=203.0.113.5; proto=gopher"},
 		{name: "forwarded empty param", header: "Forwarded", value: "for=; proto=https"},
@@ -248,7 +279,13 @@ func TestAPIServerRejectsDuplicateOriginBeforeCORS(t *testing.T) {
 		t.Fatalf("Access-Control-Allow-Origin=%q, want empty", got)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonInvalidRequestHeader, securityRejectionUnknownRoute, http.StatusBadRequest)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonInvalidRequestHeader,
+		securityRejectionUnknownRoute,
+		http.StatusBadRequest,
+	)
 }
 
 func TestAPIServerRejectsDuplicateFetchMetadataBeforeFetchMetadataCheck(t *testing.T) {
@@ -264,8 +301,19 @@ func TestAPIServerRejectsDuplicateFetchMetadataBeforeFetchMetadataCheck(t *testi
 	s.Handler().ServeHTTP(rec, req)
 
 	assertRouteHeaderAPIError(t, rec)
-	requireSecurityRejection(t, metrics, securityReasonInvalidRequestHeader, securityRejectionUnknownRoute, http.StatusBadRequest)
-	if countSecurityRejections(metrics, securityReasonFetchMetadataForbidden, securityRejectionUnknownRoute, http.StatusForbidden) != 0 {
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonInvalidRequestHeader,
+		securityRejectionUnknownRoute,
+		http.StatusBadRequest,
+	)
+	if countSecurityRejections(
+		metrics,
+		securityReasonFetchMetadataForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	) != 0 {
 		t.Fatalf("fetch metadata rejection should not run after early header rejection: %+v", metrics.Records())
 	}
 }

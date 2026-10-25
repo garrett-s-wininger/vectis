@@ -42,7 +42,13 @@ func TestActionRegistryPolicyFromViper(t *testing.T) {
 		t.Fatalf("AllowedNamespaces = %v, want %v", policy.AllowedNamespaces, want)
 	}
 
-	if want := []actionregistry.SourceType{actionregistry.SourceLocalFilesystem, actionregistry.SourceOCI}; !reflect.DeepEqual(policy.AllowedSources, want) {
+	if want := []actionregistry.SourceType{
+		actionregistry.SourceLocalFilesystem,
+		actionregistry.SourceOCI,
+	}; !reflect.DeepEqual(
+		policy.AllowedSources,
+		want,
+	) {
 		t.Fatalf("AllowedSources = %v, want %v", policy.AllowedSources, want)
 	}
 

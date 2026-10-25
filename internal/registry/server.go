@@ -106,7 +106,11 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 	return &api.Empty{}, nil
 }
 
-func (s *registryServer) logRegistrationChange(change registrationChange, comp api.Component, instanceID, address string) {
+func (s *registryServer) logRegistrationChange(
+	change registrationChange,
+	comp api.Component,
+	instanceID, address string,
+) {
 	log := s.log.Info
 	if change == registrationChangeRenewed {
 		log = s.log.Debug
@@ -163,7 +167,10 @@ func (s *registryServer) GetAddress(ctx context.Context, req *api.AddressRequest
 	return &api.AddressResponse{Address: &address}, nil
 }
 
-func (s *registryServer) ListRegistrations(ctx context.Context, req *api.ListRegistrationsRequest) (*api.ListRegistrationsResponse, error) {
+func (s *registryServer) ListRegistrations(
+	ctx context.Context,
+	req *api.ListRegistrationsRequest,
+) (*api.ListRegistrationsResponse, error) {
 	if req == nil {
 		return &api.ListRegistrationsResponse{}, nil
 	}
@@ -189,7 +196,10 @@ func (s *registryServer) Gossip(ctx context.Context, req *api.GossipRequest) (*a
 	return &api.GossipResponse{}, nil
 }
 
-func (s *registryServer) GetSnapshot(ctx context.Context, req *api.RegistrySnapshotRequest) (*api.RegistrySnapshotResponse, error) {
+func (s *registryServer) GetSnapshot(
+	ctx context.Context,
+	req *api.RegistrySnapshotRequest,
+) (*api.RegistrySnapshotResponse, error) {
 	if req == nil {
 		return &api.RegistrySnapshotResponse{Entries: s.reg.snapshotProtoEntries(time.Now())}, nil
 	}

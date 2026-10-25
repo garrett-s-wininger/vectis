@@ -93,7 +93,8 @@ func TestPgxDSNWithDefaults_PlanCacheModeURL(t *testing.T) {
 		t.Fatalf("parse resulting dsn: %v", err)
 	}
 
-	if query := parsed.Query(); query.Get("plan_cache_mode") != "force_generic_plan" || query.Get("sslmode") != "disable" {
+	if query := parsed.Query(); query.Get("plan_cache_mode") != "force_generic_plan" ||
+		query.Get("sslmode") != "disable" {
 		t.Fatalf("query = %v, want plan_cache_mode=force_generic_plan and sslmode=disable", query)
 	}
 }
@@ -101,7 +102,9 @@ func TestPgxDSNWithDefaults_PlanCacheModeURL(t *testing.T) {
 func TestPgxDSNWithDefaults_PreservesExplicitPlanCacheMode(t *testing.T) {
 	t.Setenv("VECTIS_DATABASE_PGX_PLAN_CACHE_MODE", "force_generic_plan")
 
-	got, err := pgxDSNWithDefaults("postgres://user:pass@127.0.0.1:9/nope?sslmode=disable&plan_cache_mode=force_custom_plan")
+	got, err := pgxDSNWithDefaults(
+		"postgres://user:pass@127.0.0.1:9/nope?sslmode=disable&plan_cache_mode=force_custom_plan",
+	)
 	if err != nil {
 		t.Fatalf("pgxDSNWithDefaults: %v", err)
 	}
@@ -232,7 +235,9 @@ func TestOpenDB_SqliteEnforcesForeignKeys(t *testing.T) {
 		t.Fatalf("create parents: %v", err)
 	}
 
-	if _, err := db.Exec(`CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES parents(id) ON DELETE CASCADE)`); err != nil {
+	if _, err := db.Exec(
+		`CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES parents(id) ON DELETE CASCADE)`,
+	); err != nil {
 		t.Fatalf("create children: %v", err)
 	}
 
@@ -308,7 +313,12 @@ func TestSQLiteFilesystemPath(t *testing.T) {
 	}{
 		{name: "plain path", dsn: "/tmp/vectis.db", want: "/tmp/vectis.db", ok: true},
 		{name: "file URI path", dsn: "file:/tmp/vectis.db?cache=shared", want: "/tmp/vectis.db", ok: true},
-		{name: "file URI localhost", dsn: "file://localhost/tmp/vectis.db?cache=shared", want: "/tmp/vectis.db", ok: true},
+		{
+			name: "file URI localhost",
+			dsn:  "file://localhost/tmp/vectis.db?cache=shared",
+			want: "/tmp/vectis.db",
+			ok:   true,
+		},
 		{name: "memory database", dsn: ":memory:", ok: false},
 		{name: "file memory database", dsn: "file:memdb1?mode=memory&cache=shared", ok: false},
 		{name: "remote file URI", dsn: "file://example.test/tmp/vectis.db", ok: false},

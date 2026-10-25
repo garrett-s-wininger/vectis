@@ -58,7 +58,13 @@ func Doctor() error {
 
 		}
 
-		psArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join("scripts", "dev-doctor.ps1")}
+		psArgs := []string{
+			"-NoProfile",
+			"-ExecutionPolicy",
+			"Bypass",
+			"-File",
+			filepath.Join("scripts", "dev-doctor.ps1"),
+		}
 		psArgs = append(psArgs, args...)
 		return run("", nil, shell, psArgs...)
 	}
@@ -216,7 +222,15 @@ func Clean() error {
 
 // PodmanGrafanaConfigmaps regenerates Podman Grafana configmaps.
 func PodmanGrafanaConfigmaps() error {
-	return run("", nil, goCommand(), "run", "./deploy/podman/cmd/generate-grafana-configmaps", "-o", filepath.Join("deploy", "podman", "grafana-configmaps.gen.yaml"))
+	return run(
+		"",
+		nil,
+		goCommand(),
+		"run",
+		"./deploy/podman/cmd/generate-grafana-configmaps",
+		"-o",
+		filepath.Join("deploy", "podman", "grafana-configmaps.gen.yaml"),
+	)
 }
 
 // DocsAssets rebuilds and embeds the documentation site assets.

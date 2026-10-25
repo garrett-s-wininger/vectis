@@ -27,7 +27,13 @@ func TestSecretsMetrics_RecordResolve(t *testing.T) {
 	}
 
 	m.RecordResolve(ctx, SecretsResolveOutcomeSuccess, SecretsResolveReasonOK, "encryptedfs", 5*time.Millisecond)
-	m.RecordResolve(ctx, SecretsResolveOutcomeDenied, SecretsResolveReasonAuthorizationDenied, "encryptedfs", 10*time.Millisecond)
+	m.RecordResolve(
+		ctx,
+		SecretsResolveOutcomeDenied,
+		SecretsResolveReasonAuthorizationDenied,
+		"encryptedfs",
+		10*time.Millisecond,
+	)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)

@@ -10,7 +10,9 @@ import (
 )
 
 func TestInternalGRPCServiceReferenceMentionsProtoServicesAndRPCs(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "website", "docs", "operating", "reference", "internal-grpc-service-reference.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "website", "docs", "operating", "reference", "internal-grpc-service-reference.md"),
+	)
 	if err != nil {
 		t.Fatalf("read internal gRPC service reference: %v", err)
 	}

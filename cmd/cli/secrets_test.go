@@ -40,7 +40,8 @@ func TestSecretEncryptedFSPutWritesEncryptedEnvelope(t *testing.T) {
 		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
 	}
 
-	if result.Status != "ok" || result.Ref != "encryptedfs://team/npm-token" || !result.CreatedKey || result.Bytes != len("secret-value") {
+	if result.Status != "ok" || result.Ref != "encryptedfs://team/npm-token" || !result.CreatedKey ||
+		result.Bytes != len("secret-value") {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 

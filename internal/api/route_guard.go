@@ -139,21 +139,36 @@ func (s *APIServer) routeGuardMiddleware(index *apiRouteIndex, next http.Handler
 		match := index.match(apiRequestPath(r))
 
 		if !httpsecurity.CanonicalRequestTarget(r) {
-			s.recordSecurityRejectionForRoute(r, securityReasonRequestTargetInvalid, match.securityRoute(), http.StatusBadRequest)
+			s.recordSecurityRejectionForRoute(
+				r,
+				securityReasonRequestTargetInvalid,
+				match.securityRoute(),
+				http.StatusBadRequest,
+			)
 			setNoStore(w)
 			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestTarget)
 			return
 		}
 
 		if _, ok := httpsecurity.MethodOverrideHeader(r); ok {
-			s.recordSecurityRejectionForRoute(r, securityReasonMethodOverrideForbidden, match.securityRoute(), http.StatusBadRequest)
+			s.recordSecurityRejectionForRoute(
+				r,
+				securityReasonMethodOverrideForbidden,
+				match.securityRoute(),
+				http.StatusBadRequest,
+			)
 			setNoStore(w)
 			writeAPIErrorCode(w, http.StatusBadRequest, apiErrMethodOverrideForbidden)
 			return
 		}
 
 		if httpsecurity.DangerousHTTPMethod(r.Method) {
-			s.recordSecurityRejectionForRoute(r, securityReasonUnsupportedHTTPMethod, match.securityRoute(), http.StatusMethodNotAllowed)
+			s.recordSecurityRejectionForRoute(
+				r,
+				securityReasonUnsupportedHTTPMethod,
+				match.securityRoute(),
+				http.StatusMethodNotAllowed,
+			)
 			writeMethodNotAllowed(w, match.allowHeader())
 			return
 		}
@@ -165,7 +180,12 @@ func (s *APIServer) routeGuardMiddleware(index *apiRouteIndex, next http.Handler
 		}
 
 		if !match.methodAllowed(r.Method) {
-			s.recordSecurityRejectionForRoute(r, securityReasonMethodNotAllowed, match.securityRoute(), http.StatusMethodNotAllowed)
+			s.recordSecurityRejectionForRoute(
+				r,
+				securityReasonMethodNotAllowed,
+				match.securityRoute(),
+				http.StatusMethodNotAllowed,
+			)
 			writeMethodNotAllowed(w, match.allowHeader())
 			return
 		}

@@ -81,7 +81,11 @@ func TestDocsHandlerConfiguredDirectoryDoesNotListDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, "assets", "main.js"), []byte("console.log('secret name')"), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "assets", "main.js"),
+		[]byte("console.log('secret name')"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -292,7 +296,9 @@ func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
 	assertDocsHeader(t, rec, "X-Permitted-Cross-Domain-Policies", "none")
 	assertDocsHeader(t, rec, "X-Download-Options", "noopen")
 
-	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "frame-ancestors 'none'") {
+	if got := rec.Header().
+		Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") ||
+		!strings.Contains(got, "frame-ancestors 'none'") {
 		t.Fatalf("Content-Security-Policy = %q, want docs policy", got)
 	}
 

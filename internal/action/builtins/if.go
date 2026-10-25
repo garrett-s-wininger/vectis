@@ -33,7 +33,12 @@ func (i *IfNode) PortSchema() []action.PortSpec {
 	}
 }
 
-func (i *IfNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, ports action.Ports) action.Result {
+func (i *IfNode) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	_ map[string]any,
+	ports action.Ports,
+) action.Result {
 	conditions := ports.Children(taskgraph.ConditionPort)
 	if len(conditions) != 1 {
 		return action.NewFailureResult(fmt.Errorf("if action requires exactly one condition node"))
@@ -68,19 +73,39 @@ func (i *IfNode) Execute(ctx context.Context, state *action.ExecutionState, _ ma
 	}
 
 	state.Logger.Info("Executing if %s branch with %d nodes", branchName, len(branch))
-	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing if %s branch with %d nodes", branchName, len(branch)))
+	sendLog(
+		state,
+		api.Stream_STREAM_STDOUT,
+		fmt.Sprintf("Executing if %s branch with %d nodes", branchName, len(branch)),
+	)
 	return executeOrderedChildren(ctx, state, branchName, branch)
 }
 
-func executeOrderedChildren(ctx context.Context, state *action.ExecutionState, branchName string, children []*api.Node) action.Result {
+func executeOrderedChildren(
+	ctx context.Context,
+	state *action.ExecutionState,
+	branchName string,
+	children []*api.Node,
+) action.Result {
 	return executeOrderedChildrenWithContextPolicy(ctx, state, branchName, children, false)
 }
 
-func executeOrderedChildrenUntilContextDone(ctx context.Context, state *action.ExecutionState, branchName string, children []*api.Node) action.Result {
+func executeOrderedChildrenUntilContextDone(
+	ctx context.Context,
+	state *action.ExecutionState,
+	branchName string,
+	children []*api.Node,
+) action.Result {
 	return executeOrderedChildrenWithContextPolicy(ctx, state, branchName, children, true)
 }
 
-func executeOrderedChildrenWithContextPolicy(ctx context.Context, state *action.ExecutionState, branchName string, children []*api.Node, stopWhenContextDone bool) action.Result {
+func executeOrderedChildrenWithContextPolicy(
+	ctx context.Context,
+	state *action.ExecutionState,
+	branchName string,
+	children []*api.Node,
+	stopWhenContextDone bool,
+) action.Result {
 	var outputs map[string]any
 	for idx, child := range children {
 		if stopWhenContextDone {
@@ -91,11 +116,19 @@ func executeOrderedChildrenWithContextPolicy(ctx context.Context, state *action.
 			}
 		}
 
-		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing %s node %d/%d", branchName, idx+1, len(children)))
+		sendLog(
+			state,
+			api.Stream_STREAM_STDOUT,
+			fmt.Sprintf("Executing %s node %d/%d", branchName, idx+1, len(children)),
+		)
 		result := executeChildNode(ctx, child, state)
 		if result.Status == action.StatusFailure {
 			state.Logger.Error("%s port failed at node %d: %v", branchName, idx+1, result.Error)
-			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("%s node %d failed: %v", branchName, idx+1, result.Error))
+			sendLog(
+				state,
+				api.Stream_STREAM_STDERR,
+				fmt.Sprintf("%s node %d failed: %v", branchName, idx+1, result.Error),
+			)
 			return result
 		}
 

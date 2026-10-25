@@ -90,43 +90,84 @@ func (s *GitCheckoutObjectStoreStatus) classifyPressure() {
 
 	switch {
 	case s.PackFiles >= gitObjectStorePackFilesCritical:
-		s.addWarning(gitObjectStoreWarningManyPacks, gitObjectStorePressureCritical, "repository has a high number of pack files")
+		s.addWarning(
+			gitObjectStoreWarningManyPacks,
+			gitObjectStorePressureCritical,
+			"repository has a high number of pack files",
+		)
 	case s.PackFiles >= gitObjectStorePackFilesWarning:
 		s.addWarning(gitObjectStoreWarningManyPacks, gitObjectStorePressureWarning, "repository has many pack files")
 	}
 
 	switch {
 	case s.LooseObjectsTruncated:
-		s.addWarning(gitObjectStoreWarningLooseTruncated, gitObjectStorePressureCritical, "loose object scan hit the safety limit")
+		s.addWarning(
+			gitObjectStoreWarningLooseTruncated,
+			gitObjectStorePressureCritical,
+			"loose object scan hit the safety limit",
+		)
 	case s.LooseObjects >= gitObjectStoreLooseObjectsCritical:
-		s.addWarning(gitObjectStoreWarningManyLoose, gitObjectStorePressureCritical, "repository has a high number of loose objects")
+		s.addWarning(
+			gitObjectStoreWarningManyLoose,
+			gitObjectStorePressureCritical,
+			"repository has a high number of loose objects",
+		)
 	case s.LooseObjects >= gitObjectStoreLooseObjectsWarning:
 		s.addWarning(gitObjectStoreWarningManyLoose, gitObjectStorePressureWarning, "repository has many loose objects")
 	}
 
 	switch {
 	case s.HydratedRefsTruncated:
-		s.addWarning(gitObjectStoreWarningHydratedRefsScan, gitObjectStorePressureCritical, "hydrated ref scan hit the safety limit")
+		s.addWarning(
+			gitObjectStoreWarningHydratedRefsScan,
+			gitObjectStorePressureCritical,
+			"hydrated ref scan hit the safety limit",
+		)
 	case s.HydratedRefs >= gitObjectStoreHydratedRefsCritical:
-		s.addWarning(gitObjectStoreWarningManyHydratedRefs, gitObjectStorePressureCritical, "repository has a high number of hydrated refs")
+		s.addWarning(
+			gitObjectStoreWarningManyHydratedRefs,
+			gitObjectStorePressureCritical,
+			"repository has a high number of hydrated refs",
+		)
 	case s.HydratedRefs >= gitObjectStoreHydratedRefsWarning:
-		s.addWarning(gitObjectStoreWarningManyHydratedRefs, gitObjectStorePressureWarning, "repository has many hydrated refs")
+		s.addWarning(
+			gitObjectStoreWarningManyHydratedRefs,
+			gitObjectStorePressureWarning,
+			"repository has many hydrated refs",
+		)
 	}
 
 	if s.PackKeepFiles > 0 {
-		s.addWarning(gitObjectStoreWarningKeepFiles, gitObjectStorePressureWarning, "pack .keep files may prevent consolidation")
+		s.addWarning(
+			gitObjectStoreWarningKeepFiles,
+			gitObjectStorePressureWarning,
+			"pack .keep files may prevent consolidation",
+		)
 	}
 
 	if len(s.MaintenanceIndicatorFiles) > 0 {
-		s.addWarning(gitObjectStoreWarningMaintenance, gitObjectStorePressureWarning, "maintenance indicator files are present")
+		s.addWarning(
+			gitObjectStoreWarningMaintenance,
+			gitObjectStorePressureWarning,
+			"maintenance indicator files are present",
+		)
 	}
 
 	if s.PackFiles >= gitObjectStorePackFilesWarning && !s.MultiPackIndex {
-		s.addWarning(gitObjectStoreWarningMissingMultiPack, gitObjectStorePressureWarning, "repository has many packs without a multi-pack-index")
+		s.addWarning(
+			gitObjectStoreWarningMissingMultiPack,
+			gitObjectStorePressureWarning,
+			"repository has many packs without a multi-pack-index",
+		)
 	}
 
-	if (s.PackFiles >= gitObjectStorePackFilesWarning || s.LooseObjects >= gitObjectStoreLooseObjectsWarning || s.LooseObjectsTruncated) && !s.CommitGraph {
-		s.addWarning(gitObjectStoreWarningMissingCommit, gitObjectStorePressureWarning, "repository pressure is elevated without a commit-graph")
+	if (s.PackFiles >= gitObjectStorePackFilesWarning || s.LooseObjects >= gitObjectStoreLooseObjectsWarning || s.LooseObjectsTruncated) &&
+		!s.CommitGraph {
+		s.addWarning(
+			gitObjectStoreWarningMissingCommit,
+			gitObjectStorePressureWarning,
+			"repository pressure is elevated without a commit-graph",
+		)
 	}
 }
 

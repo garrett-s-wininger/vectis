@@ -70,7 +70,11 @@ func (r *Registry) Resolve(uses string) (action.Node, error) {
 	}
 
 	if ref.Selector != "" {
-		descriptor, err := actionregistry.DescriptorFromNode(n, actionregistry.SourceBuiltin, actionregistry.RuntimeBuiltin)
+		descriptor, err := actionregistry.DescriptorFromNode(
+			n,
+			actionregistry.SourceBuiltin,
+			actionregistry.RuntimeBuiltin,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +118,11 @@ func (r *Registry) ResolveDescriptor(uses string) (actionregistry.Descriptor, er
 func (r *Registry) ListDescriptors() ([]actionregistry.Descriptor, error) {
 	descriptors := make([]actionregistry.Descriptor, 0, len(r.nodes))
 	for _, n := range r.nodes {
-		descriptor, err := actionregistry.DescriptorFromNode(n, actionregistry.SourceBuiltin, actionregistry.RuntimeBuiltin)
+		descriptor, err := actionregistry.DescriptorFromNode(
+			n,
+			actionregistry.SourceBuiltin,
+			actionregistry.RuntimeBuiltin,
+		)
 		if err != nil {
 			return nil, err
 		}

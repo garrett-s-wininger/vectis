@@ -21,7 +21,11 @@ type ManagingWorkerDial struct {
 	logger  interfaces.Logger
 }
 
-func NewManagingWorkerDial(ctx context.Context, logger interfaces.Logger, dial func(context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error)) (*ManagingWorkerDial, error) {
+func NewManagingWorkerDial(
+	ctx context.Context,
+	logger interfaces.Logger,
+	dial func(context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error),
+) (*ManagingWorkerDial, error) {
 	if dial == nil {
 		return nil, fmt.Errorf("dial is required")
 	}
@@ -253,7 +257,10 @@ func (m *ManagingWorkerDial) StreamLogsForRun(ctx context.Context, runID string)
 	return stream, err
 }
 
-func (m *ManagingWorkerDial) StreamLogsForAssignedRun(ctx context.Context, runID, shardID string) (interfaces.LogStream, error) {
+func (m *ManagingWorkerDial) StreamLogsForAssignedRun(
+	ctx context.Context,
+	runID, shardID string,
+) (interfaces.LogStream, error) {
 	m.mu.RLock()
 	var stream interfaces.LogStream
 	var err error

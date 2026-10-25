@@ -67,7 +67,12 @@ func (m *MockExecutor) GetEnvs() [][]string {
 	return result
 }
 
-func (m *MockExecutor) Start(ctx context.Context, command string, workDir string, env []string) (interfaces.Process, error) {
+func (m *MockExecutor) Start(
+	ctx context.Context,
+	command string,
+	workDir string,
+	env []string,
+) (interfaces.Process, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -157,7 +162,13 @@ func (m *MockExecExecutor) GetEnvs() [][]string {
 	return result
 }
 
-func (m *MockExecExecutor) Start(ctx context.Context, path string, args []string, workDir string, env []string) (interfaces.Process, error) {
+func (m *MockExecExecutor) Start(
+	ctx context.Context,
+	path string,
+	args []string,
+	workDir string,
+	env []string,
+) (interfaces.Process, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
