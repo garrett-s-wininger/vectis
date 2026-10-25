@@ -19,19 +19,14 @@ mage build
 loop needs the browser UI or docs server, run `mage buildFull` first, or use
 `mage buildFrontend` after the backend binaries already exist.
 
-In another terminal, create the first admin before calling protected API commands. `vectis-local` writes the bootstrap token to `~/.local/share/vectis/local-bootstrap-token` when `XDG_DATA_HOME` is unset. The admin password must be at least 8 characters:
+In another terminal, after `vectis-local` reports ready:
 
 ```bash
-curl -sS \
-  -H 'Content-Type: application/json' \
-  -d '{"bootstrap_token":"<bootstrap-token>","admin_username":"admin","admin_password":"<admin-password>"}' \
-  http://localhost:8080/api/v1/setup/complete
-export VECTIS_API_TOKEN=<api_token>
 ./bin/vectis-cli health check
 ./bin/vectis-cli jobs run examples/sequenced.json --follow
 ```
 
-`VECTIS_API_TOKEN` is the `api_token` from setup. After that admin exists, `./bin/vectis-cli auth login --username admin` saves a token for later shells. That confirms the binaries build, the local stack starts, the API accepts an authenticated client, and a worker can execute a job.
+`vectis-local` creates the first admin and saves the CLI token. A terminal prompts for the username and password. A non-interactive start writes the generated password under the local data directory. Pass `--setup=off` to leave that setup for the bootstrap token. That confirms the binaries build, the local stack starts, the API accepts an authenticated client, and a worker can execute a job.
 
 ## Prerequisites
 
