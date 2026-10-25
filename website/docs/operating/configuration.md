@@ -188,7 +188,7 @@ Standalone API authentication is off by default. `vectis-local` enables HTTP API
 | `VECTIS_API_AUTH_LDAP_AUTO_LINK_USERS` / `api.auth.ldap.auto_link_users` | When `true`, a first-seen LDAP subject may be linked to an existing local user with the same mapped username. Defaults to `true`; set `false` to require explicit pre-linking. |
 | `VECTIS_API_AUTH_LDAP_AUTO_CREATE_USERS` / `api.auth.ldap.auto_create_users` | When `true`, successful LDAP logins create missing local Vectis user rows. Defaults to `false`; pre-create users when you want explicit provisioning. Successful LDAP logins record an external identity link keyed by provider ID and LDAP subject. |
 
-`vectis-cli login` calls `POST /api/v1/login` and saves the returned token in the OS user config directory. You can override the saved token for one shell session with:
+`vectis-cli auth login` calls `POST /api/v1/login` and saves the returned token in the OS user config directory. On a new auth-enabled database, create the first admin with `POST /api/v1/setup/complete` before that login can succeed. You can override the saved token for one shell session with:
 
 ```sh
 export VECTIS_API_TOKEN=<token>

@@ -152,7 +152,7 @@ After `vectis-cli deploy podman up`:
 
 1. Confirm migrations applied successfully.
 2. Check API `GET /health/live` and `GET /health/ready`.
-3. If API auth is enabled, complete setup and log in with `vectis-cli login`.
+3. If API auth is enabled, complete setup with `POST /api/v1/setup/complete`, then log in with `vectis-cli auth login`.
 4. Create or confirm a small known-safe job.
 5. Trigger the job.
 6. Confirm the run reaches a terminal state.

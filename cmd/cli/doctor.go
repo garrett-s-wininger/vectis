@@ -387,7 +387,7 @@ func doctorSetupStatus() doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup is complete", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: true}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "initial setup is not complete", SuggestedAction: "Complete setup via the API or CLI", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: true}
+	return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "initial setup is not complete", SuggestedAction: "Finish initial setup with POST /api/v1/setup/complete or the local UI, then set VECTIS_API_TOKEN or run vectis-cli auth login", DocLink: "website/docs/getting-started.md", apiAuthEnabled: true}
 }
 
 func doctorCLIToken(apiAuthEnabled bool) doctorCheck {
