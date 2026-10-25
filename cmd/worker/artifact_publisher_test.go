@@ -124,7 +124,7 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 	if err != nil {
 		t.Fatalf("expected blob in artifact store: %v", err)
 	}
-	
+
 	if err := rc.Close(); err != nil {
 		t.Fatalf("close artifact blob: %v", err)
 	}

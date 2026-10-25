@@ -82,7 +82,7 @@ func TestWriteGitDirRefWritesLooseRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveGitDirRef: %v", err)
 	}
-	
+
 	if !ok || got != "3333333333333333333333333333333333333333" {
 		t.Fatalf("ResolveGitDirRef got %q ok=%v", got, ok)
 	}

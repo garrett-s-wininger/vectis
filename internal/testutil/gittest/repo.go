@@ -76,7 +76,7 @@ func CommitAll(t testing.TB, repo, message string) string {
 		Author:    sig,
 		Committer: sig,
 	})
-	
+
 	if err != nil {
 		t.Fatalf("commit git fixture %s: %v", repo, err)
 	}

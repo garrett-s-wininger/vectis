@@ -327,7 +327,7 @@ func providerProcessEscapeCalls(t *testing.T, root, path string, allowed map[str
 	if err != nil {
 		rel = path
 	}
-	
+
 	rel = filepath.ToSlash(rel)
 	var violations []string
 	ast.Inspect(file, func(node ast.Node) bool {

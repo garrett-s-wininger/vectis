@@ -19,7 +19,7 @@ func newLocalRunLogStoreForTest(t *testing.T) *LocalRunLogStore {
 	if err != nil {
 		t.Fatalf("new local run log store: %v", err)
 	}
-	
+
 	t.Cleanup(func() {
 		if err := store.Close(); err != nil {
 			t.Errorf("close local run log store: %v", err)

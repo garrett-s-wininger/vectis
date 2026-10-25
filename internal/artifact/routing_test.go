@@ -112,7 +112,7 @@ func TestNewPublisherForRun_UsesWritableRegistryArtifactShard(t *testing.T) {
 		if err == nil {
 			_ = rc.Close()
 		}
-		
+
 		t.Fatalf("expected no blob in read-only store, got %v", err)
 	}
 }

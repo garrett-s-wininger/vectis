@@ -361,7 +361,7 @@ func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
 		CheckedAt: "2026-07-02T12:00:00Z",
 		Backup:    &retentionBackupEvidence{ManifestPath: "backup-manifest.json", Verified: true},
 	}
-	
+
 	if err := writeRetentionCleanupEvidenceManifest(&buf, outputPath, promotePath, manifest, verification); err != nil {
 		t.Fatalf("write evidence manifest: %v", err)
 	}
