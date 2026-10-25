@@ -113,7 +113,7 @@ func (c *ExecutorCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) 
 
 func (c *ExecutorCore) checkoutCacheForSession(session TaskSession) (action.CheckoutCache, error) {
 	if c == nil || session == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Checkout caching is optional for sessions without configured remotes.
 	}
 
 	checkoutCache, err := c.checkoutCacheForRemotes(session.CheckoutCacheRemotes())
@@ -251,7 +251,7 @@ func (c *ExecutorCore) warmCheckoutCacheRemote(
 			Message:   err.Error(),
 		})
 
-		return result, nil
+		return result, nil //nolint:nilerr // Per-remote failures are returned in result.failures for batch reporting.
 	}
 
 	handled, normalizedRemoteURL, changed, err := cache.WarmRemoteStatus(ctx, remote.RemoteURL, nil)
@@ -315,12 +315,12 @@ func (c *ExecutorCore) checkoutCacheForRemoteURLs(remoteURLs []string) (*source.
 
 func (c *ExecutorCore) checkoutCacheForRemotes(remotes []CheckoutCacheRemote) (*source.WorkerCheckoutCache, error) {
 	if c == nil || strings.TrimSpace(c.checkoutCacheRoot) == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Checkout caching is optional for sessions without configured remotes.
 	}
 
 	remotes = uniqueCheckoutCacheRemotes(remotes)
 	if len(remotes) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Checkout caching is optional for sessions without configured remotes.
 	}
 
 	checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(

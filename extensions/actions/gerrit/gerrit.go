@@ -55,7 +55,7 @@ func (c Client) ChangeDetail(ctx context.Context, change string) (sdkscm.Change,
 	if err != nil {
 		return sdkscm.Change{}, fmt.Errorf("get Gerrit change detail: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var info sdkscm.Change
 	if err := DecodeJSON(resp, &info); err != nil {
@@ -68,7 +68,7 @@ func (c Client) ChangeDetail(ctx context.Context, change string) (sdkscm.Change,
 func (c Client) QueryChanges(ctx context.Context, query sdkscm.Query) ([]sdkscm.Change, error) {
 	rawQuery := gerritChangeQuery(query)
 	if rawQuery == "" {
-		return nil, fmt.Errorf("Gerrit change query is required")
+		return nil, fmt.Errorf("gerrit change query is required")
 	}
 
 	values := url.Values{}
@@ -90,7 +90,7 @@ func (c Client) QueryChanges(ctx context.Context, query sdkscm.Query) ([]sdkscm.
 	if err != nil {
 		return nil, fmt.Errorf("query Gerrit changes: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var changes []sdkscm.Change
 	if err := DecodeJSON(resp, &changes); err != nil {
@@ -140,7 +140,7 @@ func (c Client) PostReview(ctx context.Context, req ReviewRequest) error {
 	if err != nil {
 		return fmt.Errorf("post Gerrit review: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		message := strings.TrimSpace(ReadErrorBody(resp.Body))
@@ -148,7 +148,7 @@ func (c Client) PostReview(ctx context.Context, req ReviewRequest) error {
 			message = resp.Status
 		}
 
-		return fmt.Errorf("Gerrit review failed with status %s: %s", resp.Status, message)
+		return fmt.Errorf("gerrit review failed with status %s: %s", resp.Status, message)
 	}
 
 	if strings.TrimSpace(req.Label) == "" {
@@ -188,12 +188,12 @@ func gerritChangeQuery(q sdkscm.Query) string {
 func ParseLabelValue(raw string) (int, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return 0, fmt.Errorf("Gerrit review label value is required")
+		return 0, fmt.Errorf("gerrit review label value is required")
 	}
 
 	vote, err := strconv.Atoi(value)
 	if err != nil {
-		return 0, fmt.Errorf("Gerrit review label value must be an integer: %w", err)
+		return 0, fmt.Errorf("gerrit review label value must be an integer: %w", err)
 	}
 
 	return vote, nil
@@ -242,11 +242,11 @@ func StripXSSIPrefix(b []byte) []byte {
 func (c Client) endpoint(path string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(c.BaseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("Gerrit URL must be absolute")
+		return "", fmt.Errorf("gerrit URL must be absolute")
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("Gerrit URL must use http or https")
+		return "", fmt.Errorf("gerrit URL must use http or https")
 	}
 
 	prefix := u.Scheme + "://" + u.Host
@@ -276,7 +276,7 @@ func (c Client) httpClient() *http.Client {
 func reviewPayload(req ReviewRequest) (map[string]any, error) {
 	message := req.Message
 	if strings.TrimSpace(message) == "" {
-		return nil, fmt.Errorf("Gerrit review message is required")
+		return nil, fmt.Errorf("gerrit review message is required")
 	}
 
 	payload := map[string]any{
@@ -312,7 +312,7 @@ func readReviewBody(body io.Reader) (string, error) {
 func verifyReviewLabel(body, label string, want int) error {
 	body = strings.TrimSpace(body)
 	if body == "" {
-		return fmt.Errorf("Gerrit review response did not confirm label %q", label)
+		return fmt.Errorf("gerrit review response did not confirm label %q", label)
 	}
 
 	var result struct {
@@ -325,11 +325,11 @@ func verifyReviewLabel(body, label string, want int) error {
 
 	got, ok := result.Labels[label]
 	if !ok {
-		return fmt.Errorf("Gerrit review response did not confirm label %q", label)
+		return fmt.Errorf("gerrit review response did not confirm label %q", label)
 	}
 
 	if got != want {
-		return fmt.Errorf("Gerrit review response label %q = %d, want %d", label, got, want)
+		return fmt.Errorf("gerrit review response label %q = %d, want %d", label, got, want)
 	}
 
 	return nil

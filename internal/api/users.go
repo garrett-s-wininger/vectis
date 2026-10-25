@@ -384,7 +384,7 @@ func (s *APIServer) CreateUserExternalIdentity(w http.ResponseWriter, r *http.Re
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventUserUpdated, actorID, id, map[string]any{
+	_ = s.auditLog(ctx, audit.EventUserUpdated, actorID, id, map[string]any{
 		"external_identity_action": "linked",
 		"external_identity_id":     identity.ID,
 		"provider_id":              identity.ProviderID,
@@ -446,7 +446,7 @@ func (s *APIServer) DeleteUserExternalIdentity(w http.ResponseWriter, r *http.Re
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventUserUpdated, actorID, userID, map[string]any{
+	_ = s.auditLog(ctx, audit.EventUserUpdated, actorID, userID, map[string]any{
 		"external_identity_action": "unlinked",
 		"external_identity_id":     identityID,
 	})

@@ -525,7 +525,7 @@ func hashFile(ctx context.Context, path string, h hash.Hash) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func(close func() error) { _ = close() }(f.Close)
 
 	buf := make([]byte, 128*1024)
 	for {
@@ -575,7 +575,7 @@ func verifyRunLogFile(ctx context.Context, path string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
+	defer func(close func() error) { _ = close() }(f.Close)
 
 	var records int64
 	for {
@@ -664,7 +664,7 @@ func verifyQueueSnapshot(ctx context.Context, path string, report *Report) {
 		report.addError("queue.snapshot_open_failed", path, err.Error())
 		return
 	}
-	defer f.Close()
+	defer func(close func() error) { _ = close() }(f.Close)
 
 	var snap queueSnapshot
 	if err := json.NewDecoder(f).Decode(&snap); err != nil {
@@ -729,7 +729,7 @@ func verifyQueueWAL(ctx context.Context, path string, report *Report) {
 		report.addError("queue.wal_open_failed", path, err.Error())
 		return
 	}
-	defer f.Close()
+	defer func(close func() error) { _ = close() }(f.Close)
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
@@ -834,7 +834,7 @@ func verifyLogForwarderSpoolFile(path string, report *Report) {
 		report.addError("spool.open_failed", path, err.Error())
 		return
 	}
-	defer reader.Close()
+	defer func(close func() error) { _ = close() }(reader.Close)
 
 	for {
 		chunks, err := reader.ReadBatch()
@@ -867,7 +867,7 @@ func verifyWorkerLogSpoolFile(ctx context.Context, path string, report *Report) 
 		report.addError("worker_spool.open_failed", path, err.Error())
 		return
 	}
-	defer f.Close()
+	defer func(close func() error) { _ = close() }(f.Close)
 
 	reader := bufio.NewReader(f)
 	for {

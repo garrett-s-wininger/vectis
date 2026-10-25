@@ -19,7 +19,7 @@ func resetSignalDisposition(sig syscall.Signal) error {
 	_, _, errno := syscall.RawSyscall6(
 		syscall.SYS_RT_SIGACTION,
 		uintptr(sig),
-		uintptr(unsafe.Pointer(&action)),
+		uintptr(unsafe.Pointer(&action)), // #nosec G103 -- rt_sigaction requires a pointer to this live, correctly laid out struct.
 		0,
 		unsafe.Sizeof(action.mask),
 		0,

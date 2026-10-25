@@ -2,9 +2,10 @@
   "id": "vectis-ci",
   "root": {
     "id": "ci",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "sh .vectis/ci.sh"
+      "script": "sh .vectis/ci.sh",
+      "runner": "sh"
     }
   }
 }

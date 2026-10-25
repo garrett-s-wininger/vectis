@@ -167,7 +167,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 
 	s.markDBRecovered()
 
-	s.auditLog(r.Context(), audit.EventAuthSuccess, principal.LocalUserID, 0, map[string]any{
+	_ = s.auditLog(r.Context(), audit.EventAuthSuccess, principal.LocalUserID, 0, map[string]any{
 		"method":          principal.Method,
 		"username":        principal.Username,
 		"credential_type": "session",
@@ -204,7 +204,7 @@ func (s *APIServer) authenticateLogin(
 		localUserFound = true
 		if !enabled {
 			_ = bcrypt.CompareHashAndPassword([]byte(passHash), []byte(req.Password))
-			s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+			_ = s.auditLog(ctx, audit.EventAuthFailure, uid, 0, map[string]any{
 				"reason":   "user_disabled",
 				"username": req.Username,
 			})
@@ -248,7 +248,7 @@ func (s *APIServer) authenticateLogin(
 		auditActorID = uid
 	}
 
-	s.auditLog(r.Context(), audit.EventAuthFailure, auditActorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventAuthFailure, auditActorID, 0, map[string]any{
 		"reason":   "invalid_credentials",
 		"username": req.Username,
 	})
@@ -278,7 +278,7 @@ func (s *APIServer) authenticateExternalLogin(
 			}
 
 			if registration.id != "" && providerID != registration.id {
-				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+				_ = s.auditLog(ctx, audit.EventAuthFailure, 0, 0, map[string]any{
 					"reason":              "external_provider_mismatch",
 					"registered_provider": registration.id,
 					"identity_provider":   providerID,
@@ -332,7 +332,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(
 	username := strings.TrimSpace(identity.Username)
 	displayName := strings.TrimSpace(identity.DisplayName)
 	if !validExternalProviderID(providerID) || !validExternalSubject(subject) || !validExternalLoginUsername(username) {
-		s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+		_ = s.auditLog(ctx, audit.EventAuthFailure, 0, 0, map[string]any{
 			"reason":   "invalid_external_identity",
 			"provider": providerID,
 			"subject":  subject,
@@ -354,7 +354,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(
 	}
 
 	if !provider.Enabled {
-		s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+		_ = s.auditLog(ctx, audit.EventAuthFailure, 0, 0, map[string]any{
 			"reason":   "external_provider_disabled",
 			"provider": providerID,
 			"subject":  subject,
@@ -382,7 +382,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(
 	uid, _, enabled, _, err := s.authRepo.GetLocalUserByUsername(ctx, username)
 	if err == nil {
 		if !enabled {
-			s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+			_ = s.auditLog(ctx, audit.EventAuthFailure, uid, 0, map[string]any{
 				"reason":   "user_disabled",
 				"username": username,
 				"provider": providerID,
@@ -398,7 +398,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(
 		s.mu.RUnlock()
 
 		if !autoLink {
-			s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+			_ = s.auditLog(ctx, audit.EventAuthFailure, uid, 0, map[string]any{
 				"reason":   "external_identity_not_linked",
 				"username": username,
 				"provider": providerID,
@@ -427,7 +427,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(
 	s.mu.RUnlock()
 
 	if !autoProvision {
-		s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+		_ = s.auditLog(ctx, audit.EventAuthFailure, 0, 0, map[string]any{
 			"reason":   "external_user_not_provisioned",
 			"username": username,
 			"provider": providerID,
@@ -464,7 +464,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(
 					s.mu.RUnlock()
 
 					if !autoLink {
-						s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+						_ = s.auditLog(ctx, audit.EventAuthFailure, uid, 0, map[string]any{
 							"reason":   "external_identity_not_linked",
 							"username": username,
 							"provider": providerID,
@@ -478,7 +478,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(
 					return s.linkExternalIdentityToLocalUser(ctx, w, r, uid, username, providerID, subject, displayName)
 				}
 
-				s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+				_ = s.auditLog(ctx, audit.EventAuthFailure, uid, 0, map[string]any{
 					"reason":   "user_disabled",
 					"username": username,
 					"provider": providerID,
@@ -512,7 +512,7 @@ func (s *APIServer) principalForLinkedExternalIdentity(
 	username, displayName string,
 ) (loginPrincipal, bool) {
 	if !identity.LocalUserEnabled {
-		s.auditLog(r.Context(), audit.EventAuthFailure, identity.LocalUserID, 0, map[string]any{
+		_ = s.auditLog(ctx, audit.EventAuthFailure, identity.LocalUserID, 0, map[string]any{
 			"reason":   "user_disabled",
 			"username": identity.LocalUsername,
 			"provider": identity.ProviderID,
@@ -572,7 +572,7 @@ func (s *APIServer) linkExternalIdentityToLocalUser(
 			return loginPrincipal{}, false
 		}
 
-		s.auditLog(r.Context(), audit.EventAuthFailure, localUserID, 0, map[string]any{
+		_ = s.auditLog(ctx, audit.EventAuthFailure, localUserID, 0, map[string]any{
 			"reason":   "external_identity_conflict",
 			"username": username,
 			"provider": providerID,
@@ -683,7 +683,7 @@ func (s *APIServer) Logout(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(r.Context(), audit.EventAuthLogout, actorID, 0, map[string]any{
+	_ = s.auditLog(r.Context(), audit.EventAuthLogout, actorID, 0, map[string]any{
 		"credential_source": string(source),
 	})
 

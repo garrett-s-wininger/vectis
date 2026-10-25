@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +12,22 @@ import (
 	"testing"
 	"time"
 )
+
+func TestAuditExportContextHonorsCancellation(t *testing.T) {
+	setupTestAPIClient(t, func(http.ResponseWriter, *http.Request) {
+		t.Error("cancelled export reached the API")
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	var stdout bytes.Buffer
+	err := auditExportContext(ctx, &stdout, auditExportOptions{})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("export error = %v, want context cancellation", err)
+	}
+}
 
 func TestAuditExportWritesEvidenceFile(t *testing.T) {
 	requests := 0

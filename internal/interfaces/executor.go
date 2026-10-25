@@ -278,7 +278,7 @@ func windowsExecutableExtensionsFromPATHEXT(pathext string) []string {
 }
 
 func isExecutableFile(path string) bool {
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) // #nosec G703 -- Executable lookup intentionally probes PATH directories configured by the host.
 	if err != nil {
 		return false
 	}

@@ -74,7 +74,7 @@ func ConsumeOnce(ctx context.Context, opts Options, consume Consumer, logger Log
 		return fmt.Errorf("SSH stream consumer is required")
 	}
 
-	clientConfig, closeAuth, err := NewClientConfig(opts)
+	clientConfig, closeAuth, err := newClientConfig(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,11 @@ func NormalizeOptions(opts Options) (Options, error) {
 }
 
 func NewClientConfig(opts Options) (*ssh.ClientConfig, func() error, error) {
-	auths, closeAuth, err := authMethods(opts)
+	return newClientConfig(context.Background(), opts)
+}
+
+func newClientConfig(ctx context.Context, opts Options) (*ssh.ClientConfig, func() error, error) {
+	auths, closeAuth, err := authMethods(ctx, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -191,7 +195,7 @@ func NewClientConfig(opts Options) (*ssh.ClientConfig, func() error, error) {
 
 func HostKeyCallback(opts Options) (ssh.HostKeyCallback, error) {
 	if opts.InsecureIgnoreHostKey {
-		return ssh.InsecureIgnoreHostKey(), nil
+		return ssh.InsecureIgnoreHostKey(), nil // #nosec G106 -- Explicit operator opt-in; the default verifies known_hosts.
 	}
 
 	knownHostsFile := strings.TrimSpace(opts.KnownHostsFile)
@@ -315,7 +319,7 @@ func consumeWithReconnect(ctx context.Context, opts ReconnectOptions, consume fu
 	}
 }
 
-func authMethods(opts Options) ([]ssh.AuthMethod, func() error, error) {
+func authMethods(ctx context.Context, opts Options) ([]ssh.AuthMethod, func() error, error) {
 	var auths []ssh.AuthMethod
 	var closers []io.Closer
 
@@ -336,7 +340,7 @@ func authMethods(opts Options) ([]ssh.AuthMethod, func() error, error) {
 	if opts.UseAgent {
 		agentSock := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
 		if agentSock != "" {
-			conn, err := net.Dial("unix", agentSock)
+			conn, err := (&net.Dialer{Timeout: opts.ConnectTimeout}).DialContext(ctx, "unix", agentSock)
 			if err != nil {
 				return nil, nil, fmt.Errorf("connect SSH agent %q: %w", agentSock, err)
 			}

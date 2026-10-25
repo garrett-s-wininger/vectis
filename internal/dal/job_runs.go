@@ -1596,7 +1596,7 @@ func retireRootRetryAttemptsTx(ctx context.Context, tx *sql.Tx, runID string) er
 	if err != nil {
 		return normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	executionIDs := []string{}
 	for rows.Next() {

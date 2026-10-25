@@ -53,7 +53,7 @@ func (r Runner) Run(ctx context.Context) error {
 		if err := clock.Sleep(ctx, r.Interval); err != nil {
 			if ctx.Err() != nil {
 				logger.Info("%s: shutting down", name)
-				return nil
+				return nil //nolint:nilerr // Service cancellation is a normal shutdown.
 			}
 
 			return err

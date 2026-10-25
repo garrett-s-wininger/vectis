@@ -125,7 +125,7 @@ func assertExtensionImportsOnlyAtCompositionPoints(
 
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", "api", "vendor":
+			case ".git", ".tools", ".cache", "node_modules", "api", "vendor":
 				return filepath.SkipDir
 			default:
 				return nil
@@ -185,7 +185,17 @@ func allowedSecretProviderImportFile(path string) bool {
 	}
 
 	switch path {
-	case "../cmd/cli/secrets.go",
+	// Commands compose credential providers; drills inspect provider-specific state.
+	case "../cmd/cli/backup.go",
+		"../cmd/cli/backup_test.go",
+		"../cmd/cli/doctor.go",
+		"../cmd/cli/main_test.go",
+		"../cmd/worker/main.go",
+		"../cmd/worker-core/main.go",
+		"../cmd/worker-core/main_test.go",
+		"../deploy/kubernetes/knox_secrets_smoke.go",
+		"../internal/secrets/secrets_reference_test.go",
+		"../cmd/cli/secrets.go",
 		"../cmd/cli/secrets_test.go",
 		"../cmd/local/main.go",
 		"../cmd/local/main_test.go",
@@ -205,7 +215,7 @@ func allowedArtifactProviderImportFile(path string) bool {
 	}
 
 	switch path {
-	case "../cmd/artifact/main.go":
+	case "../cmd/artifact/main.go", "../deploy/kubernetes/s3_artifact_smoke.go":
 		return true
 	default:
 		return false
@@ -222,7 +232,7 @@ func allowedAuthProviderImportFile(path string) bool {
 	}
 
 	switch path {
-	case "../cmd/api/main.go":
+	case "../cmd/api/main.go", "../deploy/kubernetes/ldap_auth_smoke.go":
 		return true
 	default:
 		return false

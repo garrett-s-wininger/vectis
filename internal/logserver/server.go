@@ -1156,9 +1156,9 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 		return err
 	}
 
-	srvOpts, err := config.GRPCServerOptionsForRole(
+	srvOpts, err := config.GRPCServerOptionsForRole( //nolint:contextcheck // Stream callbacks authorize using grpc.ServerStream.Context().
 		config.ServiceIdentityRoleLog,
-	) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
+	)
 	if err != nil {
 		return err
 	}

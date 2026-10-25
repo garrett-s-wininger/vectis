@@ -27,6 +27,7 @@ func setSessionCookies(w http.ResponseWriter, _ *http.Request, sessionToken, csr
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	// #nosec G124 -- CSRF cookies must be readable by browser JavaScript; Secure and SameSite remain enforced.
 	http.SetCookie(w, &http.Cookie{
 		Name:     csrfCookieName,
 		Value:    csrfToken,
@@ -49,6 +50,7 @@ func clearLogoutSiteData(w http.ResponseWriter) {
 }
 
 func clearCookie(w http.ResponseWriter, name string) {
+	// #nosec G124 -- Match the original readable CSRF or HttpOnly session cookie when expiring it.
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    "",

@@ -179,7 +179,7 @@ func (p *KnoxProvider) rebuildHTTPClient() error {
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	tlsConfig := &tls.Config{} //nolint:gosec // Options below are explicitly configured by callers.
+	tlsConfig := &tls.Config{}
 	if p.insecureSkipVerify {
 		tlsConfig.InsecureSkipVerify = true
 	}
@@ -340,7 +340,7 @@ func parseKnoxRefKeyID(raw string) (string, error) {
 
 		rest, err := url.PathUnescape(rest)
 		if err != nil {
-			return "", fmt.Errorf("%w: knox ref key id: %v", ErrNotFound, err)
+			return "", fmt.Errorf("%w: knox ref key id: %w", ErrNotFound, err)
 		}
 
 		rest = strings.TrimPrefix(rest, "/")
@@ -365,14 +365,14 @@ func parseKnoxRefKeyID(raw string) (string, error) {
 
 		keyID, err := url.PathUnescape(rest)
 		if err != nil {
-			return "", fmt.Errorf("%w: knox ref key id: %v", ErrNotFound, err)
+			return "", fmt.Errorf("%w: knox ref key id: %w", ErrNotFound, err)
 		}
 
 		return keyID, nil
 	default:
 		u, err := url.Parse(raw)
 		if err != nil {
-			return "", fmt.Errorf("%w: parse knox ref: %v", ErrNotFound, err)
+			return "", fmt.Errorf("%w: parse knox ref: %w", ErrNotFound, err)
 		}
 
 		scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
@@ -398,7 +398,7 @@ func (p *KnoxProvider) fetchPrimary(ctx context.Context, keyID string) ([]byte, 
 	if err != nil {
 		return nil, fmt.Errorf("secrets: knox request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil, fmt.Errorf("%w: knox authorization failed", ErrDenied)

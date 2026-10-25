@@ -513,7 +513,7 @@ func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionS
 
 	buildOptions := opts.Evidence
 	if auditExportPath != "" {
-		if err := auditExport(io.Discard, auditExportOptions{
+		if err := auditExportContext(ctx, io.Discard, auditExportOptions{
 			auditListOptions: auditListOptions{
 				Until: now.Format(time.RFC3339),
 				Limit: opts.AuditExportLimit,
@@ -647,11 +647,11 @@ func writeScheduledRetentionHoldReview(
 	generatedAt time.Time,
 	reviewedBy, reason, externalRef string,
 ) error {
-	db, err := openRetentionDatabase()
+	db, err := openRetentionDatabaseContext(ctx)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	holds, err := retention.NewSQLHoldStore(db).List(ctx, retention.ListHoldOptions{}, generatedAt)
 	if err != nil {
@@ -759,11 +759,11 @@ func verifyRetentionCleanupEvidenceManifest(
 
 	var db *sql.DB
 	if needsDB {
-		db, err = openRetentionDatabase()
+		db, err = openRetentionDatabaseContext(ctx)
 		if err != nil {
 			return verification, err
 		}
-		defer db.Close()
+		defer func(close func() error) { _ = close() }(db.Close)
 	}
 
 	var holdReviewEvidence *retentionHoldReviewEvidence
@@ -1411,7 +1411,7 @@ func readRetentionEvidenceMetricsJSON(path, kind string, out any) error {
 	if err != nil {
 		return fmt.Errorf("open %s evidence %s: %w", kind, path, err)
 	}
-	defer f.Close()
+	defer func(close func() error) { _ = close() }(f.Close)
 
 	if err := json.NewDecoder(f).Decode(out); err != nil {
 		return fmt.Errorf("decode %s evidence %s: %w", kind, path, err)
@@ -1695,7 +1695,7 @@ func retentionCleanupAt(
 		return fmt.Errorf("--hold-review-max-age requires --hold-review")
 	}
 
-	db, err := openRetentionDatabase()
+	db, err := openRetentionDatabaseContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -1942,7 +1942,7 @@ func applyRetentionCleanupEvidenceManifest(
 ) (*retentionCleanupEvidenceManifestEvidence, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No optional evidence or expiry was requested.
 	}
 
 	if path == "-" {
@@ -2141,13 +2141,17 @@ func applyRetentionCleanupEvidenceManifest(
 }
 
 func openRetentionDatabase() (*sql.DB, error) {
+	return openRetentionDatabaseContext(context.Background())
+}
+
+func openRetentionDatabaseContext(ctx context.Context) (*sql.DB, error) {
 	dbPath := database.GetDBPath()
 	db, err := database.OpenDB(dbPath)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := database.WaitForMigrations(db, nil); err != nil {
+	if err := database.WaitForMigrationsContext(ctx, db, nil); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -2167,7 +2171,7 @@ func checkRetentionAuditExport(
 			return nil, fmt.Errorf("--audit-export-max-age requires --audit-export")
 		}
 
-		return nil, nil
+		return nil, nil //nolint:nilnil // No optional evidence or expiry was requested.
 	}
 
 	if options.ExportPath == "-" {
@@ -2336,7 +2340,7 @@ func checkRetentionHoldReview(
 			return nil, fmt.Errorf("--hold-review-max-age requires --hold-review")
 		}
 
-		return nil, nil
+		return nil, nil //nolint:nilnil // No optional evidence or expiry was requested.
 	}
 
 	if options.ReviewPath == "-" {
@@ -2502,7 +2506,7 @@ func retentionHoldReviewRecordsSHA256(records []retentionHoldReviewRecord) (stri
 func checkRetentionWaiver(path string, checkedAt time.Time) (*retentionWaiverEvidence, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No optional evidence or expiry was requested.
 	}
 
 	if path == "-" {
@@ -2722,7 +2726,7 @@ func checkRetentionBackupManifest(
 			)
 		}
 
-		return nil, nil
+		return nil, nil //nolint:nilnil // No optional evidence or expiry was requested.
 	}
 
 	if options.StorageReportMaxAge > 0 && len(options.StorageReportPaths) == 0 {
@@ -3020,7 +3024,7 @@ func runRetentionHoldCreate(cmd *cobra.Command, args []string) {
 	if err != nil {
 		runCLIError(err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	createdBy := strings.TrimSpace(retentionHoldCreatedBy)
 	if createdBy == "" {
@@ -3054,7 +3058,7 @@ func runRetentionHoldList(cmd *cobra.Command, args []string) {
 	if err != nil {
 		runCLIError(err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	holds, err := retention.NewSQLHoldStore(db).List(cmd.Context(), retention.ListHoldOptions{
 		Scope:         scope,
@@ -3073,7 +3077,7 @@ func runRetentionHoldRelease(cmd *cobra.Command, args []string) {
 	if err != nil {
 		runCLIError(err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	releasedBy := strings.TrimSpace(retentionHoldReleasedBy)
 	if releasedBy == "" {
@@ -3097,7 +3101,7 @@ func runRetentionHoldReview(cmd *cobra.Command, args []string) {
 	if err != nil {
 		runCLIError(err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	reviewedBy := strings.TrimSpace(retentionHoldReviewReviewedBy)
 	if reviewedBy == "" {
@@ -3302,7 +3306,7 @@ func writeRetentionHoldReview(w io.Writer, outputPath string, review retentionHo
 func parseRetentionHoldExpiresAt(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No optional evidence or expiry was requested.
 	}
 
 	t, err := time.Parse(time.RFC3339, value)

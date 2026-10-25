@@ -21,7 +21,7 @@ import (
 
 func runSCMPoller(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("scm-poller")
-	defer logger.Close()
+	defer func(close func() error) { _ = close() }(logger.Close)
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting SCM poller service...")
@@ -39,7 +39,7 @@ func runSCMPoller(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	service := scmpoller.NewService(logger, db)
 	defer service.CloseQueueDial()

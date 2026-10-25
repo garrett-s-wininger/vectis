@@ -515,14 +515,16 @@ func TestEmbeddedLocalSPIFFEConfigSkipsPlaintextGRPC(t *testing.T) {
 
 func TestStartEmbeddedLocalSPIFFEStartsAuthority(t *testing.T) {
 	resetLocalTestConfig(t)
-	dir, err := os.MkdirTemp(
+	dir, err := os.MkdirTemp( //nolint:usetesting // Keep Unix socket and checkout paths short across platforms.
 		shortTempRoot(),
 		"vectis-spiffe-*",
-	) //nolint:usetesting // Keep embedded SPIFFE runtime sockets under a short temp root.
+	)
+
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
 	viper.Set("spiffe_dir", filepath.Join(dir, "data"))
 	viper.Set("spiffe_runtime_dir", filepath.Join(dir, "run"))
 

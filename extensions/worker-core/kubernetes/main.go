@@ -94,7 +94,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("create Kubernetes worker core server: %v", err)
 	}
-	defer os.Remove(*socketPath)
+	defer func(path string) { _ = os.Remove(path) }(*socketPath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -217,7 +217,7 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 
 	if err := c.runner.ApplyJob(ctx, c.cfg.Namespace, manifest); err != nil {
 		if ctx.Err() != nil {
-			return sdk.Cancelled(ctx.Err().Error()), nil
+			return sdk.Cancelled(ctx.Err().Error()), nil //nolint:nilerr // Cancellation is a task outcome, not an RPC failure.
 		}
 
 		return sdk.ExternalUnavailable(
@@ -237,7 +237,7 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 	outcome, waitErr := c.runner.WaitJob(ctx, c.cfg.Namespace, jobName, c.cfg.WaitTimeout, c.cfg.PollInterval)
 	logDrained := false
 	select {
-	case <-logDone:
+	case <-logDone: //nolint:errcheck // Terminal logs are drained separately; follower shutdown is best-effort.
 		logDrained = true
 	case <-time.After(logDrainTimeout):
 	}
@@ -245,7 +245,7 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 	stopLogs()
 	if !logDrained {
 		select {
-		case <-logDone:
+		case <-logDone: //nolint:errcheck // Terminal logs are drained separately; follower shutdown is best-effort.
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -259,18 +259,18 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 	}
 
 	if c.cfg.DeleteAfter && outcome.Phase != jobRunning {
-		_ = c.runner.DeleteJob(context.Background(), c.cfg.Namespace, jobName)
+		_ = c.deleteJobAfterTask(ctx, jobName)
 	}
 
 	if reason, ok := c.cancelReason(task.Session.ID()); ok {
-		_ = c.runner.DeleteJob(context.Background(), c.cfg.Namespace, jobName)
+		_ = c.deleteJobAfterTask(ctx, jobName)
 		return sdk.Cancelled("cancelled: " + reason), nil
 	}
 
 	if waitErr != nil {
 		if ctx.Err() != nil {
-			_ = c.runner.DeleteJob(context.Background(), c.cfg.Namespace, jobName)
-			return sdk.Cancelled(ctx.Err().Error()), nil
+			_ = c.deleteJobAfterTask(ctx, jobName)
+			return sdk.Cancelled(ctx.Err().Error()), nil //nolint:nilerr // Cancellation is a task outcome, not an RPC failure.
 		}
 
 		return sdk.ExternalUnavailable(
@@ -352,7 +352,7 @@ func executableTaskSpec(task sdk.Task) (executableSpec, error) {
 
 	if strings.HasPrefix(uses, "builtins/") {
 		return executableSpec{}, fmt.Errorf(
-			"Kubernetes worker core example supports builtins/script and frozen custom process actions only, got %q",
+			"kubernetes worker core example supports builtins/script and frozen custom process actions only, got %q",
 			uses,
 		)
 	}
@@ -833,11 +833,17 @@ func (r kubectlRunner) DeleteJob(ctx context.Context, namespace, name string) er
 	return err
 }
 
+func (c *kubernetesCore) deleteJobAfterTask(ctx context.Context, jobName string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	return c.runner.DeleteJob(cleanupCtx, c.cfg.Namespace, jobName)
+}
+
 func (r kubectlRunner) StreamLogs(ctx context.Context, namespace, name string, send func([]byte) error) error {
 	for ctx.Err() == nil {
 		sent, err := r.streamLogsOnce(ctx, namespace, name, send)
 		if ctx.Err() != nil {
-			return nil
+			return nil //nolint:nilerr // Stopping the log follower is normal after task completion.
 		}
 
 		if err == nil {
@@ -968,7 +974,7 @@ func (r kubectlRunner) streamLogsOnce(
 	send func([]byte) error,
 ) (bool, error) {
 	args := r.args(namespace, "logs", "-f", "job/"+name, "--container", "task")
-	cmd := exec.CommandContext(ctx, r.kubectl, args...)
+	cmd := exec.CommandContext(ctx, r.kubectl, args...) // #nosec G204 -- The operator selects kubectl; generated arguments are passed without a shell.
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return false, err
@@ -1019,7 +1025,7 @@ func (r kubectlRunner) streamLogsOnce(
 
 func (r kubectlRunner) run(ctx context.Context, namespace string, stdin []byte, args ...string) ([]byte, error) {
 	args = r.args(namespace, args...)
-	cmd := exec.CommandContext(ctx, r.kubectl, args...)
+	cmd := exec.CommandContext(ctx, r.kubectl, args...) // #nosec G204 -- The operator selects kubectl; generated arguments are passed without a shell.
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -1228,7 +1234,7 @@ func envDurationDefault(key string, fallback time.Duration) time.Duration {
 
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
-		log.Printf("Ignoring invalid %s=%q: %v", key, value, err)
+		log.Printf("Ignoring invalid %q=%q: %q", key, value, err.Error()) // #nosec G706 -- Quoting escapes control characters in configuration errors.
 		return fallback
 	}
 
@@ -1247,7 +1253,7 @@ func envBoolDefault(key string, fallback bool) bool {
 	case "0", "false", "no", "off":
 		return false
 	default:
-		log.Printf("Ignoring invalid %s=%q", key, value)
+		log.Printf("Ignoring invalid %q=%q", key, value) // #nosec G706 -- Quoting escapes control characters in configuration values.
 		return fallback
 	}
 }

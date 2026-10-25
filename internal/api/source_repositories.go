@@ -661,7 +661,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventSourceRepositoryCreated, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventSourceRepositoryCreated, actorID, 0, map[string]any{
 		"repository_id": rec.RepositoryID,
 		"namespace":     ns.Path,
 		"source_kind":   rec.SourceKind,
@@ -959,7 +959,7 @@ func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 	s.markDBRecovered()
 
-	s.auditLog(
+	_ = s.auditLog(
 		ctx,
 		audit.EventSourceScheduleUpdated,
 		actorIDFromPrincipal(p),
@@ -1045,7 +1045,7 @@ func (s *APIServer) DeleteSourceSchedule(w http.ResponseWriter, r *http.Request)
 	}
 	s.markDBRecovered()
 
-	s.auditLog(
+	_ = s.auditLog(
 		ctx,
 		audit.EventSourceScheduleDeleted,
 		actorIDFromPrincipal(p),
@@ -1157,7 +1157,7 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 	}
 	s.markDBRecovered()
 
-	s.auditLog(
+	_ = s.auditLog(
 		ctx,
 		audit.EventSourceScheduleOverrideSet,
 		actorIDFromPrincipal(p),
@@ -1210,7 +1210,7 @@ func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.
 	}
 	s.markDBRecovered()
 
-	s.auditLog(
+	_ = s.auditLog(
 		ctx,
 		audit.EventSourceScheduleOverrideCleared,
 		actorIDFromPrincipal(p),
@@ -1287,7 +1287,7 @@ func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Reques
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventSourceRepositoryDeleted, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventSourceRepositoryDeleted, actorID, 0, map[string]any{
 		"repository_id": rec.RepositoryID,
 		"namespace":     nsPath,
 		"source_kind":   rec.SourceKind,
@@ -1772,7 +1772,7 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 	}
 
 	eventType, operation := sourceDefinitionAuditEvent(req.CreateOnly)
-	s.auditLog(
+	_ = s.auditLog(
 		ctx,
 		eventType,
 		actorID,
@@ -2016,7 +2016,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
 		"job_id":             jobID,
 		"run_id":             runID,
 		"run_index":          runIndex,
@@ -2305,7 +2305,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
 	if !syncStarted {
 		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock)
-		s.auditLog(
+		_ = s.auditLog(
 			ctx,
 			audit.EventSourceRepositorySyncRequested,
 			actorID,
@@ -2354,7 +2354,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 
 	if !began {
 		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock)
-		s.auditLog(
+		_ = s.auditLog(
 			ctx,
 			audit.EventSourceRepositorySyncRequested,
 			actorID,
@@ -2420,7 +2420,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	if syncRecord.Status == dal.SourceSyncStatusFailed {
 		reason := sourceRepositorySyncMetricReason(syncRecord.Error)
 		recordSync(observability.SourceSyncOutcomeFailed, reason)
-		s.auditLog(
+		_ = s.auditLog(
 			ctx,
 			audit.EventSourceRepositorySyncRequested,
 			actorID,
@@ -2429,7 +2429,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		)
 	} else {
 		recordSync(observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone)
-		s.auditLog(
+		_ = s.auditLog(
 			ctx,
 			audit.EventSourceRepositorySyncRequested,
 			actorID,
@@ -2668,7 +2668,7 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventSourceRepositoryUpdated, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventSourceRepositoryUpdated, actorID, 0, map[string]any{
 		"repository_id": updated.RepositoryID,
 		"namespace":     nsPath,
 		"source_kind":   updated.SourceKind,
@@ -3942,7 +3942,7 @@ func (s *APIServer) tryAcquireSourceRefHydrationLease(ctx context.Context, key s
 	}
 
 	return func() {
-		releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
 		if err := s.serviceLeases.Release(releaseCtx, name, owner); err != nil && s.logger != nil {
 			s.logger.Warn("Source ref hydration lease release failed for %s: %v", name, err)

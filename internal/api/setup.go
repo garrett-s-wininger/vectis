@@ -136,7 +136,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	a := strings.TrimSpace(req.BootstrapToken)
 	if subtle.ConstantTimeCompare([]byte(a), []byte(expected)) != 1 {
-		s.auditLog(r.Context(), audit.EventSetupBootstrapFailed, 0, 0, map[string]any{
+		_ = s.auditLog(r.Context(), audit.EventSetupBootstrapFailed, 0, 0, map[string]any{
 			"reason": "invalid_bootstrap_token",
 		})
 

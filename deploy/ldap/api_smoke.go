@@ -61,6 +61,7 @@ type APISmokeResult struct {
 	AuthenticatedAPIProbePath   string `json:"authenticated_api_probe_path"`
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunAPISmoke(ctx context.Context, opts APISmokeOptions) (APISmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -194,7 +195,7 @@ func runInMemoryAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 	if err != nil {
 		return APISmokeResult{}, err
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	provider, err := apiSmokeLoginProvider(opts)
 	if err != nil {
@@ -628,7 +629,7 @@ func getSetupStatus(ctx context.Context, client *http.Client, url string) (setup
 	if err != nil {
 		return setupStatusResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
@@ -671,7 +672,7 @@ func postAPIJSON(
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != wantStatus {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
@@ -703,7 +704,7 @@ func getAuthenticatedAPI(ctx context.Context, client *http.Client, url, token st
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))

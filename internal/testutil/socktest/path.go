@@ -10,10 +10,10 @@ import (
 // ShortPath returns a socket path under a short temp root when one is available.
 func ShortPath(t testing.TB, name string) string {
 	t.Helper()
-	dir, err := os.MkdirTemp(
+	dir, err := os.MkdirTemp( //nolint:usetesting // Keep Unix socket and checkout paths short across platforms.
 		shortTempRoot(),
 		"vectis-sock-*",
-	) //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
+	)
 	if err != nil {
 		t.Fatalf("mkdtemp: %v", err)
 	}

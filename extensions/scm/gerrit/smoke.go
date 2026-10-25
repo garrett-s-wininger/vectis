@@ -51,6 +51,7 @@ type SmokeEvent struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

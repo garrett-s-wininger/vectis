@@ -103,7 +103,7 @@ func Lint() error {
 		return err
 	}
 
-	version := envDefault("GOLANGCI_LINT_VERSION", "v2.6.1")
+	version := envDefault("GOLANGCI_LINT_VERSION", "v2.15.0")
 	return run(
 		"",
 		nil,
@@ -205,7 +205,7 @@ func LintGoStrict() error {
 		return nil
 	}
 
-	version := envDefault("GOLANGCI_LINT_VERSION", "v2.6.1")
+	version := envDefault("GOLANGCI_LINT_VERSION", "v2.15.0")
 	return run(
 		"",
 		nil,

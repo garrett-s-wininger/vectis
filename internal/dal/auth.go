@@ -775,7 +775,7 @@ ORDER BY ap.provider_id, ei.subject`),
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var identities []*ExternalIdentityRecord
 	for rows.Next() {
@@ -1309,7 +1309,7 @@ func (r *SQLAuthRepository) ListAuditEvents(
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var events []*AuditEventRecord
 	for rows.Next() {

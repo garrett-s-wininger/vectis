@@ -47,7 +47,7 @@ func (r *SQLSCMPollTriggersRepository) GetReady(
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SCMPollTriggerSpec
 	for rows.Next() {
@@ -125,7 +125,7 @@ func (r *SQLSCMPollTriggersRepository) ListEnabledByProvider(
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SCMPollTriggerSpec
 	for rows.Next() {

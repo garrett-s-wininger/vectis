@@ -289,7 +289,7 @@ func hasDocsIndex(dir string) bool {
 		return false
 	}
 
-	info, err := os.Stat(filepath.Join(clean, "index.html"))
+	info, err := os.Stat(filepath.Join(clean, "index.html")) // #nosec G703 -- The operator configures the static docs root; this probes its fixed index file.
 	return err == nil && !info.IsDir()
 }
 

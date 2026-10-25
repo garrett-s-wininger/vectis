@@ -38,6 +38,7 @@ type StreamEventInfo struct {
 	Ref             string
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func ConsumeStream(ctx context.Context, r io.Reader, opts StreamOptions, handle StreamHandler) error {
 	if ctx == nil {
 		ctx = context.Background()

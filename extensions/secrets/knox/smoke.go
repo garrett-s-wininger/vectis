@@ -51,6 +51,7 @@ type SmokeResult struct {
 	MissingRefDenied bool   `json:"missing_ref_denied"`
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -218,7 +219,7 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 		}}})
 
 		if !errors.Is(err, ErrDenied) {
-			return SmokeResult{}, fmt.Errorf("knox smoke wrong token error = %v, want denied", err)
+			return SmokeResult{}, fmt.Errorf("knox smoke wrong token error = %w, want denied", err)
 		}
 
 		wrongTokenDenied = true
@@ -233,7 +234,7 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 		}}})
 
 		if !errors.Is(err, ErrNotFound) {
-			return SmokeResult{}, fmt.Errorf("knox smoke missing ref error = %v, want not found", err)
+			return SmokeResult{}, fmt.Errorf("knox smoke missing ref error = %w, want not found", err)
 		}
 
 		missingRefDenied = true

@@ -1353,7 +1353,7 @@ func (r *conflictDisabledAuthRepo) CreateLocalUserWithPasswordAuth(
 		return 0, err
 	}
 
-	if err := r.AuthRepository.UpdateLocalUserEnabled(ctx, id, false); err != nil {
+	if err := r.UpdateLocalUserEnabled(ctx, id, false); err != nil {
 		return 0, err
 	}
 

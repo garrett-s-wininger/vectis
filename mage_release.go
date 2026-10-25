@@ -27,7 +27,7 @@ func CiQuick() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func(path string) { _ = os.RemoveAll(path) }(tmpDir)
 
 	worktree := filepath.Join(tmpDir, "worktree")
 	if err := run("", nil, "git", "worktree", "add", "--detach", worktree, "HEAD"); err != nil {

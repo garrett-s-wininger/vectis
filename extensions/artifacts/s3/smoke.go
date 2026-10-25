@@ -52,6 +52,7 @@ type SmokeResult struct {
 	Stats    sdkartifact.StorageStats `json:"stats"`
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -187,7 +188,7 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if err != nil {
 		return SmokeResult{}, err
 	}
-	defer rc.Close()
+	defer func(close func() error) { _ = close() }(rc.Close)
 
 	body, err := io.ReadAll(rc)
 	if err != nil {
@@ -247,7 +248,7 @@ func ensureSmokeBucket(ctx context.Context, store *Store) error {
 	if err != nil {
 		return fmt.Errorf("create s3 smoke bucket %s: %w", store.bucket, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusConflict {
 		return nil

@@ -168,11 +168,7 @@ func (s InputSchema) ValidateWith(with map[string]string) []FieldError {
 func (s InputSchema) FieldSpecs() []FieldSpec {
 	specs := make([]FieldSpec, 0, len(s.Fields))
 	for _, field := range s.Fields {
-		specs = append(specs, FieldSpec{
-			Name:     field.Name,
-			Type:     field.Type,
-			Required: field.Required,
-		})
+		specs = append(specs, FieldSpec(field))
 	}
 
 	return specs

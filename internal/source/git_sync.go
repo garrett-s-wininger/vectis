@@ -531,7 +531,7 @@ func fetchManagedGitRef(
 			strings.Join(fetchErrors, "; "),
 		)
 		if allFetchErrorsMissing {
-			return "", fmt.Errorf("%w: %v", ErrNotFound, err)
+			return "", fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 
 		return "", err
@@ -541,7 +541,7 @@ func fetchManagedGitRef(
 	if !ok {
 		objectOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef)
 		if err != nil {
-			return "", fmt.Errorf("%w: candidate ref %s did not resolve: %v", ErrNotFound, candidateRef, err)
+			return "", fmt.Errorf("%w: candidate ref %s did not resolve: %w", ErrNotFound, candidateRef, err)
 		}
 
 		objectID = strings.TrimSpace(string(objectOut))
@@ -553,7 +553,7 @@ func fetchManagedGitRef(
 
 	commitOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef+"^{commit}")
 	if err != nil {
-		return "", fmt.Errorf("%w: candidate ref %s did not resolve to a commit: %v", ErrNotFound, candidateRef, err)
+		return "", fmt.Errorf("%w: candidate ref %s did not resolve to a commit: %w", ErrNotFound, candidateRef, err)
 	}
 
 	if strings.TrimSpace(string(commitOut)) == "" {
@@ -644,7 +644,7 @@ func fetchManagedGitAuxiliaryRef(
 			strings.Join(fetchErrors, "; "),
 		)
 		if allFetchErrorsMissing {
-			return "", fmt.Errorf("%w: %v", ErrNotFound, err)
+			return "", fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 
 		return "", err
@@ -653,7 +653,7 @@ func fetchManagedGitAuxiliaryRef(
 	commitOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef+"^{commit}")
 	if err != nil {
 		return "", fmt.Errorf(
-			"%w: auxiliary candidate ref %s did not resolve to a commit: %v",
+			"%w: auxiliary candidate ref %s did not resolve to a commit: %w",
 			ErrNotFound,
 			candidateRef,
 			err,
@@ -1241,7 +1241,7 @@ func runGitCommand(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func runGitCommandWithEnv(ctx context.Context, env []string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- Git arguments are built by repository operations and passed without a shell.
 	cmd.Env = gitCommandEnv(env)
 
 	var stderr bytes.Buffer

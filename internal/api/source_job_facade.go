@@ -252,7 +252,7 @@ func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(
+	_ = s.auditLog(
 		ctx,
 		audit.EventJobDeleted,
 		actorID,

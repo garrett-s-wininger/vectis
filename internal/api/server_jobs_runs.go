@@ -421,7 +421,7 @@ func (s *APIServer) repairMarkRun(w http.ResponseWriter, r *http.Request, mark r
 		fields["reason"] = reason
 	}
 
-	s.auditLog(ctx, audit.EventRunRepairMarked, actorID, 0, fields)
+	_ = s.auditLog(ctx, audit.EventRunRepairMarked, actorID, 0, fields)
 	s.logger.Warn("Run repair-marked via API: %s -> %s", runID, mark)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -571,7 +571,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunForceFailed, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventRunForceFailed, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
 		"reason":    reason,
@@ -677,7 +677,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunForceRequeued, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventRunForceRequeued, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
 	})
@@ -772,7 +772,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 				err,
 			)
 		} else {
-			s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
+			_ = s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
 				"run_id":    runID,
 				"namespace": nsPath,
 				"delivery":  "worker_control",
@@ -784,7 +784,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
 		"delivery":  "pending",
@@ -856,7 +856,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if job.Id == nil || *job.Id == "" {
+	if job.Id == nil || job.GetId() == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job id is required", nil)
 		return
 	}
@@ -911,7 +911,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	triggers := jobTriggerConfigs(&job)
-	err = s.jobs.CreateWithTriggers(ctx, *job.Id, string(req.Job), ns.ID, triggers)
+	err = s.jobs.CreateWithTriggers(ctx, job.GetId(), string(req.Job), ns.ID, triggers)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -933,12 +933,12 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]any{
-		"job_id":    *job.Id,
+	_ = s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]any{
+		"job_id":    job.GetId(),
 		"namespace": ns.Path,
 	})
 
-	s.logger.Info("Stored job: %s", *job.Id)
+	s.logger.Info("Stored job: %s", job.GetId())
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -1223,7 +1223,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 			auditFields["trigger_key"] = manualTriggerKey
 		}
 
-		s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, auditFields)
+		_ = s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, auditFields)
 	}
 
 	for _, createdRun := range createdRuns {
@@ -1681,7 +1681,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 
 	s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
 	s.broadcastSourceRepositoryRunEvent(ctx, jobID, sourceRun.DefinitionVersion, createdRun.RunID, createdRun.RunIndex)
-	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
 		"job_id":           jobID,
 		"run_id":           createdRun.RunID,
 		"run_index":        createdRun.RunIndex,
@@ -1756,7 +1756,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if job.Id == nil || *job.Id != jobID {
+	if job.Id == nil || job.GetId() != jobID {
 		writeAPIError(w, http.StatusBadRequest, "job_id_mismatch", "job id mismatch", nil)
 		return
 	}
@@ -1850,7 +1850,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
 		"job_id":    jobID,
 		"namespace": nsPath,
 	})
@@ -2165,7 +2165,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
+	_ = s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
 		"job_id":     ephemeralJobID,
 		"run_id":     runID,
 		"namespace":  ns.Path,

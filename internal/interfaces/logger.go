@@ -65,13 +65,13 @@ func NewLogOutput(component string) io.Writer {
 		return os.Stderr
 	}
 
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	if err := os.MkdirAll(logDir, 0o755); err != nil { // #nosec G703 -- VECTIS_LOG_DIR is operator-controlled configuration.
 		fmt.Fprintf(os.Stderr, "failed to create VECTIS_LOG_DIR %q: %v\n", logDir, err)
 		return os.Stderr
 	}
 
 	path := filepath.Join(logDir, sanitizeLogComponent(component)+".jsonl")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644) // #nosec G703 -- The root is operator-configured and the component filename is sanitized.
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open log file %q: %v\n", path, err)
 		return os.Stderr

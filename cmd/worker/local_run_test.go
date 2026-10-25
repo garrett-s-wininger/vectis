@@ -108,6 +108,92 @@ func TestRunLocalJobFailure(t *testing.T) {
 	}
 }
 
+func TestRunLocalCIJob(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the GitHub Actions dogfood gate runs on Unix")
+	}
+
+	steps := []string{
+		"prek run --all-files",
+		"mage proto",
+		"git diff --exit-code -- api/gen/go",
+		"mage lint",
+		"mage testQuick",
+		"mage buildContainer",
+	}
+
+	for failAt := -1; failAt < len(steps); failAt++ {
+		name := "success"
+		if failAt >= 0 {
+			name = steps[failAt]
+		}
+
+		t.Run(name, func(t *testing.T) {
+			workspace := t.TempDir()
+			ciDir := filepath.Join(workspace, ".vectis")
+			toolDir := filepath.Join(workspace, "tools")
+
+			for _, dir := range []string{ciDir, toolDir} {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			for _, file := range []string{"ci.json", "ci.sh"} {
+				raw, err := os.ReadFile(filepath.Join("..", "..", ".vectis", file))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.WriteFile(filepath.Join(ciDir, file), raw, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			stub := `#!/bin/sh
+step="${0##*/} $*"
+printf '%s\n' "$step" >> ci-commands.log
+if [ -f ci-fail ] && [ "$(cat ci-fail)" = "$step" ]; then
+	exit 7
+fi
+`
+
+			for _, tool := range []string{"prek", "mage", "git"} {
+				if err := os.WriteFile(filepath.Join(toolDir, tool), []byte(stub), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			if failAt >= 0 {
+				if err := os.WriteFile(filepath.Join(workspace, "ci-fail"), []byte(steps[failAt]), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			var stdout, stderr bytes.Buffer
+			err := runLocalJob(context.Background(), filepath.Join(ciDir, "ci.json"), workspace, &stdout, &stderr)
+			if (err != nil) != (failAt >= 0) {
+				t.Fatalf("run CI job: %v\nstdout:\n%s\nstderr:\n%s", err, &stdout, &stderr)
+			}
+
+			raw, err := os.ReadFile(filepath.Join(workspace, "ci-commands.log"))
+			if err != nil {
+				t.Fatalf("read command trace: %v\nstderr:\n%s", err, &stderr)
+			}
+
+			wantSteps := steps
+			if failAt >= 0 {
+				wantSteps = steps[:failAt+1]
+			}
+
+			if want := strings.Join(wantSteps, "\n") + "\n"; string(raw) != want {
+				t.Fatalf("CI command trace = %q, want %q", raw, want)
+			}
+		})
+	}
+}
+
 func TestRunLocalJobValidation(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

@@ -59,6 +59,7 @@ type SmokeResult struct {
 	WrongPasswordDenied bool                `json:"wrong_password_denied"`
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -211,7 +212,7 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if opts.WrongPassword != "" {
 		_, err := provider.Authenticate(ctx, opts.Username, opts.WrongPassword)
 		if !errors.Is(err, sdkauth.ErrInvalidCredentials) {
-			return SmokeResult{}, fmt.Errorf("ldap smoke wrong password error = %v, want invalid credentials", err)
+			return SmokeResult{}, fmt.Errorf("ldap smoke wrong password error = %w, want invalid credentials", err)
 		}
 
 		wrongPasswordDenied = true

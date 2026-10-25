@@ -21,7 +21,7 @@ var (
 )
 
 func defaultRunTrustCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+	return exec.CommandContext(ctx, name, args...).CombinedOutput() // #nosec G204 -- Platform code supplies the trust utility and arguments; no shell interprets them.
 }
 
 func defaultTrustCommandExists(name string) bool {

@@ -9,10 +9,21 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestAgentConnectionHonorsCancellation(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", filepath.Join(t.TempDir(), "agent.sock"))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _, err := authMethods(ctx, Options{UseAgent: true})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("agent connection error = %v, want context cancellation", err)
+	}
+}
 
 func TestNormalizeOptionsDefaults(t *testing.T) {
 	opts, err := NormalizeOptions(Options{

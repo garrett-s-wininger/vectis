@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -741,11 +742,11 @@ func readBackupInventoryFile(path string) (backupInventory, error) {
 	if path == "-" {
 		r = os.Stdin
 	} else {
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G703 -- The operator selects the backup inventory path.
 		if err != nil {
 			return backupInventory{}, fmt.Errorf("open backup inventory %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func(close func() error) { _ = close() }(f.Close)
 
 		r = f
 	}
@@ -767,11 +768,11 @@ func readBackupManifestFile(path string) (backupManifest, error) {
 	if path == "-" {
 		r = os.Stdin
 	} else {
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G703 -- The operator selects the backup inventory path.
 		if err != nil {
 			return backupManifest{}, fmt.Errorf("open backup manifest %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func(close func() error) { _ = close() }(f.Close)
 
 		r = f
 	}
@@ -789,11 +790,11 @@ func readBackupExpectedTopologyFile(path string) (backupExpectedTopologyInput, e
 	if path == "-" {
 		r = os.Stdin
 	} else {
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G703 -- The operator selects the backup inventory path.
 		if err != nil {
 			return backupExpectedTopologyInput{}, fmt.Errorf("open backup expected topology %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func(close func() error) { _ = close() }(f.Close)
 
 		r = f
 	}
@@ -837,11 +838,11 @@ func readBackupStorageReportFile(path string) (storageverify.Report, error) {
 	if path == "-" {
 		r = os.Stdin
 	} else {
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G703 -- The operator selects the backup inventory path.
 		if err != nil {
 			return storageverify.Report{}, fmt.Errorf("open storage verification report %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func(close func() error) { _ = close() }(f.Close)
 
 		r = f
 	}
@@ -1380,9 +1381,7 @@ func verifyBackupManifestWithStorage(
 		addWarning("config_paths.missing", "manifest has no deployment config paths")
 	}
 
-	for _, warning := range manifest.Warnings {
-		result.Warnings = append(result.Warnings, warning)
-	}
+	result.Warnings = append(result.Warnings, manifest.Warnings...)
 
 	if expected != nil {
 		verifyBackupExpectedTopology(manifest, expected.Source, expected.Expectations, &result)
@@ -1528,7 +1527,6 @@ func verifyBackupStorageReports(
 				result.Summary.StorageReportsVerified++
 			}
 		} else {
-			reportOK = false
 			result.Errors = append(result.Errors, backupManifestFinding{
 				Severity: backupFindingSeverityError,
 				ID:       "storage_report.unmatched",
@@ -1919,7 +1917,7 @@ func inspectBackupSchema(dsn string) backupSchemaInventory {
 	if err != nil {
 		return backupSchemaInventory{Inspectable: false, Error: err.Error()}
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), backupSchemaInspectTimeout)
 	defer cancel()
@@ -1929,7 +1927,7 @@ func inspectBackupSchema(dsn string) backupSchemaInventory {
 	err = db.QueryRowContext(ctx, "SELECT version, dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").
 		Scan(&version, &dirty)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return backupSchemaInventory{Inspectable: true, Error: "schema_migrations has no rows"}
 		}
 		return backupSchemaInventory{Inspectable: false, Error: err.Error()}
@@ -2250,7 +2248,7 @@ func backupPath(id, kind, path, source string, enabled bool, note string) backup
 		return item
 	}
 
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) // #nosec G703 -- The operator selects the backup inventory path.
 	if err != nil {
 		item.Error = err.Error()
 		return item
@@ -2265,7 +2263,7 @@ func backupPath(id, kind, path, source string, enabled bool, note string) backup
 
 func backupReadable(path string, info os.FileInfo) bool {
 	if info.IsDir() {
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G703 -- The operator selects the backup inventory path.
 		if err != nil {
 			return false
 		}
@@ -2273,7 +2271,7 @@ func backupReadable(path string, info os.FileInfo) bool {
 		return true
 	}
 
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G703 -- The operator selects the backup inventory path.
 	if err != nil {
 		return false
 	}
@@ -2778,6 +2776,8 @@ func sqliteLocalPath(dsn string) string {
 
 func backupDatabaseDSNSource(role database.Role) string {
 	switch role {
+	case database.RoleDefault:
+		// Fall through to the shared database configuration below.
 	case database.RoleGlobal:
 		if os.Getenv(database.EnvGlobalDatabaseDSN) != "" {
 			return database.EnvGlobalDatabaseDSN
