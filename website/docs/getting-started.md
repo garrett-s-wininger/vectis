@@ -16,8 +16,8 @@ It assumes you are working from a clone of the Vectis repository on a developmen
 | Log service | Stores and streams run output. |
 | Registry | Lets services find one another. |
 | Cron and reconciler | Handle scheduled work and repair missed queue handoffs. |
-| UI | Serves the browser application locally. |
-| Docs | Serves the docs site locally. |
+| UI | Serves the browser application locally after `mage buildFull`. |
+| Docs | Serves the docs site locally after `mage buildFull`. |
 
 The local stack uses SQLite by default and stores data under your user data directory, usually `~/.local/share/vectis` when `XDG_DATA_HOME` is not set.
 
@@ -60,7 +60,7 @@ In one terminal, run:
 ./bin/vectis-local
 ```
 
-Leave this process running. It supervises the local API, cell ingress, queue, worker, worker core, secrets service, log service, artifact service, registry, cron, reconciler, catalog, UI, and docs site.
+Leave this process running. It supervises the local API, cell ingress, queue, worker, worker core, secrets service, log service, artifact service, registry, cron, reconciler, and catalog. After `mage buildFull` or `mage buildFrontend`, it also starts the UI and docs site.
 
 By default, `vectis-local` creates local TLS material. Internal gRPC uses it immediately. The local API and docs use HTTPS automatically when that generated CA is already trusted by the system store, or when you start with `--http-tls=on`. Otherwise they keep using HTTP, allow insecure session cookies so API auth can start, and log the trust-store setup command.
 
@@ -79,13 +79,13 @@ When local HTTPS is not enabled, the public API listens on:
 http://localhost:8080
 ```
 
-and the docs site listens on:
+After `mage buildFull` or `mage buildFrontend`, the docs site listens on:
 
 ```text
 http://localhost:8088
 ```
 
-The UI listens on:
+and the UI listens on:
 
 ```text
 http://localhost:8089
