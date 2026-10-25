@@ -152,6 +152,14 @@ func TestRunLocalCIJob(t *testing.T) {
 			}
 
 			stub := `#!/bin/sh
+if [ "$GOPATH" != "$HOME/.cache/go" ]; then
+	echo "CI Go cache must stay outside package discovery" >&2
+	exit 8
+fi
+if [ "$GIT_CEILING_DIRECTORIES" != "$TMPDIR" ]; then
+	echo "Test fixtures must not discover the parent CI repository" >&2
+	exit 9
+fi
 step="${0##*/} $*"
 printf '%s\n' "$step" >> ci-commands.log
 if [ -f ci-fail ] && [ "$(cat ci-fail)" = "$step" ]; then

@@ -45,7 +45,7 @@ func CiQuick() (err error) {
 
 func cleanCIWorktreeModuleCache(worktree string) error {
 	return run(worktree, map[string]string{
-		"GOMODCACHE": filepath.Join(worktree, "go", "pkg", "mod"),
+		"GOMODCACHE": filepath.Join(worktree, ".cache", "go", "pkg", "mod"),
 	}, goCommand(), "clean", "-modcache")
 }
 
