@@ -113,18 +113,14 @@ describe("App", () => {
       )
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({
-            data: [
-              {
-                name: "live-smoke",
-                namespace: "/",
-                definition: {
-                  id: "live-smoke",
-                  root: { id: "root", uses: "builtins/script" }
-                }
-              }
-            ]
-          }),
+          JSON.stringify([
+            {
+              repository_id: "vectis-local",
+              namespace: "/",
+              default_ref: "main",
+              enabled: true
+            }
+          ]),
           { status: 200 }
         )
       )
@@ -132,6 +128,14 @@ describe("App", () => {
         new Response(JSON.stringify([{ id: 1, username: "admin", enabled: true }]), {
           status: 200
         })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jobs: [{ job_id: "live-smoke", path: ".vectis/jobs/live-smoke.json" }]
+          }),
+          { status: 200 }
+        )
       )
       .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
       .mockResolvedValueOnce(
@@ -159,7 +163,7 @@ describe("App", () => {
     expect(await screen.findByText("live-smoke")).toBeInTheDocument();
     expect(screen.getByText("admin")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/jobs?limit=200",
+      "/api/v1/jobs?limit=200&repository_id=vectis-local&ref=main",
       expect.objectContaining({ credentials: "same-origin" })
     );
   });

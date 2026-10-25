@@ -915,16 +915,26 @@ func TestManagedGitCheckoutResolvesHydratedRemoteBranchByPlainName(t *testing.T)
 	}
 }
 
-func TestSyncManagedGitCheckoutRequiresRemoteURLToClone(t *testing.T) {
+func TestSyncManagedGitCheckoutInitializesLocalRepository(t *testing.T) {
 	t.Parallel()
 
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
 	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
-		CheckoutPath: filepath.Join(t.TempDir(), "managed"),
-		DefaultRef:   "HEAD",
+		CheckoutPath: checkoutPath,
+		DefaultRef:   "main",
 	})
 
-	if status.ErrorCode != "git_clone_failed" || !strings.Contains(status.ErrorMessage, "canonical_url") {
-		t.Fatalf("expected canonical_url clone failure, got %+v", status)
+	if status.ErrorCode != "" || !status.DefaultRefResolved || status.ResolvedCommit == "" {
+		t.Fatalf("local managed checkout status = %+v", status)
+	}
+
+	again := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		DefaultRef:   "main",
+	})
+
+	if again.ErrorCode != "" || again.ResolvedCommit != status.ResolvedCommit {
+		t.Fatalf("repeat local managed checkout status = %+v, want commit %s", again, status.ResolvedCommit)
 	}
 }
 

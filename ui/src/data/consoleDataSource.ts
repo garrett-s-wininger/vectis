@@ -39,11 +39,22 @@ type PaginatedResponse<T> = {
   next_cursor?: number;
 };
 
-type APIJob = {
-  description?: string;
-  definition: unknown;
-  name: string;
+type APISourceRepository = {
+  default_ref?: string;
+  enabled?: boolean;
   namespace?: string;
+  repository_id: string;
+};
+
+type APISourceJob = {
+  job_id: string;
+  path: string;
+};
+
+type APISourceJobsResponse = {
+  jobs?: APISourceJob[];
+  repository_id?: string;
+  requested_ref?: string;
 };
 
 type APINamespace = {
@@ -149,7 +160,7 @@ export type ConsoleDataSource = {
   loadRun(runID: string): Promise<RunListItem>;
   revokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
-  triggerRun(jobID: string): Promise<ConsoleData>;
+  triggerRun(jobID: string, repositoryID?: string): Promise<ConsoleData>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
   updateNamespace(namespaceID: number, input: UpdateNamespace): Promise<ConsoleData>;
   updateUserStatus(userID: string, status: UserStatus): Promise<User[]>;
@@ -253,10 +264,17 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       const definition = parseJobDefinition(input.definition);
       definition.id = input.name;
 
+      const repositoryID = input.repository.trim();
       await requestNoContent("/api/v1/jobs", {
         method: "POST",
         body: JSON.stringify({
           namespace: input.namespacePath,
+          ...(repositoryID
+            ? {
+                repository_id: repositoryID,
+                ...(input.branch.trim() ? { ref: input.branch.trim() } : {})
+              }
+            : {}),
           job: definition
         })
       });
@@ -322,7 +340,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     loadCells: loadAPICells,
     async loadRun(runID) {
       const [run, jobsPage, tasks] = await Promise.all([loadAPIRun(runID), loadAPIJobs(), loadAPIRunTasks(runID)]);
-      const jobs = jobsPage.data.map(apiJobToConsoleJob);
+      const jobs = jobsPage.data;
       const job = jobs.find((candidate) => candidate.id === run.job_id);
       return {
         ...apiRunToConsoleRun(run, runDetailJob(run, job)),
@@ -356,9 +374,11 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
       return loadAPIConsoleData();
     },
-    async triggerRun(jobID) {
+    async triggerRun(jobID, repositoryID) {
+      const repository = repositoryID?.trim() ?? "";
       await requestJSON(`/api/v1/jobs/trigger/${encodeURIComponent(jobID)}`, {
-        method: "POST"
+        method: "POST",
+        ...(repository ? { body: JSON.stringify({ repository_id: repository }) } : {})
       });
 
       return loadAPIConsoleData();
@@ -366,8 +386,19 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     async updateJob(jobID, input) {
       const definition = parseJobDefinition(input.definition);
       definition.id = jobID;
+      const repositoryID = input.repository.trim();
+      const params = new URLSearchParams();
+      if (repositoryID) {
+        params.set("repository_id", repositoryID);
+      }
 
-      await requestNoContent(`/api/v1/jobs/${encodeURIComponent(jobID)}`, {
+      if (input.branch.trim()) {
+        params.set("ref", input.branch.trim());
+      }
+
+      const query = params.toString();
+
+      await requestNoContent(`/api/v1/jobs/${encodeURIComponent(jobID)}${query ? `?${query}` : ""}`, {
         method: "PUT",
         body: JSON.stringify(definition)
       });
@@ -401,7 +432,7 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
   const mockBase = createMockConsoleDataSnapshot();
   const [namespaces, jobsPage, users] = await Promise.all([loadAPINamespaces(), loadAPIJobs(), loadAPIUsers()]);
   const roleBindings = await loadAPIRoleBindings(namespaces, users);
-  const jobs = jobsPage.data.map(apiJobToConsoleJob);
+  const jobs = jobsPage.data;
   const runs = await loadAPIRuns(jobs);
   const usersWithRoleBindings = users.map((user) => {
     const bindings = roleBindings.filter((binding) => binding.userID === user.id);
@@ -433,7 +464,28 @@ async function loadAPINamespaces() {
 }
 
 async function loadAPIJobs() {
-  return requestJSON<PaginatedResponse<APIJob>>("/api/v1/jobs?limit=200");
+  const payload = await requestJSON<APISourceRepository[] | unknown>("/api/v1/source-repositories");
+  const repositories = Array.isArray(payload) ? payload : [];
+  const enabled = repositories.filter((repository) => repository.enabled !== false && repository.repository_id);
+  const pages = await Promise.all(enabled.map((repository) => loadAPISourceJobs(repository)));
+
+  return {
+    data: pages.flat()
+  };
+}
+
+async function loadAPISourceJobs(repository: APISourceRepository) {
+  const params = new URLSearchParams({
+    limit: "200",
+    repository_id: repository.repository_id
+  });
+
+  if (repository.default_ref?.trim()) {
+    params.set("ref", repository.default_ref.trim());
+  }
+
+  const page = await requestJSON<APISourceJobsResponse>(`/api/v1/jobs?${params.toString()}`);
+  return (page.jobs ?? []).map((job) => apiSourceJobToConsoleJob(repository, job));
 }
 
 async function loadAPICells() {
@@ -724,20 +776,17 @@ function apiNamespaceToConsoleNamespace(namespace: APINamespace): Namespace {
   };
 }
 
-function apiJobToConsoleJob(job: APIJob): Job {
-  const definition = normalizeJobDefinition(job.definition, job.name);
-  const definitionJSON = JSON.stringify(definition, null, 2);
+function apiSourceJobToConsoleJob(repository: APISourceRepository, job: APISourceJob): Job {
+  const branch = repository.default_ref?.trim() || "main";
 
   return {
-    id: job.name,
-    name: job.name,
-    description: job.description ?? stringField(definition, "description"),
-    repository: "",
-    branch: "",
-    sourceDetail: "Stored in Vectis",
-    sourceKind: "db",
-    definition: definitionJSON,
-    namespacePath: job.namespace ?? "/",
+    id: job.job_id,
+    name: job.job_id,
+    repository: repository.repository_id,
+    branch,
+    sourceDetail: job.path,
+    sourceKind: "repo",
+    namespacePath: repository.namespace || "/",
     schedule: "Manual",
     nextRun: "On demand",
     triggers: [{ kind: "manual", detail: "On demand" }],

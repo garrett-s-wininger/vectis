@@ -347,10 +347,38 @@ func listSources(cmd *cobra.Command, args []string) {
 	runCLIError(listSourcesWithOutput(os.Stdout))
 }
 
-func listSourcesWithOutput(out io.Writer) error {
+func resolveSourceRepositoryID(explicit, action string) (string, error) {
+	explicit = strings.TrimSpace(explicit)
+	if explicit != "" {
+		return explicit, nil
+	}
+
+	repositories, err := loadSourceRepositories("")
+	if err != nil {
+		return "", err
+	}
+
+	enabled := make([]sourceRepositorySummary, 0, len(repositories))
+	for _, repository := range repositories {
+		if repository.Enabled {
+			enabled = append(enabled, repository)
+		}
+	}
+
+	switch len(enabled) {
+	case 1:
+		return enabled[0].RepositoryID, nil
+	case 0:
+		return "", fmt.Errorf("--repository is required to %s; no enabled source repository is registered", action)
+	default:
+		return "", fmt.Errorf("--repository is required to %s when more than one source repository is registered", action)
+	}
+}
+
+func loadSourceRepositories(namespace string) ([]sourceRepositorySummary, error) {
 	path := "/api/v1/source-repositories"
 	params := url.Values{}
-	if v := strings.TrimSpace(sourceListNamespace); v != "" {
+	if v := strings.TrimSpace(namespace); v != "" {
 		params.Set("namespace", v)
 	}
 	if encoded := params.Encode(); encoded != "" {
@@ -359,22 +387,31 @@ func listSourcesWithOutput(out io.Writer) error {
 
 	req, err := newAPIRequest(http.MethodGet, path, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create source repository list request: %w", err)
+		return nil, fmt.Errorf("failed to create source repository list request: %w", err)
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return fmt.Errorf("failed to list source repositories: %w", err)
+		return nil, fmt.Errorf("failed to list source repositories: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status listing source repositories: %s", resp.Status)
+		return nil, fmt.Errorf("unexpected status listing source repositories: %s", resp.Status)
 	}
 
 	var repositories []sourceRepositorySummary
 	if err := json.NewDecoder(resp.Body).Decode(&repositories); err != nil {
-		return fmt.Errorf("failed to parse source repositories response: %w", err)
+		return nil, fmt.Errorf("failed to parse source repositories response: %w", err)
+	}
+
+	return repositories, nil
+}
+
+func listSourcesWithOutput(out io.Writer) error {
+	repositories, err := loadSourceRepositories(sourceListNamespace)
+	if err != nil {
+		return err
 	}
 
 	if sourceListStaleOnly {

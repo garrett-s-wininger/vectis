@@ -420,7 +420,7 @@ func (g *GitCheckout) readFileFromGoGit(commit, cleanPath string) (File, bool, e
 	if err != nil {
 		return File{}, false, nil
 	}
-	
+
 	if g.maxFileBytes > 0 && int64(len(content)) > g.maxFileBytes {
 		return File{}, true, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(content), g.maxFileBytes)
 	}
@@ -1014,6 +1014,10 @@ func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, tre
 		return nil
 	})
 	if err != nil {
+		if treePath != "" && gitTreePathMissing(err) {
+			return nil, false, "", nil
+		}
+
 		if treePath == "" {
 			return nil, false, "", fmt.Errorf("%w: list definition files at %s: %w", ErrNotFound, commit, err)
 		}
@@ -1022,6 +1026,10 @@ func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, tre
 	}
 
 	return files, truncated, nextCursor, nil
+}
+
+func gitTreePathMissing(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "not a valid object name")
 }
 
 func (g *GitCheckout) lookupFileBlob(ctx context.Context, commit, filePath string) (string, int64, error) {

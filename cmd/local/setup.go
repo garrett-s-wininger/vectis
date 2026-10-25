@@ -434,6 +434,10 @@ func printLocalReady(logger interfaces.Logger, scheme string, services []service
 		logger.Info("Setup left for the supplied bootstrap token.")
 	}
 
+	if len(localSourceRepositorySpecs()) == 0 && !viper.GetBool("config_as_code") {
+		logger.Info("Source repository vectis-local is ready for local job authoring on main.")
+	}
+
 	logger.Info("Next: ./bin/vectis-cli jobs run examples/sequenced.json --follow")
 }
 
