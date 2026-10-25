@@ -57,6 +57,10 @@ func protocPlugin(envName, tool string) string {
 		return value
 	}
 
+	if path, err := exec.LookPath(exeName(tool)); err == nil {
+		return path
+	}
+
 	gopath := goEnv("GOPATH")
 	if gopath == "" {
 		return exeName(tool)

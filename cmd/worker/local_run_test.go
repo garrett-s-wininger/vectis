@@ -115,6 +115,7 @@ func TestRunLocalCIJob(t *testing.T) {
 
 	steps := []string{
 		"prek run --all-files",
+		"go test -tags=mage .",
 		"mage proto",
 		"git diff --exit-code -- api/gen/go",
 		"mage lint",
@@ -158,7 +159,7 @@ if [ -f ci-fail ] && [ "$(cat ci-fail)" = "$step" ]; then
 fi
 `
 
-			for _, tool := range []string{"prek", "mage", "git"} {
+			for _, tool := range []string{"prek", "go", "mage", "git"} {
 				if err := os.WriteFile(filepath.Join(toolDir, tool), []byte(stub), 0o755); err != nil {
 					t.Fatal(err)
 				}
