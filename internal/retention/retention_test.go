@@ -569,6 +569,28 @@ func TestLocalArtifactBlobCleanerPreviewAndDelete(t *testing.T) {
 	}
 }
 
+func TestArtifactDirectoryCleanupCannotFollowSymlinkOutsideRoot(t *testing.T) {
+	rootDir := t.TempDir()
+	outside := t.TempDir()
+	protected := filepath.Join(outside, "empty")
+	if err := os.Mkdir(protected, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(rootDir, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	removeEmptyArtifactBlobDirs(root, filepath.Join("escape", "empty"))
+	if _, err := os.Stat(protected); err != nil {
+		t.Fatalf("cleanup changed a directory outside the storage root: %v", err)
+	}
+}
+
 func TestLocalArtifactBlobCleanerDeleteRequiresUnlockedStorage(t *testing.T) {
 	dir := t.TempDir()
 	digest := strings.Repeat("a", 64)

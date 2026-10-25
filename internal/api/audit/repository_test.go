@@ -70,10 +70,10 @@ func (m *mockAuthRepo) CreateLocalUserWithPasswordAuth(_ context.Context, _, _ s
 	return 0, nil
 }
 func (m *mockAuthRepo) EnsureAuthProvider(_ context.Context, _, _ string) (*dal.AuthProviderRecord, error) {
-	return nil, nil
+	return nil, dal.ErrNotFound
 }
 func (m *mockAuthRepo) GetExternalIdentity(_ context.Context, _, _ string) (*dal.ExternalIdentityRecord, error) {
-	return nil, nil
+	return nil, dal.ErrNotFound
 }
 
 func (m *mockAuthRepo) ListExternalIdentitiesForUser(
@@ -88,7 +88,7 @@ func (m *mockAuthRepo) LinkExternalIdentity(
 	_ int64,
 	_, _, _, _ string,
 ) (*dal.ExternalIdentityRecord, error) {
-	return nil, nil
+	return nil, dal.ErrNotFound
 }
 func (m *mockAuthRepo) DeleteExternalIdentity(_ context.Context, _, _ int64) error {
 	return nil

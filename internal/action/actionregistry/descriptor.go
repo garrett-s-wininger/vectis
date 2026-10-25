@@ -86,11 +86,7 @@ func inputSchemaFromAction(specs []action.FieldSpec) InputSchema {
 
 	fields := make([]InputField, 0, len(specs))
 	for _, spec := range specs {
-		fields = append(fields, InputField{
-			Name:     spec.Name,
-			Type:     spec.Type,
-			Required: spec.Required,
-		})
+		fields = append(fields, InputField(spec))
 	}
 
 	return InputSchema{Fields: fields}

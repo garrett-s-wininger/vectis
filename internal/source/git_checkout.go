@@ -421,6 +421,7 @@ func (g *GitCheckout) readFileRequest(ctx context.Context, req DefinitionFileReq
 	}, nil
 }
 
+//nolint:nilerr // A failed fast-path probe returns handled=false so the caller retries with the Git CLI.
 func (g *GitCheckout) readFileFromGoGit(commit, cleanPath string) (File, bool, error) {
 	repo, err := gogit.PlainOpen(g.checkoutPath)
 	if err != nil {
@@ -470,6 +471,7 @@ func (g *GitCheckout) readFileFromGoGit(commit, cleanPath string) (File, bool, e
 	}, true, nil
 }
 
+//nolint:nilerr // A failed fast-path probe returns handled=false so the caller retries with the Git CLI.
 func (g *GitCheckout) readBlobFromGoGit(blobSHA string) ([]byte, int64, bool, error) {
 	repo, err := gogit.PlainOpen(g.checkoutPath)
 	if err != nil {
@@ -494,7 +496,7 @@ func readGoGitBlob(reader func() (io.ReadCloser, error)) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func(close func() error) { _ = close() }(rc.Close)
 
 	return io.ReadAll(rc)
 }
@@ -1230,7 +1232,7 @@ func (g *GitCheckout) listCommitEntries(ctx context.Context, commit string, limi
 	)
 
 	if err != nil {
-		return nil, false, fmt.Errorf("%w: list commits for %s: %v", ErrInvalidReference, commit, err)
+		return nil, false, fmt.Errorf("%w: list commits for %s: %w", ErrInvalidReference, commit, err)
 	}
 
 	commits := parseCommitLogRecords(out)

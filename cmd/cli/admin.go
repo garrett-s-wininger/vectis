@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -79,6 +80,10 @@ func apiStatusError(resp *http.Response) error {
 }
 
 func jsonAPIRequest(method, path string, payload any) (*http.Request, error) {
+	return jsonAPIRequestWithContext(context.Background(), method, path, payload)
+}
+
+func jsonAPIRequestWithContext(ctx context.Context, method, path string, payload any) (*http.Request, error) {
 	var body io.Reader
 	if payload != nil {
 		b, err := json.Marshal(payload)
@@ -89,7 +94,7 @@ func jsonAPIRequest(method, path string, payload any) (*http.Request, error) {
 		body = bytes.NewReader(b)
 	}
 
-	req, err := newAPIRequest(method, path, body)
+	req, err := newAPIRequestWithContext(ctx, method, path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +107,11 @@ func jsonAPIRequest(method, path string, payload any) (*http.Request, error) {
 }
 
 func doJSONAPI(method, path string, payload any, wantStatus int, out any) error {
-	req, err := jsonAPIRequest(method, path, payload)
+	return doJSONAPIWithContext(context.Background(), method, path, payload, wantStatus, out)
+}
+
+func doJSONAPIWithContext(ctx context.Context, method, path string, payload any, wantStatus int, out any) error {
+	req, err := jsonAPIRequestWithContext(ctx, method, path, payload)
 	if err != nil {
 		return err
 	}

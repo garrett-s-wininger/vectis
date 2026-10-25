@@ -25,7 +25,7 @@ func TestProtoGoPackageOptionsStayStable(t *testing.T) {
 	}
 
 	for _, path := range files {
-		path := path
+
 		t.Run(path, func(t *testing.T) {
 			data, err := os.ReadFile(path)
 			if err != nil {

@@ -3,9 +3,9 @@ set -eu
 
 prek run --all-files
 
-make proto
+mage proto
 git diff --exit-code -- api/gen/go
 
-make lint
-make test-quick
-make build-container
+mage lint
+mage testQuick
+mage buildContainer

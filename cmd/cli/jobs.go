@@ -454,7 +454,7 @@ func editJob(cmd *cobra.Command, args []string) {
 	editorArgs := append(append([]string{}, editorParts[1:]...), tempPath)
 
 	// NOTE(garrett): editorName/args come from EDITOR (user-controlled editor) plus our temp file path.
-	editCmd := exec.CommandContext(cmd.Context(), editorName, editorArgs...) //#nosec G204
+	editCmd := exec.CommandContext(cmd.Context(), editorName, editorArgs...) // #nosec G204 G702 -- EDITOR explicitly selects the local user editor.
 	editCmd.Stdin = os.Stdin
 	editCmd.Stdout = os.Stdout
 	editCmd.Stderr = os.Stderr

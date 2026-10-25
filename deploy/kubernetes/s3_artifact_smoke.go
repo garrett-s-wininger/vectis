@@ -39,7 +39,7 @@ func runS3ArtifactSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, er
 
 	setupCancel()
 	if !opts.S3KeepFixture {
-		defer cleanupSmokeS3ArtifactFixture(opts)
+		defer cleanupSmokeS3ArtifactFixture(ctx, opts)
 	}
 
 	fmt.Fprintf(out, "Starting S3 artifact port-forward on 127.0.0.1:%d\n", opts.S3LocalPort)
@@ -102,7 +102,7 @@ func runS3ArtifactSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, er
 	if err != nil {
 		return SmokeResult{}, err
 	}
-	defer restoreSmokeWorkloadEnv(opts, smokeArtifactStatefulSetName, smokeArtifactContainerName, artifactEnvSnapshot)
+	defer restoreSmokeWorkloadEnv(ctx, opts, smokeArtifactStatefulSetName, smokeArtifactContainerName, artifactEnvSnapshot)
 
 	patchCtx, patchCancel := context.WithTimeout(ctx, opts.Wait)
 	if err := setSmokeWorkloadEnv(
@@ -177,8 +177,8 @@ func applySmokeS3ArtifactFixture(ctx context.Context, opts SmokeOptions) error {
 	)
 }
 
-func cleanupSmokeS3ArtifactFixture(opts SmokeOptions) {
-	cleanupSmokeResources(
+func cleanupSmokeS3ArtifactFixture(ctx context.Context, opts SmokeOptions) {
+	cleanupSmokeResources(ctx,
 		opts,
 		"S3 artifact smoke fixture",
 		smokeS3ArtifactDeploymentName,
@@ -397,7 +397,7 @@ func setSmokeWorkloadEnv(
 	return nil
 }
 
-func restoreSmokeWorkloadEnv(
+func restoreSmokeWorkloadEnv(ctx context.Context,
 	opts SmokeOptions,
 	workload, container string,
 	snapshot map[string]smokeWorkloadEnvSnapshot,
@@ -406,7 +406,7 @@ func restoreSmokeWorkloadEnv(
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opts.Wait)
 	defer cancel()
 
 	fmt.Fprintf(opts.Stdout, "Restoring temporary env on %s\n", workload)

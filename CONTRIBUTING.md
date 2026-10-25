@@ -29,7 +29,7 @@ In another terminal, after `vectis-local` reports ready:
 
 ## Prerequisites
 
-- Go `1.25.11+`, matching [go.mod](go.mod).
+- Go `1.26.10+`, matching [go.mod](go.mod).
 - Git.
 - CGO enabled for the default local SQLite build. This is the normal Go default on most developer machines.
 

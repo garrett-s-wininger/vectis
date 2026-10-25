@@ -28,7 +28,7 @@ func workerCheckoutCacheRoot(t *testing.T) string {
 		skipIfWorkerCheckoutCacheSymlinksUnavailable(t)
 	}
 
-	dir, err := os.MkdirTemp("", "vcc-*")
+	dir, err := os.MkdirTemp("", "vcc-*") //nolint:usetesting // Keep Unix socket and checkout paths short across platforms.
 	if err != nil {
 		t.Fatalf("create worker checkout cache temp root: %v", err)
 	}

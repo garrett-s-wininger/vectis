@@ -129,8 +129,7 @@ func TestKnoxProviderSupportsRefForms(t *testing.T) {
 	}
 
 	for ref, want := range tests {
-		ref := ref
-		want := want
+
 		t.Run(ref, func(t *testing.T) {
 			t.Parallel()
 
@@ -161,7 +160,7 @@ func TestKnoxProviderRejectsUnsafeRefs(t *testing.T) {
 	}
 
 	for _, ref := range tests {
-		ref := ref
+
 		t.Run(ref, func(t *testing.T) {
 			t.Parallel()
 
@@ -189,7 +188,7 @@ func TestKnoxProviderMapsKnoxErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -251,7 +250,7 @@ func TestKnoxProviderRejectsMismatchedOrOversizedSecrets(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

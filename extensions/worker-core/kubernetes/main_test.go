@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func TestKubernetesCoreServerConformance(t *testing.T) {
 		t.Cleanup(server.Stop)
 
 		go func() {
-			if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+			if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 				t.Errorf("Kubernetes worker core server: %v", err)
 			}
 		}()
@@ -523,7 +524,7 @@ func testTaskWithLogSession(t *testing.T, sessionID, uses, command string) (sdk.
 	t.Cleanup(server.Stop)
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Errorf("shell server: %v", err)
 		}
 	}()
@@ -602,7 +603,7 @@ func customProcessDescriptor(runtime string) *api.WorkerCoreActionDescriptor {
 func shortSocketPath(t *testing.T, name string) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-worker-core-kubernetes-")
+	dir, err := os.MkdirTemp("/tmp", "vectis-worker-core-kubernetes-") //nolint:usetesting // Keep Unix socket and checkout paths short across platforms.
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
@@ -762,7 +763,7 @@ type recordingShell struct {
 func (s *recordingShell) StreamLogs(stream api.WorkerCoreShellService_StreamLogsServer) error {
 	for {
 		msg, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.Empty{})
 		}
 

@@ -82,6 +82,7 @@ const (
 	validateKubectlNamespaced validateKubectlScope = "namespaced"
 )
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunValidate(ctx context.Context, opts ValidateOptions) (ValidateResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

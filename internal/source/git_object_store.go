@@ -286,7 +286,7 @@ func (s *GitCheckoutObjectStoreStatus) countLooseHydratedRefs(commonDir string, 
 	root := filepath.Join(commonDir, "refs", "vectis", "hydrated")
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 
 		if entry.IsDir() {
@@ -294,7 +294,10 @@ func (s *GitCheckoutObjectStoreStatus) countLooseHydratedRefs(commonDir string, 
 		}
 
 		rel, err := filepath.Rel(root, path)
-		if err != nil || rel == "." {
+		if err != nil {
+			return err
+		}
+		if rel == "." {
 			return nil
 		}
 
@@ -318,7 +321,7 @@ func (s *GitCheckoutObjectStoreStatus) countPackedHydratedRefs(commonDir string,
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func(close func() error) { _ = close() }(file.Close)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

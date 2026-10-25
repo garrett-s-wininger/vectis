@@ -79,6 +79,7 @@ type StreamSmokeFixture struct {
 	runner        smokeRunner
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunStreamSmoke(ctx context.Context, opts StreamSmokeOptions) (StreamSmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -118,6 +119,7 @@ func RunStreamSmoke(ctx context.Context, opts StreamSmokeOptions) (StreamSmokeRe
 	return runner.runStreamSmoke(ctx, opts)
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func PrepareStreamSmokeFixture(ctx context.Context, opts StreamSmokeOptions) (*StreamSmokeFixture, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -325,7 +327,7 @@ func (r smokeRunner) runStreamSmoke(ctx context.Context, opts StreamSmokeOptions
 	if err != nil {
 		return StreamSmokeResult{}, fmt.Errorf("create gerrit stream smoke workspace: %w", err)
 	}
-	defer os.RemoveAll(workspaceRoot)
+	defer func(path string) { _ = os.RemoveAll(path) }(workspaceRoot)
 
 	keyFile, signer, err := writeStreamSmokeSSHKey(workspaceRoot)
 	if err != nil {
@@ -479,7 +481,7 @@ func (r smokeRunner) runStreamPollerDedupe(
 	if err != nil {
 		return fmt.Errorf("open gerrit stream dedupe db: %w", err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
@@ -745,7 +747,7 @@ func (r smokeRunner) addSSHKey(ctx context.Context, password string, key ssh.Pub
 	if err != nil {
 		return fmt.Errorf("add gerrit SSH key: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -795,7 +797,7 @@ func captureSSHHostKey(ctx context.Context, address, username string, signer ssh
 	if err != nil {
 		return nil, err
 	}
-	defer client.Close()
+	defer func(close func() error) { _ = close() }(client.Close)
 
 	if observed == nil {
 		return nil, fmt.Errorf("SSH handshake did not expose host key")

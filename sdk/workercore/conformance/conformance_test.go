@@ -103,10 +103,10 @@ func (fixtureCore) CancelTask(context.Context, sdk.CancelRequest) error {
 func shortSocketPath(t *testing.T, name string) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp(
+	dir, err := os.MkdirTemp( //nolint:usetesting // Keep Unix socket and checkout paths short across platforms.
 		shortTempRoot(),
 		"vectis-core-conf-test-",
-	) //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
+	)
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}

@@ -491,7 +491,7 @@ func copyVMOutput(
 	}
 
 	localOut := filepath.Join(opts.WorkDir, relOut)
-	if err := os.MkdirAll(localOut, 0o755); err != nil {
+	if err := os.MkdirAll(localOut, 0o755); err != nil { // #nosec G703 -- WorkDir and the validated output path are local package-builder options.
 		return fmt.Errorf("create local package output %q: %w", localOut, err)
 	}
 

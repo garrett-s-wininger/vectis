@@ -113,6 +113,7 @@ func NewStore(opts StoreOptions) (*Store, error) {
 	}, nil
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func (s *Store) Put(ctx context.Context, r io.Reader, opts sdkartifact.PutOptions) (sdkartifact.BlobDescriptor, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -151,8 +152,8 @@ func (s *Store) Put(ctx context.Context, r io.Reader, opts sdkartifact.PutOption
 	}
 
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	defer tmp.Close()
+	defer func(path string) { _ = os.Remove(path) }(tmpPath)
+	defer func(close func() error) { _ = close() }(tmp.Close)
 
 	h := sha256.New()
 	size, err := copyHashing(ctx, tmp, r, h, opts.MaxBytes)
@@ -220,7 +221,7 @@ func (s *Store) Put(ctx context.Context, r io.Reader, opts sdkartifact.PutOption
 	if err != nil {
 		return sdkartifact.BlobDescriptor{}, fmt.Errorf("put artifact s3 blob %s: %w", desc.Key, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return sdkartifact.BlobDescriptor{}, s.responseError(resp, "put", desc.Key)
@@ -254,6 +255,7 @@ func validateExistingBlob(desc sdkartifact.BlobDescriptor, opts sdkartifact.PutO
 	return nil
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func (s *Store) Stat(ctx context.Context, key string) (sdkartifact.BlobDescriptor, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -277,7 +279,7 @@ func (s *Store) Stat(ctx context.Context, key string) (sdkartifact.BlobDescripto
 	if err != nil {
 		return sdkartifact.BlobDescriptor{}, fmt.Errorf("stat artifact s3 blob %s: %w", key, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return sdkartifact.BlobDescriptor{}, sdkartifact.ErrBlobNotFound
@@ -290,6 +292,7 @@ func (s *Store) Stat(ctx context.Context, key string) (sdkartifact.BlobDescripto
 	return sdkartifact.DescriptorForSHA256(digest, resp.ContentLength), nil
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func (s *Store) Open(ctx context.Context, key string) (sdkartifact.BlobDescriptor, io.ReadCloser, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -315,19 +318,20 @@ func (s *Store) Open(ctx context.Context, key string) (sdkartifact.BlobDescripto
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return sdkartifact.BlobDescriptor{}, nil, sdkartifact.ErrBlobNotFound
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		err := s.responseError(resp, "open", key)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return sdkartifact.BlobDescriptor{}, nil, err
 	}
 
 	return sdkartifact.DescriptorForSHA256(digest, resp.ContentLength), resp.Body, nil
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func (s *Store) StorageStats(ctx context.Context) (sdkartifact.StorageStats, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -352,17 +356,17 @@ func (s *Store) StorageStats(ctx context.Context) (sdkartifact.StorageStats, err
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			err := s.responseError(resp, "list", s.statsPrefix())
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return sdkartifact.StorageStats{}, err
 		}
 
 		var result listBucketResult
 		if err := xml.NewDecoder(resp.Body).Decode(&result); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return sdkartifact.StorageStats{}, fmt.Errorf("parse artifact s3 list result: %w", err)
 		}
 
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		for _, object := range result.Contents {
 			if strings.HasSuffix(object.Key, ".blob") {
 				out.BlobFiles++

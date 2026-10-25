@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -175,8 +176,12 @@ func auditEventsPath(opts auditListOptions) string {
 }
 
 func fetchAuditEvents(opts auditListOptions) (auditEventListResult, error) {
+	return fetchAuditEventsContext(context.Background(), opts)
+}
+
+func fetchAuditEventsContext(ctx context.Context, opts auditListOptions) (auditEventListResult, error) {
 	var result auditEventListResult
-	if err := doJSONAPI(http.MethodGet, auditEventsPath(opts), nil, http.StatusOK, &result); err != nil {
+	if err := doJSONAPIWithContext(ctx, http.MethodGet, auditEventsPath(opts), nil, http.StatusOK, &result); err != nil {
 		return auditEventListResult{}, err
 	}
 
@@ -197,11 +202,15 @@ func auditList(w io.Writer, opts auditListOptions) error {
 }
 
 func auditExport(w io.Writer, opts auditExportOptions) error {
+	return auditExportContext(context.Background(), w, opts)
+}
+
+func auditExportContext(ctx context.Context, w io.Writer, opts auditExportOptions) error {
 	if opts.Limit <= 0 {
 		opts.Limit = 1000
 	}
 
-	result, pageCount, err := fetchAllAuditEvents(opts.auditListOptions)
+	result, pageCount, err := fetchAllAuditEventsContext(ctx, opts.auditListOptions)
 	if err != nil {
 		return err
 	}
@@ -249,6 +258,10 @@ func auditExport(w io.Writer, opts auditExportOptions) error {
 }
 
 func fetchAllAuditEvents(opts auditListOptions) (auditEventListResult, int, error) {
+	return fetchAllAuditEventsContext(context.Background(), opts)
+}
+
+func fetchAllAuditEventsContext(ctx context.Context, opts auditListOptions) (auditEventListResult, int, error) {
 	if strings.TrimSpace(opts.Cursor) != "" {
 		return auditEventListResult{}, 0, fmt.Errorf("audit export manages cursors internally; omit --cursor")
 	}
@@ -257,7 +270,7 @@ func fetchAllAuditEvents(opts auditListOptions) (auditEventListResult, int, erro
 	pageCount := 0
 	seenCursors := map[string]bool{}
 	for {
-		page, err := fetchAuditEvents(opts)
+		page, err := fetchAuditEventsContext(ctx, opts)
 		if err != nil {
 			return auditEventListResult{}, 0, err
 		}

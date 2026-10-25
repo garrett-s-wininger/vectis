@@ -146,17 +146,19 @@ func (s *sessionStore) delete(id string) {
 }
 
 func (b *uiBackend) apiProxyHandler() http.Handler {
-	proxy := httputil.NewSingleHostReverseProxy(b.apiURL)
+	proxy := &httputil.ReverseProxy{}
 	if b.httpClient.Transport != nil {
 		proxy.Transport = b.httpClient.Transport
 	}
 
-	originalDirector := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		originalDirector(r)
+	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
+		pr.SetURL(b.apiURL)
+		pr.SetXForwarded()
+		pr.Out.Host = pr.In.Host
+		r := pr.Out
 		r.Header.Del("Authorization")
 
-		if session, ok := b.sessionFromRequest(r); ok {
+		if session, ok := b.sessionFromRequest(pr.In); ok {
 			r.Header.Set("Authorization", "Bearer "+session.APIToken)
 		}
 	}
@@ -622,6 +624,7 @@ func setUISessionCookie(w http.ResponseWriter, r *http.Request, sessionID string
 		maxAge = -1
 	}
 
+	// #nosec G124 -- Local HTTP is supported; Secure follows listener TLS, with HttpOnly and SameSite always set.
 	http.SetCookie(w, &http.Cookie{
 		Name:     uiSessionCookieName,
 		Value:    sessionID,
@@ -635,6 +638,7 @@ func setUISessionCookie(w http.ResponseWriter, r *http.Request, sessionID string
 }
 
 func clearUISessionCookie(w http.ResponseWriter, r *http.Request) {
+	// #nosec G124 -- Local HTTP is supported; Secure follows listener TLS, with HttpOnly and SameSite always set.
 	http.SetCookie(w, &http.Cookie{
 		Name:     uiSessionCookieName,
 		Value:    "",

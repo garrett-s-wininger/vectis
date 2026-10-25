@@ -87,6 +87,7 @@ type smokeRunner struct {
 	client *http.Client
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -211,7 +212,7 @@ func (r smokeRunner) waitForGerrit(ctx context.Context) error {
 		resp, err := r.client.Do(req)
 		if err == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				return nil
 			}
@@ -262,7 +263,7 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 	if err != nil {
 		return SmokeResult{}, fmt.Errorf("create gerrit smoke workspace: %w", err)
 	}
-	defer os.RemoveAll(workspaceRoot)
+	defer func(path string) { _ = os.RemoveAll(path) }(workspaceRoot)
 
 	if err := r.pushChange(ctx, workspaceRoot, password, changeID); err != nil {
 		return SmokeResult{}, err
@@ -434,7 +435,7 @@ func (r smokeRunner) loginDevelopmentAccount(ctx context.Context) (string, error
 	if err != nil {
 		return "", fmt.Errorf("gerrit development login: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusOK {
@@ -463,7 +464,7 @@ func (r smokeRunner) generateHTTPPassword(ctx context.Context, accessToken strin
 	if err != nil {
 		return "", fmt.Errorf("generate gerrit http password: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var password string
 	if err := gerritaction.DecodeJSON(resp, &password); err != nil {
@@ -495,7 +496,7 @@ func (r smokeRunner) createProject(ctx context.Context, password string) error {
 	if err != nil {
 		return fmt.Errorf("create gerrit project: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusConflict {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -642,7 +643,7 @@ func (r smokeRunner) postReview(
 	}
 
 	if !strings.Contains(logs.String(), "401") {
-		return fmt.Errorf("gerrit review wrong password logs = %q error=%v, want 401", logs.String(), result.Error)
+		return fmt.Errorf("gerrit review wrong password logs = %q error=%w, want 401", logs.String(), result.Error)
 	}
 
 	return nil
@@ -739,7 +740,7 @@ func (r smokeRunner) verifyReviewMessage(ctx context.Context, password, change, 
 	if err != nil {
 		return fmt.Errorf("list gerrit change messages: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var messages []struct {
 		Message string `json:"message"`
@@ -773,7 +774,7 @@ func (r smokeRunner) runPollerBackstop(
 	if err != nil {
 		return fmt.Errorf("open gerrit poller backstop db: %w", err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
@@ -1088,7 +1089,7 @@ func (i *pollerSmokeIngress) Submissions() []cell.ExecutionSubmission {
 func (r smokeRunner) runGit(ctx context.Context, dir string, gitOpts, args []string, operation string) error {
 	fullArgs := append([]string{}, gitOpts...)
 	fullArgs = append(fullArgs, args...)
-	cmd := exec.CommandContext(ctx, r.opts.GitBin, fullArgs...)
+	cmd := exec.CommandContext(ctx, r.opts.GitBin, fullArgs...) // #nosec G204 -- The operator selects the Git executable; arguments are passed without a shell.
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 

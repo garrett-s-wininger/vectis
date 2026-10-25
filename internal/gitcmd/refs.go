@@ -144,7 +144,7 @@ func resolvePackedRef(commonDir, ref string) (string, bool, error) {
 
 		return "", false, err
 	}
-	defer file.Close()
+	defer func(close func() error) { _ = close() }(file.Close)
 
 	var pendingTagObject string
 	scanner := bufio.NewScanner(file)

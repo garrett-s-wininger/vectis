@@ -33,7 +33,7 @@ type gerritStreamRouter interface {
 func runSCMGerritStream(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("scm-gerrit-stream")
-	defer logger.Close()
+	defer func(close func() error) { _ = close() }(logger.Close)
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting Gerrit SCM stream bridge...")
@@ -56,7 +56,7 @@ func runSCMGerritStream(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func(close func() error) { _ = close() }(db.Close)
 
 	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	actionResolver, err := actionconfig.DescriptorResolver()

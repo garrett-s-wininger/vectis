@@ -61,9 +61,10 @@ func startWorkerControlServer(
 	server *workerControlServer,
 	logger interfaces.Logger,
 ) error {
-	srvOpts, err := config.GRPCServerOptionsForRole(
+	srvOpts, err := config.GRPCServerOptionsForRole( //nolint:contextcheck // Stream callbacks authorize using grpc.ServerStream.Context().
 		config.ServiceIdentityRoleWorkerControl,
-	) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
+	)
+
 	if err != nil {
 		return fmt.Errorf("worker control grpc tls: %w", err)
 	}

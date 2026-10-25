@@ -139,7 +139,7 @@ func (p *Provider) queryChanges(ctx context.Context, baseURL, rawQuery string) (
 	if err != nil {
 		return nil, fmt.Errorf("query Gerrit changes: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var changes []scm.Change
 	if err := decodeGerritJSON(resp, &changes); err != nil {
@@ -152,11 +152,11 @@ func (p *Provider) queryChanges(ctx context.Context, baseURL, rawQuery string) (
 func (p *Provider) queryEndpoint(baseURL, rawQuery string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("Gerrit URL must be absolute")
+		return "", fmt.Errorf("gerrit URL must be absolute")
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("Gerrit URL must use http or https")
+		return "", fmt.Errorf("gerrit URL must use http or https")
 	}
 
 	path := "/changes/"

@@ -646,7 +646,7 @@ func newConfiguredSourceRepositoryCredentialResolver(
 	root := strings.TrimSpace(encryptedFSConfig.Root)
 	keyFile := strings.TrimSpace(encryptedFSConfig.KeyFile)
 	if root == "" && keyFile == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Repository credential resolution is optional when no provider is configured.
 	}
 
 	if root == "" || keyFile == "" {
@@ -781,6 +781,7 @@ func (w *worker) startCheckoutCacheWarmLoop(desc workercore.CoreDescription) {
 	go w.checkoutCacheWarmLoop(w.ctx, warmer)
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func (w *worker) checkoutCacheWarmLoop(ctx context.Context, warmer workercore.CheckoutCacheWarmer) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -928,6 +929,7 @@ func checkoutCacheWarmFailureReason(err error) string {
 	}
 }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func sleepCheckoutCacheWarmDelay(ctx context.Context, delay time.Duration) bool {
 	if ctx == nil {
 		ctx = context.Background()

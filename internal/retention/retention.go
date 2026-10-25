@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -300,7 +301,7 @@ func (s *SQLHoldStore) List(ctx context.Context, options ListHoldOptions, now ti
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var holds []Hold
 	for rows.Next() {
@@ -1181,7 +1182,7 @@ func getHoldTx(ctx context.Context, tx *sql.Tx, holdID string) (Hold, error) {
 	`), holdID))
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return Hold{}, fmt.Errorf("retention hold %s not found", holdID)
 		}
 
@@ -1290,8 +1291,14 @@ func (c LocalArtifactBlobCleaner) walk(remove bool) (FileReport, error) {
 		defer unlock()
 	}
 
+	storageRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return FileReport{}, fmt.Errorf("open artifact blob storage root: %w", err)
+	}
+	defer func() { _ = storageRoot.Close() }()
+
 	var report FileReport
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk artifact blob path %s: %w", path, err)
 		}
@@ -1318,10 +1325,14 @@ func (c LocalArtifactBlobCleaner) walk(remove bool) (FileReport, error) {
 		report.ArtifactBlobFiles++
 		report.ArtifactBlobBytes += info.Size()
 		if remove {
-			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			if err := storageRoot.Remove(rel); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("remove artifact blob %s: %w", path, err)
 			}
-			removeEmptyArtifactBlobDirs(root, filepath.Dir(path))
+			removeEmptyArtifactBlobDirs(storageRoot, filepath.Dir(rel))
 		}
 
 		return nil
@@ -1367,9 +1378,9 @@ func validArtifactDigest(digest string) bool {
 	return err == nil
 }
 
-func removeEmptyArtifactBlobDirs(root, dir string) {
-	for dir != root && pathWithin(root, dir) {
-		if err := os.Remove(dir); err != nil {
+func removeEmptyArtifactBlobDirs(root *os.Root, dir string) {
+	for dir != "." && filepath.IsLocal(dir) {
+		if err := root.Remove(dir); err != nil {
 			return
 		}
 		dir = filepath.Dir(dir)

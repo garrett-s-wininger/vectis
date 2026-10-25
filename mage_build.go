@@ -544,7 +544,7 @@ func copyFile(src, dest string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func(close func() error) { _ = close() }(in.Close)
 
 	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {

@@ -36,7 +36,7 @@ func acquireManagedGitWriterLock(ctx context.Context, checkoutPath string) (*man
 	select {
 	case processLock <- struct{}{}:
 	case <-ctx.Done():
-		return nil, fmt.Errorf("%w: wait for managed checkout lock %s: %v", ErrBusy, lockPath, ctx.Err())
+		return nil, fmt.Errorf("%w: wait for managed checkout lock %s: %w", ErrBusy, lockPath, ctx.Err())
 	}
 
 	releaseProcessLock := true
@@ -110,7 +110,7 @@ func lockManagedGitWriterFile(ctx context.Context, f *os.File, lockPath string) 
 				}
 			}
 
-			return fmt.Errorf("%w: wait for managed checkout lock %s: %v", ErrBusy, lockPath, ctx.Err())
+			return fmt.Errorf("%w: wait for managed checkout lock %s: %w", ErrBusy, lockPath, ctx.Err())
 		case <-timer.C:
 		}
 	}

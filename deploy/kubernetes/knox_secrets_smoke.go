@@ -76,7 +76,7 @@ func runKnoxSecretsSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, e
 	setupCancel()
 
 	if !opts.KnoxKeepFixture {
-		defer cleanupSmokeKnoxFixture(opts)
+		defer cleanupSmokeKnoxFixture(ctx, opts)
 	}
 
 	fmt.Fprintf(out, "Starting Knox port-forward on 127.0.0.1:%d\n", opts.KnoxLocalPort)
@@ -118,7 +118,7 @@ func runKnoxSecretsSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, e
 		return SmokeResult{}, err
 	}
 	volumeCancel()
-	defer removeSmokeSecretsKnoxCertVolume(opts)
+	defer removeSmokeSecretsKnoxCertVolume(ctx, opts)
 
 	secretsEnv := smokeKnoxSecretsEnv(opts)
 	snapshotCtx, snapshotCancel := context.WithTimeout(ctx, opts.Wait)
@@ -133,7 +133,7 @@ func runKnoxSecretsSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, e
 	if err != nil {
 		return SmokeResult{}, err
 	}
-	defer restoreSmokeWorkloadEnv(opts, smokeSecretsStatefulSetName, smokeSecretsContainerName, secretsEnvSnapshot)
+	defer restoreSmokeWorkloadEnv(ctx, opts, smokeSecretsStatefulSetName, smokeSecretsContainerName, secretsEnvSnapshot)
 
 	patchCtx, patchCancel := context.WithTimeout(ctx, opts.Wait)
 	if err := setSmokeWorkloadEnv(
@@ -161,24 +161,24 @@ func runKnoxSecretsSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, e
 
 func validateKnoxSecretsSmokeOptions(opts SmokeOptions) error {
 	if opts.KnoxImage == "" {
-		return fmt.Errorf("Knox image is required")
+		return fmt.Errorf("knox image is required")
 	}
 
 	if opts.KnoxLocalPort <= 0 || opts.KnoxLocalPort > 65535 {
-		return fmt.Errorf("Knox local port must be between 1 and 65535")
+		return fmt.Errorf("knox local port must be between 1 and 65535")
 	}
 
 	if opts.KnoxClusterURL == "" {
-		return fmt.Errorf("Knox cluster URL is required")
+		return fmt.Errorf("knox cluster URL is required")
 	}
 
 	parsed, err := url.Parse(opts.KnoxClusterURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return fmt.Errorf("Knox cluster URL must be an https URL")
+		return fmt.Errorf("knox cluster URL must be an https URL")
 	}
 
 	if opts.KnoxCertMountPath == "" {
-		return fmt.Errorf("Knox cert mount path is required")
+		return fmt.Errorf("knox cert mount path is required")
 	}
 
 	if _, err := smokeKnoxPrincipalID(opts.KnoxAuthToken); err != nil {
@@ -186,15 +186,15 @@ func validateKnoxSecretsSmokeOptions(opts SmokeOptions) error {
 	}
 
 	if opts.KnoxKeyID == "" {
-		return fmt.Errorf("Knox key id is required")
+		return fmt.Errorf("knox key id is required")
 	}
 
 	if opts.KnoxRef == "" {
-		return fmt.Errorf("Knox ref is required")
+		return fmt.Errorf("knox ref is required")
 	}
 
 	if opts.KnoxExpectedData == "" {
-		return fmt.Errorf("Knox expected data is required")
+		return fmt.Errorf("knox expected data is required")
 	}
 
 	return nil
@@ -210,8 +210,8 @@ func applySmokeKnoxFixture(ctx context.Context, opts SmokeOptions, certs smokeKn
 	)
 }
 
-func cleanupSmokeKnoxFixture(opts SmokeOptions) {
-	cleanupSmokeResources(
+func cleanupSmokeKnoxFixture(ctx context.Context, opts SmokeOptions) {
+	cleanupSmokeResources(ctx,
 		opts,
 		"Knox smoke fixture",
 		smokeKnoxDeploymentName,
@@ -376,8 +376,8 @@ func patchSmokeSecretsKnoxCertVolume(ctx context.Context, opts SmokeOptions) err
 	return patchSmokeWorkload(ctx, opts, smokeSecretsStatefulSetName, "Knox cert volume", patch)
 }
 
-func removeSmokeSecretsKnoxCertVolume(opts SmokeOptions) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
+func removeSmokeSecretsKnoxCertVolume(ctx context.Context, opts SmokeOptions) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opts.Wait)
 	defer cancel()
 
 	patch := map[string]any{
@@ -532,7 +532,7 @@ func newSmokeKnoxCertBundle(opts SmokeOptions) (smokeKnoxCertBundle, error) {
 func smokeKnoxPrincipalID(authToken string) (string, error) {
 	authToken = strings.TrimSpace(authToken)
 	if len(authToken) < 3 || authToken[0] != '0' || authToken[1] != 't' {
-		return "", fmt.Errorf("Knox auth token must use Knox machine auth form 0t<principal>")
+		return "", fmt.Errorf("knox auth token must use Knox machine auth form 0t<principal>")
 	}
 
 	return authToken[2:], nil

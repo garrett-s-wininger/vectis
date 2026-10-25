@@ -346,7 +346,7 @@ func runGoBenchmarkSuite(args runArgs) (int, error) {
 
 	finished := time.Now().UTC()
 	rawPath := filepath.Join(runDir, "go-bench.txt")
-	if err := os.WriteFile(rawPath, []byte(rawOutput), 0o644); err != nil {
+	if err := os.WriteFile(rawPath, []byte(rawOutput), 0o644); err != nil { // #nosec G703 -- The operator selects the performance evidence directory.
 		return configErrorStatus, err
 	}
 

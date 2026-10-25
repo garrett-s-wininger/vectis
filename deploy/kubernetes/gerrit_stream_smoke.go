@@ -64,7 +64,7 @@ func runGerritStreamSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, 
 		)
 	}
 
-	defer restoreSmokeDeployment(opts, smokeGerritStreamDeploymentName, originalReplicas)
+	defer restoreSmokeDeployment(ctx, opts, smokeGerritStreamDeploymentName, originalReplicas)
 
 	pollerCtx, pollerCancel := context.WithTimeout(ctx, opts.Wait)
 	originalPollerReplicas, err := currentSmokeDeploymentReplicas(pollerCtx, opts, smokeSCMPollerDeploymentName)
@@ -86,7 +86,7 @@ func runGerritStreamSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, 
 		if err != nil {
 			return SmokeResult{}, err
 		}
-		defer restoreSmokeDeployment(opts, smokeSCMPollerDeploymentName, originalPollerReplicas)
+		defer restoreSmokeDeployment(ctx, opts, smokeSCMPollerDeploymentName, originalPollerReplicas)
 	}
 
 	fmt.Fprintf(out, "Applying Gerrit smoke fixture %s\n", smokeGerritDeploymentName)
@@ -98,7 +98,7 @@ func runGerritStreamSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, 
 
 	setupCancel()
 	if !opts.GerritKeepFixture {
-		defer cleanupSmokeGerritFixture(opts)
+		defer cleanupSmokeGerritFixture(ctx, opts)
 	}
 
 	fmt.Fprintf(
@@ -182,10 +182,10 @@ func runGerritStreamSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, 
 	)
 
 	fmt.Fprintf(out, "Creating Gerrit-triggered smoke job %s\n", jobID)
-	if err := createSmokeGerritStreamJob(client, baseURL, opts, jobID, fixture.Project, jobCommand); err != nil {
+	if err := createSmokeGerritStreamJob(ctx, client, baseURL, opts, jobID, fixture.Project, jobCommand); err != nil {
 		return SmokeResult{}, err
 	}
-	defer deleteSmokeJob(client, baseURL, opts.APIToken, jobID, out)
+	defer deleteSmokeJob(ctx, client, baseURL, opts.APIToken, jobID, out)
 
 	fmt.Fprintf(out, "Scaling %s to 1 replica\n", smokeGerritStreamDeploymentName)
 	scaleCtx, scaleCancel := context.WithTimeout(ctx, opts.Wait)
@@ -338,8 +338,8 @@ func applySmokeGerritFixture(ctx context.Context, opts SmokeOptions) error {
 	return nil
 }
 
-func cleanupSmokeGerritFixture(opts SmokeOptions) {
-	cleanupSmokeResources(opts, "Gerrit smoke fixture", smokeGerritDeploymentName, smokeGerritServiceName)
+func cleanupSmokeGerritFixture(ctx context.Context, opts SmokeOptions) {
+	cleanupSmokeResources(ctx, opts, "Gerrit smoke fixture", smokeGerritDeploymentName, smokeGerritServiceName)
 }
 
 func smokeGerritFixtureManifest(image string) string {
@@ -535,7 +535,7 @@ func setSmokeDeploymentEnv(
 	return nil
 }
 
-func createSmokeGerritStreamJob(
+func createSmokeGerritStreamJob(ctx context.Context,
 	client *http.Client,
 	baseURL string,
 	opts SmokeOptions,
@@ -546,7 +546,7 @@ func createSmokeGerritStreamJob(
 		return err
 	}
 
-	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, "/api/v1/jobs", opts.APIToken, bytes.NewReader(payload))
+	req, err := newSmokeAPIRequest(ctx, http.MethodPost, baseURL, "/api/v1/jobs", opts.APIToken, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -556,7 +556,7 @@ func createSmokeGerritStreamJob(
 	if err != nil {
 		return fmt.Errorf("create Gerrit stream smoke job: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		return smokeUnexpectedStatus("create Gerrit stream smoke job", resp)
@@ -604,13 +604,13 @@ func smokeGerritStreamJobPayload(opts SmokeOptions, jobID, project, command stri
 	return payload, nil
 }
 
-func deleteSmokeJob(client *http.Client, baseURL, token, jobID string, out io.Writer) {
+func deleteSmokeJob(ctx context.Context, client *http.Client, baseURL, token, jobID string, out io.Writer) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" {
 		return
 	}
 
-	req, err := newSmokeAPIRequest(http.MethodDelete, baseURL, "/api/v1/jobs/"+url.PathEscape(jobID), token, nil)
+	req, err := newSmokeAPIRequest(ctx, http.MethodDelete, baseURL, "/api/v1/jobs/"+url.PathEscape(jobID), token, nil)
 	if err != nil {
 		fmt.Fprintf(out, "Warning: delete smoke job %s request failed: %v\n", jobID, err)
 		return
@@ -621,7 +621,7 @@ func deleteSmokeJob(client *http.Client, baseURL, token, jobID string, out io.Wr
 		fmt.Fprintf(out, "Warning: delete smoke job %s failed: %v\n", jobID, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 }
 
@@ -635,7 +635,7 @@ func waitForSmokeGerritStreamRun(
 	defer ticker.Stop()
 
 	for {
-		runs, err := listSmokeJobRuns(client, baseURL, token, jobID)
+		runs, err := listSmokeJobRuns(ctx, client, baseURL, token, jobID)
 		if err != nil {
 			return smokeRunDetail{}, err
 		}
@@ -674,8 +674,8 @@ type smokeJobRunsResponse struct {
 	Data []smokeRunDetail `json:"data"`
 }
 
-func listSmokeJobRuns(client *http.Client, baseURL, token, jobID string) (smokeJobRunsResponse, error) {
-	req, err := newSmokeAPIRequest(
+func listSmokeJobRuns(ctx context.Context, client *http.Client, baseURL, token, jobID string) (smokeJobRunsResponse, error) {
+	req, err := newSmokeAPIRequest(ctx,
 		http.MethodGet,
 		baseURL,
 		"/api/v1/jobs/"+url.PathEscape(jobID)+"/runs?limit=20",
@@ -690,7 +690,7 @@ func listSmokeJobRuns(client *http.Client, baseURL, token, jobID string) (smokeJ
 	if err != nil {
 		return smokeJobRunsResponse{}, fmt.Errorf("list runs for job %s: %w", jobID, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return smokeJobRunsResponse{}, smokeUnexpectedStatus("list runs for job "+jobID, resp)
@@ -707,20 +707,20 @@ func listSmokeJobRuns(client *http.Client, baseURL, token, jobID string) (smokeJ
 func assertSmokeGerritStreamRun(detail smokeRunDetail) error {
 	if smokeStringPtr(detail.TriggerType) != dal.TriggerTypeSCMPoll {
 		return fmt.Errorf(
-			"Gerrit stream smoke run trigger_type = %q, want %q",
+			"gerrit stream smoke run trigger_type = %q, want %q",
 			smokeStringPtr(detail.TriggerType),
 			dal.TriggerTypeSCMPoll,
 		)
 	}
 
 	if detail.TriggerInvocationID == nil || strings.TrimSpace(*detail.TriggerInvocationID) == "" {
-		return fmt.Errorf("Gerrit stream smoke run missing trigger_invocation_id")
+		return fmt.Errorf("gerrit stream smoke run missing trigger_invocation_id")
 	}
 
 	if detail.TriggerSourceInstance == nil ||
 		!strings.Contains(*detail.TriggerSourceInstance, smokeGerritStreamSourcePrefix) {
 		return fmt.Errorf(
-			"Gerrit stream smoke run trigger_source_instance = %q, want %q prefix",
+			"gerrit stream smoke run trigger_source_instance = %q, want %q prefix",
 			smokeStringPtr(detail.TriggerSourceInstance),
 			smokeGerritStreamSourcePrefix,
 		)
@@ -728,7 +728,7 @@ func assertSmokeGerritStreamRun(detail smokeRunDetail) error {
 
 	if smokeStringPtr(detail.TriggerKey) != smokeGerritStreamTriggerID {
 		return fmt.Errorf(
-			"Gerrit stream smoke run trigger_key = %q, want %q",
+			"gerrit stream smoke run trigger_key = %q, want %q",
 			smokeStringPtr(detail.TriggerKey),
 			smokeGerritStreamTriggerID,
 		)
@@ -742,7 +742,7 @@ func assertSmokeGerritStreamRun(detail smokeRunDetail) error {
 	}
 
 	return fmt.Errorf(
-		"Gerrit stream smoke run missing %s dispatch event: %+v",
+		"gerrit stream smoke run missing %s dispatch event: %+v",
 		dal.DispatchSourceSCMGerritStream,
 		detail.DispatchEvents,
 	)
@@ -800,8 +800,8 @@ func scaleSmokeDeployment(ctx context.Context, opts SmokeOptions, name string, r
 	return nil
 }
 
-func restoreSmokeDeployment(opts SmokeOptions, name string, replicas int) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
+func restoreSmokeDeployment(ctx context.Context, opts SmokeOptions, name string, replicas int) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opts.Wait)
 	defer cancel()
 
 	fmt.Fprintf(opts.Stdout, "Restoring %s to %d replicas\n", name, replicas)

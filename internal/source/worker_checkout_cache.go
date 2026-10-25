@@ -213,7 +213,7 @@ func NewWorkerCheckoutCacheWithRemotes(
 
 func (c *WorkerCheckoutCache) NewCheckoutCacheScope() (action.CheckoutCache, error) {
 	if c == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil cache disables checkout caching.
 	}
 
 	return &WorkerCheckoutCacheScope{cache: c}, nil
@@ -575,7 +575,7 @@ func (c *WorkerCheckoutCache) FetchRefspecs(
 		}
 
 		if warmErr != nil {
-			return true, fmt.Errorf("refresh worker checkout cache mirror: %v; fetch refspecs: %w", warmErr, err)
+			return true, fmt.Errorf("refresh worker checkout cache mirror: %w; fetch refspecs: %w", warmErr, err)
 		}
 		return true, err
 	}
@@ -700,13 +700,13 @@ func cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(
 	}
 
 	if cleanupErr := cleanupWorkerCheckoutCachePartialClone(workspace); cleanupErr != nil {
-		return "", "", false, fmt.Errorf("%w; cleanup partial worker checkout cache clone: %v", err, cleanupErr)
+		return "", "", false, fmt.Errorf("%w; cleanup partial worker checkout cache clone: %w", err, cleanupErr)
 	}
 
 	retryArgs, mode, borrowedObjects := workerCheckoutCacheNoHardlinkCloneArgs(allowBorrowedObjects)
 	retryArgs = append(retryArgs, "--", mirrorPath, ".")
 	if retryErr := run(ctx, workspace, retryArgs...); retryErr != nil {
-		return "", "", false, fmt.Errorf("%w; retry without hardlinks: %v", err, retryErr)
+		return "", "", false, fmt.Errorf("%w; retry without hardlinks: %w", err, retryErr)
 	}
 
 	return mode, observability.CheckoutCacheCloneReasonRetry, borrowedObjects, nil
@@ -858,7 +858,7 @@ func (c *WorkerCheckoutCache) warmRemoteStatus(
 	if err != nil {
 		return true, remoteURL, false, err
 	}
-	defer lock.Close()
+	defer func(close func() error) { _ = close() }(lock.Close)
 
 	changed, err := c.ensureMirror(ctx, persistentRemote, repoPath, logger)
 	if err != nil {
@@ -868,6 +868,7 @@ func (c *WorkerCheckoutCache) warmRemoteStatus(
 	return true, remoteURL, changed, nil
 }
 
+//nolint:nilerr // An unavailable optional cache probe falls back to the normal fetch path.
 func (c *WorkerCheckoutCache) lookupPersistentRemote(remoteURL string) (bool, WorkerCheckoutCacheRemote, error) {
 	remoteURL, err := NormalizeGitRemoteURL(remoteURL)
 	if err != nil {
@@ -1117,6 +1118,7 @@ func workerCheckoutCacheMirrorRefsSnapshot(ctx context.Context, mirrorPath strin
 	return refs, nil
 }
 
+//nolint:nilerr // An unavailable optional cache probe falls back to the normal fetch path.
 func workerCheckoutCacheAdvertisedRefSnapshot(
 	ctx context.Context,
 	env []string,
@@ -1342,7 +1344,7 @@ func initializeWorkerCheckoutCacheMirror(
 			fetchedFrom = remote.FallbackRemoteURLs[0]
 		} else if fallbackErr != nil {
 			return "", fmt.Errorf(
-				"initialize worker checkout cache mirror: origin: %v; fallbacks: %w",
+				"initialize worker checkout cache mirror: origin: %w; fallbacks: %w",
 				primaryErr,
 				fallbackErr,
 			)
@@ -1408,6 +1410,7 @@ func setWorkerCheckoutCacheMirrorOrigin(ctx context.Context, mirrorPath, remoteU
 	return nil
 }
 
+//nolint:nilerr // Missing remote HEAD is optional; fetched explicit refs remain usable.
 func configureWorkerCheckoutCacheMirrorHead(
 	ctx context.Context,
 	mirrorPath string,
@@ -1481,7 +1484,7 @@ func refreshWorkerCheckoutCacheMirror(
 	}
 
 	if fallbackErr != nil {
-		return fmt.Errorf("refresh worker checkout cache mirror: origin: %v; fallbacks: %w", primaryErr, fallbackErr)
+		return fmt.Errorf("refresh worker checkout cache mirror: origin: %w; fallbacks: %w", primaryErr, fallbackErr)
 	}
 
 	return fmt.Errorf("refresh worker checkout cache mirror: %w", primaryErr)
@@ -1664,7 +1667,7 @@ func (c *WorkerCheckoutCache) acquireCurrentMirrorLease(
 	if err != nil {
 		return "", nil, err
 	}
-	defer lock.Close()
+	defer func(close func() error) { _ = close() }(lock.Close)
 
 	mirrorPath, err := c.currentMirrorPath(remoteURL)
 	if err != nil {
@@ -1789,7 +1792,7 @@ func (c *WorkerCheckoutCache) retireCurrentMirrorGeneration(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func(close func() error) { _ = close() }(lock.Close)
 
 	currentPath, err := c.currentMirrorPath(remoteURL)
 	if err != nil {
@@ -1829,7 +1832,7 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func(close func() error) { _ = close() }(lock.Close)
 
 	now := time.Now()
 	if err := cleanupStaleWorkerCheckoutLeases(repoPath, c.leaseTTL, now); err != nil {
@@ -2499,7 +2502,7 @@ func runWorkerCacheGitCommandOutputWithEnv(
 	env []string,
 	args ...string,
 ) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- Cache operations construct Git arguments and pass them without a shell.
 	if strings.TrimSpace(dir) != "" {
 		cmd.Dir = dir
 	}

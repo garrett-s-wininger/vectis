@@ -45,7 +45,7 @@ func runLDAPAuthSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, erro
 	setupCancel()
 
 	if !opts.LDAPKeepFixture {
-		defer cleanupSmokeLDAPFixture(opts)
+		defer cleanupSmokeLDAPFixture(ctx, opts)
 	}
 
 	fmt.Fprintf(out, "Starting LDAP port-forward on 127.0.0.1:%d\n", opts.LDAPLocalPort)
@@ -79,7 +79,7 @@ func runLDAPAuthSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, erro
 	if err != nil {
 		return SmokeResult{}, err
 	}
-	defer restoreSmokeWorkloadEnv(opts, smokeAPIDeploymentName, smokeAPIContainerName, apiEnvSnapshot)
+	defer restoreSmokeWorkloadEnv(ctx, opts, smokeAPIDeploymentName, smokeAPIContainerName, apiEnvSnapshot)
 
 	patchCtx, patchCancel := context.WithTimeout(ctx, opts.Wait)
 	if err := setSmokeWorkloadEnv(patchCtx, opts, smokeAPIDeploymentName, smokeAPIContainerName, apiEnv); err != nil {
@@ -209,8 +209,8 @@ func applySmokeLDAPFixture(ctx context.Context, opts SmokeOptions) error {
 	)
 }
 
-func cleanupSmokeLDAPFixture(opts SmokeOptions) {
-	cleanupSmokeResources(
+func cleanupSmokeLDAPFixture(ctx context.Context, opts SmokeOptions) {
+	cleanupSmokeResources(ctx,
 		opts,
 		"LDAP smoke fixture",
 		smokeLDAPDeploymentName,

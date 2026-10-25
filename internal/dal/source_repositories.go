@@ -406,7 +406,7 @@ func (r *SQLSourcesRepository) ListRepositoriesByWorkerCacheMode(
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SourceRepositoryRecord
 	for rows.Next() {
@@ -485,7 +485,7 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	rec.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(rec.FallbackRemoteURLs)
 	workerCacheWarmRefspecs, err := refspec.NormalizeFetchRefspecs(rec.WorkerCacheWarmRefspecs)
 	if err != nil {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: worker_cache_warm_refspecs: %v", ErrConflict, err)
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: worker_cache_warm_refspecs: %w", ErrConflict, err)
 	}
 	rec.WorkerCacheWarmRefspecs = workerCacheWarmRefspecs
 	rec.DefaultRef = strings.TrimSpace(rec.DefaultRef)

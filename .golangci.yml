@@ -61,6 +61,7 @@ linters:
     paths:
       - api/gen/go
       - website
+      - ui/node_modules
     rules:
       # NOTE(garrett): Tests use short-lived servers, direct DB probes, example URLs, and intentional unchecked errors.
       - path: _test\.go$

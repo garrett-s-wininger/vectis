@@ -310,8 +310,8 @@ type remoteRunner interface {
 type commandRunner struct{}
 
 func (commandRunner) ListRemote(ctx context.Context, remote string, patterns []string) ([]remoteRef, error) {
-	args := append([]string{"ls-remote", remote}, patterns...)
-	cmd := exec.CommandContext(ctx, "git", args...)
+	args := append([]string{"ls-remote", "--", remote}, patterns...)
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- Fixed executable/subcommand; -- separates the remote from options.
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

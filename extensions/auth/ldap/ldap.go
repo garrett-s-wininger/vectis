@@ -141,6 +141,7 @@ func (p *Provider) ProviderID() string { return p.providerID }
 
 func (p *Provider) ProviderKind() string { return ProviderKind }
 
+//nolint:contextcheck // Preserve the existing nil-context fallback; non-nil caller contexts are inherited.
 func (p *Provider) Authenticate(ctx context.Context, username, password string) (sdkauth.Identity, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -156,19 +157,19 @@ func (p *Provider) Authenticate(ctx context.Context, username, password string) 
 
 	c, err := p.dial(authCtx)
 	if err != nil {
-		return sdkauth.Identity{}, fmt.Errorf("%w: dial ldap: %v", sdkauth.ErrUnavailable, err)
+		return sdkauth.Identity{}, fmt.Errorf("%w: dial ldap: %w", sdkauth.ErrUnavailable, err)
 	}
-	defer c.Close()
+	defer func(close func() error) { _ = close() }(c.Close)
 
 	if p.startTLS {
 		if err := c.StartTLS(p.effectiveTLSConfig()); err != nil {
-			return sdkauth.Identity{}, fmt.Errorf("%w: ldap starttls: %v", sdkauth.ErrUnavailable, err)
+			return sdkauth.Identity{}, fmt.Errorf("%w: ldap starttls: %w", sdkauth.ErrUnavailable, err)
 		}
 	}
 
 	if p.bindDN != "" {
 		if err := c.Bind(p.bindDN, p.bindPassword); err != nil {
-			return sdkauth.Identity{}, fmt.Errorf("%w: ldap service bind: %v", sdkauth.ErrUnavailable, err)
+			return sdkauth.Identity{}, fmt.Errorf("%w: ldap service bind: %w", sdkauth.ErrUnavailable, err)
 		}
 	}
 
@@ -182,7 +183,7 @@ func (p *Provider) Authenticate(ctx context.Context, username, password string) 
 			return sdkauth.Identity{}, sdkauth.ErrInvalidCredentials
 		}
 
-		return sdkauth.Identity{}, fmt.Errorf("%w: ldap user bind: %v", sdkauth.ErrUnavailable, err)
+		return sdkauth.Identity{}, fmt.Errorf("%w: ldap user bind: %w", sdkauth.ErrUnavailable, err)
 	}
 
 	mappedUsername := strings.TrimSpace(entry.GetAttributeValue(p.usernameAttribute))
@@ -232,7 +233,7 @@ func (p *Provider) searchUser(ctx context.Context, c conn, username string) (*go
 	))
 
 	if err != nil {
-		return nil, fmt.Errorf("%w: ldap user search: %v", sdkauth.ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: ldap user search: %w", sdkauth.ErrUnavailable, err)
 	}
 
 	switch len(result.Entries) {

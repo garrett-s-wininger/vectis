@@ -180,7 +180,7 @@ func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) (
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []JobRecord
 	var lastID int64
@@ -231,7 +231,7 @@ func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []JobRecord
 	for rows.Next() {
@@ -614,7 +614,7 @@ func nextCronRun(spec string, from time.Time) (time.Time, error) {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	schedule, err := parser.Parse(spec)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("%w: invalid cron spec %q: %v", ErrConflict, spec, err)
+		return time.Time{}, fmt.Errorf("%w: invalid cron spec %q: %w", ErrConflict, spec, err)
 	}
 
 	return schedule.Next(from), nil

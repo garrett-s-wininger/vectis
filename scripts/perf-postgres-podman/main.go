@@ -106,7 +106,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// #nosec G204 -- this harness intentionally executes the benchmark command supplied after "--".
+	// #nosec G204 G702 -- this harness intentionally executes the benchmark command supplied after "--".
 	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -253,7 +253,7 @@ func startPostgres(ctx context.Context, podman, image, containerName, hostPort s
 		)
 	}
 
-	// #nosec G204 -- podman executable and arguments are explicit perf harness configuration.
+	// #nosec G204 G702 -- podman executable and arguments are explicit perf harness configuration.
 	output, err := exec.CommandContext(ctx, podman, args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%s %v: %w\n%s", podman, args, err, string(output))
@@ -325,11 +325,11 @@ func startPostgresWaitSampler(ctx context.Context, dsn string) (*postgresWaitSam
 	}
 
 	interval := postgresWaitSampleInterval()
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil { // #nosec G703 -- The operator selects the local performance evidence output path.
 		return nil, err
 	}
 
-	file, err := os.Create(outputPath)
+	file, err := os.Create(outputPath) // #nosec G703 -- The operator selects the local performance evidence output path.
 	if err != nil {
 		return nil, err
 	}
@@ -495,15 +495,15 @@ func dumpPostgresAutoExplainLogs(ctx context.Context, podman, containerID string
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil { // #nosec G703 -- The operator selects the local performance evidence output path.
 		return err
 	}
 
 	logCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	output, err := exec.CommandContext(logCtx, podman, "logs", containerID).CombinedOutput()
-	writeErr := os.WriteFile(outputPath, output, 0o644)
+	output, err := exec.CommandContext(logCtx, podman, "logs", containerID).CombinedOutput() // #nosec G204 G702 -- The operator selects podman; the harness supplies the logs command and container ID.
+	writeErr := os.WriteFile(outputPath, output, 0o644)                                      // #nosec G703 -- The operator selects the local performance evidence output path.
 	if err != nil {
 		return err
 	}
@@ -517,8 +517,8 @@ func waitForPostgres(ctx context.Context, podman, containerID string) error {
 
 	var lastOutput string
 	for {
-		output, err := exec.CommandContext(ctx, podman, "exec", containerID, "pg_isready", "-U", postgresUser, "-d", postgresDatabase).
-			CombinedOutput()
+		output, err := exec.CommandContext(ctx, podman, "exec", containerID, "pg_isready", "-U", postgresUser, "-d", postgresDatabase). // #nosec G204 G702 -- The operator selects podman; the harness supplies readiness arguments.
+																		CombinedOutput()
 		if err == nil {
 			return nil
 		}
@@ -536,7 +536,7 @@ func removeContainer(podman, containerID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	output, err := exec.CommandContext(ctx, podman, "rm", "-f", "-t", "0", containerID).CombinedOutput()
+	output, err := exec.CommandContext(ctx, podman, "rm", "-f", "-t", "0", containerID).CombinedOutput() // #nosec G204 G702 -- The operator selects podman; cleanup targets the harness container ID.
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "remove podman container %s: %v\n%s", containerID, err, string(output))
 	}

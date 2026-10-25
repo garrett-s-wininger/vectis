@@ -212,7 +212,7 @@ func WriteConfigFileSettings(configPath string, settings [][2]string) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return fmt.Errorf("create git config dir %s: %w", filepath.Dir(configPath), err)
 	}
-	if err := os.WriteFile(configPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil { // #nosec G703 -- The caller supplies the local Git config path; settings are escaped before writing.
 		return fmt.Errorf("write git config %s: %w", configPath, err)
 	}
 

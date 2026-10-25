@@ -306,7 +306,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					}
 				}
 
-				s.auditLog(requestCtx, audit.EventAuthSuccess, session.LocalUserID, 0, map[string]any{
+				_ = s.auditLog(requestCtx, audit.EventAuthSuccess, session.LocalUserID, 0, map[string]any{
 					"credential_type":   "session",
 					"credential_source": string(source),
 				})
@@ -345,7 +345,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			}
 
 			if source == credentialSourceCookie {
-				s.auditLog(requestCtx, audit.EventAuthFailure, 0, 0, map[string]any{
+				_ = s.auditLog(requestCtx, audit.EventAuthFailure, 0, 0, map[string]any{
 					"reason":            "invalid_session",
 					"credential_source": string(source),
 				})
@@ -363,7 +363,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		uid, uname, tokenID, err := s.authRepo.ResolveAPIToken(dbCtx, tokenKey)
 		if err != nil {
 			if dal.IsNotFound(err) {
-				s.auditLog(requestCtx, audit.EventAuthFailure, 0, 0, map[string]any{
+				_ = s.auditLog(requestCtx, audit.EventAuthFailure, 0, 0, map[string]any{
 					"reason": "invalid_token",
 				})
 
@@ -379,7 +379,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
-		s.auditLog(requestCtx, audit.EventAuthSuccess, uid, 0, map[string]any{
+		_ = s.auditLog(requestCtx, audit.EventAuthSuccess, uid, 0, map[string]any{
 			"credential_type": "api_token",
 			"token_id":        tokenID,
 		})
@@ -402,7 +402,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					return
 				}
 
-				s.auditLog(requestCtx, audit.EventAuthFailure, uid, 0, map[string]any{
+				_ = s.auditLog(requestCtx, audit.EventAuthFailure, uid, 0, map[string]any{
 					"reason":   "token_scope_load_error",
 					"token_id": tokenID,
 				})

@@ -231,7 +231,7 @@ func seedLocalRestoreDrillState(t *testing.T, ctx context.Context, paths localRe
 		}
 	}
 
-	if err := database.Migrate(paths.DatabasePath); err != nil {
+	if err := database.Migrate(paths.DatabasePath); err != nil { //nolint:contextcheck // Bootstrap migrations own their startup deadlines.
 		t.Fatalf("migrate source database: %v", err)
 	}
 
@@ -355,7 +355,7 @@ func assertLocalRestoreDrillDatabase(t *testing.T, ctx context.Context, dbPath, 
 	}
 	defer db.Close()
 
-	if err := database.WaitForMigrations(db, nil); err != nil {
+	if err := database.WaitForMigrationsContext(ctx, db, nil); err != nil {
 		t.Fatalf("wait for restored migrations: %v", err)
 	}
 

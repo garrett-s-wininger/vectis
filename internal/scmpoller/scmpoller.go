@@ -235,7 +235,9 @@ func (s *Service) processSpec(ctx context.Context, spec dal.SCMPollTriggerSpec, 
 		if completed {
 			return
 		}
-		if err := s.polls.ReleaseClaim(context.Background(), spec.ID, token); err != nil {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		if err := s.polls.ReleaseClaim(releaseCtx, spec.ID, token); err != nil {
 			s.logger.Error("scm-poller: release claim for trigger %d failed: %v", spec.TriggerID, err)
 		}
 	}()

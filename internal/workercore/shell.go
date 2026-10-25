@@ -217,7 +217,7 @@ func (s *ShellServer) PublishArtifact(stream api.WorkerCoreShellService_PublishA
 
 	if publishErr != nil {
 		_ = reader.CloseWithError(publishErr)
-		<-recvDone
+		<-recvDone //nolint:errcheck // Preserve the publish failure; wait only for the receiver to stop.
 		return status.Errorf(codes.Internal, "publish shell artifact: %v", publishErr)
 	}
 

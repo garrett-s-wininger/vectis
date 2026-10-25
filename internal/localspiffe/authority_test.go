@@ -557,10 +557,10 @@ func testConfig(t *testing.T) Config {
 		)
 	}
 
-	dir, err := os.MkdirTemp(
+	dir, err := os.MkdirTemp( //nolint:usetesting // Keep Unix socket and checkout paths short across platforms.
 		shortTempRoot(),
 		"vectis-spiffe-*",
-	) //nolint:usetesting // Keep SPIFFE runtime socket paths under a short temp root.
+	)
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
