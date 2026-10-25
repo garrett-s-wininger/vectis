@@ -83,6 +83,7 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 			return status
 		}
 
+		localOnly := managedGitCheckoutIsLocalOnly(req.RemoteURL, fallbackRemoteURLs)
 		checkoutStatus := NewGitCheckout(checkoutPath).Status(ctx, "")
 		if checkoutStatus.ErrorCode != "" {
 			checkoutStatus.DefaultRef = defaultRef
@@ -90,7 +91,7 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 				return checkoutStatus
 			}
 
-			if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs); err != nil {
+			if err := materializeManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs, defaultRef); err != nil {
 				checkoutStatus.ErrorCode = ""
 				checkoutStatus.ErrorMessage = ""
 				checkoutStatus.setError("git_clone_failed", err.Error())
@@ -103,14 +104,16 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 				return checkoutStatus
 			}
 
-			if err := fetchManagedGitCheckout(ctx, checkoutPath, credentialEnv, defaultRef); err != nil {
-				checkoutStatus.DefaultRef = defaultRef
-				checkoutStatus.setError("git_fetch_failed", err.Error())
-				return checkoutStatus
+			if !localOnly {
+				if err := fetchManagedGitCheckout(ctx, checkoutPath, credentialEnv, defaultRef); err != nil {
+					checkoutStatus.DefaultRef = defaultRef
+					checkoutStatus.setError("git_fetch_failed", err.Error())
+					return checkoutStatus
+				}
 			}
 		}
 	case os.IsNotExist(err):
-		if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs); err != nil {
+		if err := materializeManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs, defaultRef); err != nil {
 			status.setError("git_clone_failed", err.Error())
 			return status
 		}
@@ -249,6 +252,52 @@ func managedGitCredentialEnvironment(creds GitCredentials) ([]string, func(), er
 	}
 
 	return gitCredentialEnvironment(creds)
+}
+
+func managedGitCheckoutIsLocalOnly(remoteURL string, fallbackRemoteURLs []string) bool {
+	return strings.TrimSpace(remoteURL) == "" && len(fallbackRemoteURLs) == 0
+}
+
+func materializeManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string, env []string, fallbackRemoteURLs []string, defaultRef string) error {
+	if managedGitCheckoutIsLocalOnly(remoteURL, fallbackRemoteURLs) {
+		return initLocalManagedGitCheckout(ctx, checkoutPath, defaultRef)
+	}
+
+	return cloneManagedGitCheckout(ctx, checkoutPath, remoteURL, env, fallbackRemoteURLs)
+}
+
+func initLocalManagedGitCheckout(ctx context.Context, checkoutPath, defaultRef string) error {
+	branch := "main"
+	if name, ok := remoteFallbackBranchName(defaultRef); ok {
+		branch = name
+	}
+
+	if err := os.MkdirAll(checkoutPath, 0o755); err != nil {
+		return fmt.Errorf("create local checkout: %w", err)
+	}
+
+	if _, err := runGitCommand(ctx, "-C", checkoutPath, "init", "--initial-branch="+branch); err != nil {
+		if _, initErr := runGitCommand(ctx, "-C", checkoutPath, "init"); initErr != nil {
+			return fmt.Errorf("initialize local checkout: %w", err)
+		}
+
+		if _, err := runGitCommand(ctx, "-C", checkoutPath, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {
+			return fmt.Errorf("set local checkout branch: %w", err)
+		}
+	}
+
+	_, err := runGitCommandWithEnv(ctx, []string{
+		"GIT_AUTHOR_NAME=Vectis",
+		"GIT_AUTHOR_EMAIL=vectis@example.invalid",
+		"GIT_COMMITTER_NAME=Vectis",
+		"GIT_COMMITTER_EMAIL=vectis@example.invalid",
+	}, "-C", checkoutPath, "commit", "--allow-empty", "-m", "Initial local repository")
+
+	if err != nil {
+		return fmt.Errorf("commit local checkout: %w", err)
+	}
+
+	return nil
 }
 
 func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string, env []string, fallbackRemoteURLs []string) error {

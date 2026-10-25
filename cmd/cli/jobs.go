@@ -84,11 +84,12 @@ func triggerJobWithOutput(cmd *cobra.Command, args []string, out io.Writer) erro
 	}
 
 	jobID := args[0]
-	if repositoryID := stringFlagValue(cmd, "repository"); repositoryID != "" {
-		return triggerSourceJobFromJobsFacadeWithOutput(cmd, out, repositoryID, jobID)
+	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "trigger a reusable job; use jobs run for one-off definitions")
+	if err != nil {
+		return err
 	}
 
-	return fmt.Errorf("--repository is required to trigger a reusable job; use jobs run for one-off definitions")
+	return triggerSourceJobFromJobsFacadeWithOutput(cmd, out, repositoryID, jobID)
 }
 
 func singleSourceTriggerCellIDFromCells(rawCellIDs []string) (string, error) {
@@ -396,9 +397,9 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 
 	jobID := args[0]
-	repositoryID := stringFlagValue(cmd, "repository")
-	if repositoryID == "" {
-		runCLIError(fmt.Errorf("--repository is required to edit a reusable job"))
+	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "edit a reusable job")
+	if err != nil {
+		runCLIError(err)
 	}
 
 	body, statusCode, err := fetchSourceJobDefinitionBodyFromJobsFacade(cmd, repositoryID, jobID)
@@ -497,12 +498,12 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 	}
 
 	jobID := args[0]
-	if repositoryID := stringFlagValue(cmd, "repository"); repositoryID != "" {
-		runCLIError(showSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID))
-		return
+	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "show a reusable job")
+	if err != nil {
+		runCLIError(err)
 	}
 
-	runCLIError(fmt.Errorf("--repository is required to show a reusable job"))
+	runCLIError(showSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID))
 }
 
 func listJobs(cmd *cobra.Command, args []string) {
@@ -540,9 +541,9 @@ func createJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("invalid action registry config: %w", err))
 	}
 
-	repositoryID := stringFlagValue(cmd, "repository")
-	if repositoryID == "" {
-		runCLIError(fmt.Errorf("--repository is required to create a reusable job; use jobs run for one-off definitions"))
+	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "create a reusable job; use jobs run for one-off definitions")
+	if err != nil {
+		runCLIError(err)
 	}
 
 	if namespace := stringFlagValue(cmd, "namespace"); namespace != "" {
@@ -719,12 +720,12 @@ func deleteJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("delete job %q requires --yes; this removes the definition and prevents future triggers", jobID))
 	}
 
-	if repositoryID := stringFlagValue(cmd, "repository"); repositoryID != "" {
-		runCLIError(deleteSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID))
-		return
+	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "delete a reusable job")
+	if err != nil {
+		runCLIError(err)
 	}
 
-	runCLIError(fmt.Errorf("--repository is required to delete a reusable job"))
+	runCLIError(deleteSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID))
 }
 
 func deleteSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
@@ -833,11 +834,13 @@ func sourceJobDefinitionConflictError(resp *http.Response, operation, repository
 }
 
 func listJobsWithOutput(w io.Writer, opts jobListOptions) error {
-	if strings.TrimSpace(opts.RepositoryID) != "" {
-		return listSourceJobsFromJobsFacadeWithOutput(w, opts)
+	repositoryID, err := resolveSourceRepositoryID(opts.RepositoryID, "list reusable jobs")
+	if err != nil {
+		return err
 	}
 
-	return fmt.Errorf("--repository is required to list reusable jobs")
+	opts.RepositoryID = repositoryID
+	return listSourceJobsFromJobsFacadeWithOutput(w, opts)
 }
 
 var jobsCmd = &cobra.Command{

@@ -184,10 +184,9 @@ Running multiple steps in sequence
 
 ## Save And Trigger A Reusable Job
 
-If you want to save a job definition and trigger it later, register a managed source repository and commit the job there. `local_commit` authoring is the mode that accepts `jobs create`, and it is only valid for a managed checkout. A default `vectis-local` stack does not register a repository for you:
+If you want to save a job definition and trigger it later, commit it to a managed source repository. `vectis-local` registers `vectis-local` for you: a managed checkout with `local_commit` authoring and default ref `main`. Pass `--source-repository repository_id=checkout_path` when you want to use your own checkouts instead.
 
 ```sh
-./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
 ./bin/vectis-cli jobs create examples/sequenced.json --repository vectis-local --branch main --message "Add sequenced job"
 ```
 

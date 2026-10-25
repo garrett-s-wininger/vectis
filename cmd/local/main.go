@@ -1070,7 +1070,7 @@ func localSourceRepositoryDeclarations() ([]config.SourceRepositoryDeclaration, 
 			return nil, fmt.Errorf("config-as-code requires one or more --source-repository repository_id=checkout_path flags")
 		}
 
-		return nil, nil
+		return []config.SourceRepositoryDeclaration{localDefaultSourceRepository()}, nil
 	}
 
 	repos := make([]config.SourceRepositoryDeclaration, 0, len(values))
@@ -1100,6 +1100,17 @@ func localSourceRepositoryDeclarations() ([]config.SourceRepositoryDeclaration, 
 	}
 
 	return repos, nil
+}
+
+func localDefaultSourceRepository() config.SourceRepositoryDeclaration {
+	return config.SourceRepositoryDeclaration{
+		RepositoryID:  "vectis-local",
+		Namespace:     "/",
+		SourceKind:    "local_checkout",
+		CheckoutMode:  "managed",
+		AuthoringMode: "local_commit",
+		DefaultRef:    "main",
+	}
 }
 
 func localSourceRepositorySpecs() []string {
@@ -2077,7 +2088,9 @@ and use per-cell SQLite databases, queues, secrets roots, ingress endpoints, and
 
 Use --config-as-code with one or more --source-repository repository_id=checkout_path
 flags to start a local config-as-code instance without hand-authoring the JSON
-source repository environment.
+source repository environment. Without those flags, vectis-local registers a
+managed source repository named vectis-local so reusable jobs and the UI have a
+checkout to use.
 
 Use --profile=ha to start a local multi-instance exercise cell with multiple
 registries, queue shards, log shards, artifact shards, API replicas, worker-core,
@@ -2120,7 +2133,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	rootCmd.PersistentFlags().Bool("config-as-code", false, "Configure the local API server for config-as-code reusable jobs")
-	rootCmd.PersistentFlags().StringArray("source-repository", nil, "Declare a local source repository as repository_id=checkout_path; may be repeated")
+	rootCmd.PersistentFlags().StringArray("source-repository", nil, "Declare a local source repository as repository_id=checkout_path; may be repeated. When omitted, vectis-local registers managed repository vectis-local")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
 	rootCmd.PersistentFlags().String("spiffe-dir", "", "Directory for local vectis-spiffe authority data")
 	rootCmd.PersistentFlags().String("spiffe-runtime-dir", "", "Directory for local vectis-spiffe authority Unix sockets")

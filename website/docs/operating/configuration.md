@@ -170,7 +170,7 @@ The API client IP trust setting is an intentionally separate API-wide variable: 
 
 ## HTTP API Authentication {#http-api-authentication-vectis-api}
 
-Standalone API authentication is off by default. `vectis-local` enables HTTP API authentication for its child API process by default. With `--setup=auto`, it creates the first admin after the API is healthy, prompts for a password when a terminal is attached, and otherwise writes a generated password under `$XDG_DATA_HOME/vectis/local-admin-password`. `--setup=off` leaves a reusable bootstrap token under `$XDG_DATA_HOME/vectis/local-bootstrap-token`. Browser sessions are owned by `vectis-ui`: it performs first-load setup/login/app-shell routing, gives the browser an HttpOnly UI session cookie, and stores and forwards API bearer tokens server-side.
+Standalone API authentication is off by default. `vectis-local` enables HTTP API authentication for its child API process by default. It also registers managed source repository `vectis-local` in namespace `/` with `local_commit` authoring and default ref `main`, unless you pass `--source-repository`. With `--setup=auto`, it creates the first admin after the API is healthy, prompts for a password when a terminal is attached, and otherwise writes a generated password under `$XDG_DATA_HOME/vectis/local-admin-password`. `--setup=off` leaves a reusable bootstrap token under `$XDG_DATA_HOME/vectis/local-bootstrap-token`. Browser sessions are owned by `vectis-ui`: it performs first-load setup/login/app-shell routing, gives the browser an HttpOnly UI session cookie, and stores and forwards API bearer tokens server-side.
 
 | Variable / key | Purpose |
 | --- | --- |

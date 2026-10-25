@@ -546,9 +546,9 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 		runCLIError(err)
 	}
 
-	repositoryID := stringFlagValue(cmd, "repository")
-	if repositoryID == "" {
-		runCLIError(fmt.Errorf("--repository is required to stream logs for a reusable job; use logs run for a specific run"))
+	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "stream logs for a reusable job; use logs run for a specific run")
+	if err != nil {
+		runCLIError(err)
 	}
 
 	filterStdout, _ := cmd.Flags().GetBool("stdout")

@@ -649,6 +649,42 @@ func TestAPIEnvConfigAsCodeRepositories(t *testing.T) {
 	}
 }
 
+func TestAPIEnvRegistersDefaultSourceRepository(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_LOCAL_SOURCE_REPOSITORIES", "")
+	viper.Set("host", "127.0.0.1")
+
+	env, err := apiEnv()
+	if err != nil {
+		t.Fatalf("apiEnv: %v", err)
+	}
+
+	if !hasEnv(env, "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true") {
+		t.Fatalf("api env missing source sync startup: %v", env)
+	}
+
+	raw, ok := envValue(env, "VECTIS_SOURCE_REPOSITORIES")
+	if !ok {
+		t.Fatalf("api env missing source repositories: %v", env)
+	}
+
+	var repos []config.SourceRepositoryDeclaration
+	if err := json.Unmarshal([]byte(raw), &repos); err != nil {
+		t.Fatalf("decode source repositories: %v", err)
+	}
+
+	if len(repos) != 1 ||
+		repos[0].RepositoryID != "vectis-local" ||
+		repos[0].Namespace != "/" ||
+		repos[0].SourceKind != "local_checkout" ||
+		repos[0].CheckoutMode != "managed" ||
+		repos[0].AuthoringMode != "local_commit" ||
+		repos[0].DefaultRef != "main" ||
+		repos[0].CheckoutPath != "" {
+		t.Fatalf("default source repository = %+v", repos)
+	}
+}
+
 func TestAPIEnvConfigAsCodeRequiresRepository(t *testing.T) {
 	resetLocalTestConfig(t)
 	t.Setenv("VECTIS_LOCAL_SOURCE_REPOSITORIES", "")

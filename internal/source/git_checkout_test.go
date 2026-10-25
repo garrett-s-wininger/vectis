@@ -596,6 +596,23 @@ func TestGitCheckoutListDefinitionFiles(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutListDefinitionFilesEmptyRepository(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+
+	listing, err := NewGitCheckout(repo).ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{
+		Ref: "main",
+	})
+
+	if err != nil {
+		t.Fatalf("ListDefinitionFiles empty jobs directory: %v", err)
+	}
+
+	if listing.Path != DefaultDefinitionPath || len(listing.Files) != 0 || listing.Truncated {
+		t.Fatalf("empty jobs directory listing = %+v", listing)
+	}
+}
+
 func TestGitCheckoutStatusReportsHealthyCheckout(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
@@ -1026,7 +1043,7 @@ func gitTestRefs(repo, prefix string) ([]string, bool) {
 			out = append(out, ref)
 		}
 	}
-	
+
 	sort.Strings(out)
 	return out, true
 }

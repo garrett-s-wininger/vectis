@@ -124,10 +124,9 @@ Run a one-off job:
 ./bin/vectis-cli jobs run examples/sequenced.json --follow
 ```
 
-Store a job and trigger it later. Reusable jobs are committed to a source repository. `jobs create` requires a managed checkout with `local_commit` authoring; a default `vectis-local` start does not register one:
+Store a job and trigger it later. `vectis-local` registers managed repository `vectis-local` with `local_commit` authoring, which is what `jobs create` writes to:
 
 ```bash
-./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
 ./bin/vectis-cli jobs create examples/sequenced.json --repository vectis-local --branch main --message "Add sequenced job"
 ./bin/vectis-cli jobs trigger sequenced-job --repository vectis-local --ref main --follow
 ```

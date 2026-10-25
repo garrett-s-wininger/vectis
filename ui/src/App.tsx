@@ -433,7 +433,8 @@ export function App() {
 
   async function handleTriggerRun(jobID: string) {
     try {
-      setConsoleData(await consoleDataSourceRef.current.triggerRun(jobID));
+      const repositoryID = consoleData?.jobs.find((job) => job.id === jobID)?.repository;
+      setConsoleData(await consoleDataSourceRef.current.triggerRun(jobID, repositoryID));
       setConsoleError("");
       setActionError("");
     } catch (error) {

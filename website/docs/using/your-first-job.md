@@ -48,10 +48,9 @@ Use a one-off run when you are experimenting:
 ./bin/vectis-cli jobs run hello.json --follow
 ```
 
-Use a reusable source-backed job when you want to trigger the same definition repeatedly. Register a managed repository with `local_commit` authoring first; `jobs create` commits the definition there, and a default local stack has no repository until you register one:
+Use a reusable source-backed job when you want to trigger the same definition repeatedly. A default `vectis-local` stack registers managed repository `vectis-local` with `local_commit` authoring, and `jobs create` commits the definition there:
 
 ```sh
-./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
 ./bin/vectis-cli jobs create hello.json --repository vectis-local --branch main --message "Add hello job"
 ./bin/vectis-cli jobs trigger hello-job --repository vectis-local --ref main --follow
 ```

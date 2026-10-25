@@ -1114,12 +1114,13 @@ func runListRuns(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job id is required (pass [job-id] or --job)"))
 	}
 
-	if strings.TrimSpace(runListRepositoryID) == "" {
-		runCLIError(fmt.Errorf("--repository is required to list runs for a reusable job"))
+	repositoryID, err := resolveSourceRepositoryID(runListRepositoryID, "list runs for a reusable job")
+	if err != nil {
+		runCLIError(err)
 	}
 
 	since, _ := cmd.Flags().GetString("since")
-	runCLIError(listRunsForRepository(jobID, runListRepositoryID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
+	runCLIError(listRunsForRepository(jobID, repositoryID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
 }
 
 func listRuns(jobID string, limit, cursor int, since string, cellID string, w io.Writer) error {

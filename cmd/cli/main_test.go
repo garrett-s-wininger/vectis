@@ -228,6 +228,10 @@ func TestSetIdempotencyHeader(t *testing.T) {
 }
 
 func TestTriggerJob_requiresRepository(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+	})
+
 	err := triggerJobWithOutput(&cobra.Command{}, []string{"job-1"}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "--repository is required") {
 		t.Fatalf("expected repository error, got %v", err)
@@ -3521,9 +3525,34 @@ func TestTokenDelete_notFound(t *testing.T) {
 }
 
 func TestListJobs_requiresRepository(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+	})
+
 	err := listJobsWithOutput(io.Discard, jobListOptions{})
 	if err == nil || !strings.Contains(err.Error(), "--repository is required") {
 		t.Fatalf("expected repository error, got %v", err)
+	}
+}
+
+func TestListJobs_usesOnlyEnabledSourceRepository(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/source-repositories":
+			_, _ = w.Write([]byte(`[{"repository_id":"vectis-local","enabled":true},{"repository_id":"disabled","enabled":false}]`))
+		case "/api/v1/jobs":
+			if r.URL.Query().Get("repository_id") != "vectis-local" {
+				t.Errorf("repository_id=%q", r.URL.Query().Get("repository_id"))
+			}
+			_, _ = w.Write([]byte(`{"repository_id":"vectis-local","jobs":[]}`))
+		default:
+			t.Errorf("path=%s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	if err := listJobsWithOutput(io.Discard, jobListOptions{}); err != nil {
+		t.Fatal(err)
 	}
 }
 

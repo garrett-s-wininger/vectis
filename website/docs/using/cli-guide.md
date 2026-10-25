@@ -178,13 +178,9 @@ For safe client retries after a network error, pass an idempotency key:
 
 ## List, Show, And Trigger Jobs
 
-Reusable jobs are source-backed. `jobs create` commits into a repository registered with `--checkout-mode managed` and `--authoring-mode local_commit`. A read-only or external checkout rejects local definition writes. Register that repository once:
+Reusable jobs are source-backed. `jobs create` commits into a repository registered with `--checkout-mode managed` and `--authoring-mode local_commit`. A read-only or external checkout rejects local definition writes. `vectis-local` registers `vectis-local` in that mode. Register another repository with `sources register` when you need one.
 
-```sh
-./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
-```
-
-Use the jobs commands with `--repository` to select the repository that owns the definition:
+Use the jobs commands with `--repository` to select the repository that owns the definition. When exactly one enabled source repository is registered, these commands use that repository if you omit `--repository`:
 
 ```sh
 ./bin/vectis-cli jobs create ./build.json --repository vectis-local --branch main --message "Add build job"
@@ -223,7 +219,7 @@ Deleting a source-backed job commits removal of the source definition file. Hist
 
 ## Manage Source Repositories
 
-Register a managed checkout when Vectis should own the git directory and accept `jobs create`:
+Register another managed checkout when Vectis should own the git directory and accept `jobs create`. `vectis-local` already registers `vectis-local` this way:
 
 ```sh
 ./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
