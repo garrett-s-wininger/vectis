@@ -130,7 +130,15 @@ func TestReducerReduceFailureDominatesIncompleteSibling(t *testing.T) {
 		t.Fatalf("root success fan-out activated=%d children=%+v", activated, children)
 	}
 
-	runfixture.FinalizeExecutionByClaimWithFailure(t, ctx, repos, failedBranch.ExecutionID, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "failed branch")
+	runfixture.FinalizeExecutionByClaimWithFailure(
+		t,
+		ctx,
+		repos,
+		failedBranch.ExecutionID,
+		dal.ExecutionStatusFailed,
+		dal.FailureCodeExecution,
+		"failed branch",
+	)
 
 	decision, err := taskreduce.New(repos.Runs()).Reduce(ctx, runID)
 	if err != nil {
@@ -141,7 +149,8 @@ func TestReducerReduceFailureDominatesIncompleteSibling(t *testing.T) {
 		t.Fatalf("outcome: got %q, want %q; summary=%+v", decision.Outcome, taskreduce.OutcomeFailed, decision.Summary)
 	}
 
-	if decision.Summary.Total != 3 || decision.Summary.Succeeded != 1 || decision.Summary.TerminalFailed != 1 || decision.Summary.Incomplete != 1 {
+	if decision.Summary.Total != 3 || decision.Summary.Succeeded != 1 || decision.Summary.TerminalFailed != 1 ||
+		decision.Summary.Incomplete != 1 {
 		t.Fatalf("summary should include succeeded root, failed branch, and incomplete sibling: %+v", decision.Summary)
 	}
 

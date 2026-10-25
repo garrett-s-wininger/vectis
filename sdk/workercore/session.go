@@ -29,7 +29,8 @@ func NewSession(session *api.WorkerCoreTaskSession) (Session, error) {
 		return Session{}, fmt.Errorf("task session id is required")
 	}
 
-	if (session.GetLogsEnabled() || session.GetArtifactsEnabled()) && strings.TrimSpace(session.GetShellEndpoint()) == "" {
+	if (session.GetLogsEnabled() || session.GetArtifactsEnabled()) &&
+		strings.TrimSpace(session.GetShellEndpoint()) == "" {
 		return Session{}, fmt.Errorf("shell endpoint is required for callback-enabled task sessions")
 	}
 

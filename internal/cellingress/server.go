@@ -113,7 +113,8 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == http.MethodPost && r.URL.Path == "/cell/v1/executions" && !config.CellIngressProducerIdentityAllowed(r) {
+	if r.Method == http.MethodPost && r.URL.Path == "/cell/v1/executions" &&
+		!config.CellIngressProducerIdentityAllowed(r) {
 		writeError(w, http.StatusForbidden, "authorization_denied", "producer service identity is not allowed")
 		return
 	}
@@ -125,7 +126,12 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodPost {
 		if !httpsecurity.RequestContentTypeIsJSON(r) {
-			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "request content type must be application/json")
+			writeError(
+				w,
+				http.StatusUnsupportedMediaType,
+				"unsupported_media_type",
+				"request content type must be application/json",
+			)
 			return
 		}
 
@@ -202,7 +208,12 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 	submission, err := cell.NewExecutionSubmission(&jobReq)
 	if err != nil {
 		if errors.Is(err, cell.ErrMissingExecutionEnvelope) {
-			writeError(w, http.StatusBadRequest, "missing_execution_envelope", "execution envelope metadata is required")
+			writeError(
+				w,
+				http.StatusBadRequest,
+				"missing_execution_envelope",
+				"execution envelope metadata is required",
+			)
 			return
 		}
 
@@ -211,7 +222,12 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if normalizeLocalCellID(submission.TargetCellID()) != s.localCellID {
-		writeError(w, http.StatusConflict, "wrong_cell", fmt.Sprintf("execution targets cell %q, local cell is %q", submission.TargetCellID(), s.localCellID))
+		writeError(
+			w,
+			http.StatusConflict,
+			"wrong_cell",
+			fmt.Sprintf("execution targets cell %q, local cell is %q", submission.TargetCellID(), s.localCellID),
+		)
 		return
 	}
 
@@ -233,15 +249,30 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 				s.logger.Warn("Cell ingress durable accept failed: %v", err)
 			}
 
-			writeError(w, http.StatusServiceUnavailable, "acceptance_unavailable", "local cell did not durably accept execution")
+			writeError(
+				w,
+				http.StatusServiceUnavailable,
+				"acceptance_unavailable",
+				"local cell did not durably accept execution",
+			)
 			return
 		}
 	}
 
 	if err := s.router.SubmitExecution(r.Context(), submission); err != nil {
 		if durable {
-			if markErr := s.acceptances.MarkEnqueueFailed(r.Context(), submission.Envelope.ExecutionID, time.Now().UnixNano(), err.Error()); markErr != nil && s.logger != nil {
-				s.logger.Warn("Cell ingress failed to record enqueue failure for execution %s: %v", submission.Envelope.ExecutionID, markErr)
+			if markErr := s.acceptances.MarkEnqueueFailed(
+				r.Context(),
+				submission.Envelope.ExecutionID,
+				time.Now().UnixNano(),
+				err.Error(),
+			); markErr != nil &&
+				s.logger != nil {
+				s.logger.Warn(
+					"Cell ingress failed to record enqueue failure for execution %s: %v",
+					submission.Envelope.ExecutionID,
+					markErr,
+				)
 			}
 		}
 
@@ -254,8 +285,17 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if durable {
-		if err := s.acceptances.MarkEnqueued(r.Context(), submission.Envelope.ExecutionID, time.Now().UnixNano()); err != nil && s.logger != nil {
-			s.logger.Warn("Cell ingress failed to record enqueue success for execution %s: %v", submission.Envelope.ExecutionID, err)
+		if err := s.acceptances.MarkEnqueued(
+			r.Context(),
+			submission.Envelope.ExecutionID,
+			time.Now().UnixNano(),
+		); err != nil &&
+			s.logger != nil {
+			s.logger.Warn(
+				"Cell ingress failed to record enqueue success for execution %s: %v",
+				submission.Envelope.ExecutionID,
+				err,
+			)
 		}
 	}
 

@@ -122,7 +122,13 @@ func runKnoxSecretsSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, e
 
 	secretsEnv := smokeKnoxSecretsEnv(opts)
 	snapshotCtx, snapshotCancel := context.WithTimeout(ctx, opts.Wait)
-	secretsEnvSnapshot, err := snapshotSmokeWorkloadEnv(snapshotCtx, opts, smokeSecretsStatefulSetName, smokeSecretsContainerName, mapKeys(secretsEnv))
+	secretsEnvSnapshot, err := snapshotSmokeWorkloadEnv(
+		snapshotCtx,
+		opts,
+		smokeSecretsStatefulSetName,
+		smokeSecretsContainerName,
+		mapKeys(secretsEnv),
+	)
 	snapshotCancel()
 	if err != nil {
 		return SmokeResult{}, err
@@ -130,7 +136,13 @@ func runKnoxSecretsSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, e
 	defer restoreSmokeWorkloadEnv(opts, smokeSecretsStatefulSetName, smokeSecretsContainerName, secretsEnvSnapshot)
 
 	patchCtx, patchCancel := context.WithTimeout(ctx, opts.Wait)
-	if err := setSmokeWorkloadEnv(patchCtx, opts, smokeSecretsStatefulSetName, smokeSecretsContainerName, secretsEnv); err != nil {
+	if err := setSmokeWorkloadEnv(
+		patchCtx,
+		opts,
+		smokeSecretsStatefulSetName,
+		smokeSecretsContainerName,
+		secretsEnv,
+	); err != nil {
 		patchCancel()
 		return SmokeResult{}, err
 	}
@@ -189,11 +201,23 @@ func validateKnoxSecretsSmokeOptions(opts SmokeOptions) error {
 }
 
 func applySmokeKnoxFixture(ctx context.Context, opts SmokeOptions, certs smokeKnoxCertBundle) error {
-	return applySmokeManifest(ctx, opts, "Knox smoke fixture", smokeKnoxFixtureManifest(opts, certs), smokeKnoxDeploymentName)
+	return applySmokeManifest(
+		ctx,
+		opts,
+		"Knox smoke fixture",
+		smokeKnoxFixtureManifest(opts, certs),
+		smokeKnoxDeploymentName,
+	)
 }
 
 func cleanupSmokeKnoxFixture(opts SmokeOptions) {
-	cleanupSmokeResources(opts, "Knox smoke fixture", smokeKnoxDeploymentName, smokeKnoxServiceName, smokeKnoxCertSecretResource)
+	cleanupSmokeResources(
+		opts,
+		"Knox smoke fixture",
+		smokeKnoxDeploymentName,
+		smokeKnoxServiceName,
+		smokeKnoxCertSecretResource,
+	)
 }
 
 func smokeKnoxFixtureManifest(opts SmokeOptions, certs smokeKnoxCertBundle) string {
@@ -312,7 +336,10 @@ func smokeKnoxSecretsEnv(opts SmokeOptions) map[string]string {
 		"VECTIS_SECRETS_PROVIDERS_KNOX_CA_FILE":          opts.KnoxCertMountPath + "/ca.crt",
 		"VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_CERT_FILE": opts.KnoxCertMountPath + "/client.crt",
 		"VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_KEY_FILE":  opts.KnoxCertMountPath + "/client.key",
-		"VECTIS_SECRETS_POLICY_ALLOW":                    strings.Join([]string{smokeKnoxPolicyAllowEncrypted, smokeKnoxPolicyAllowKnox}, ","),
+		"VECTIS_SECRETS_POLICY_ALLOW": strings.Join(
+			[]string{smokeKnoxPolicyAllowEncrypted, smokeKnoxPolicyAllowKnox},
+			",",
+		),
 	}
 }
 
@@ -384,14 +411,28 @@ func removeSmokeSecretsKnoxCertVolume(opts SmokeOptions) {
 	}
 }
 
-func patchSmokeWorkload(ctx context.Context, opts SmokeOptions, workload, description string, patch map[string]any) error {
+func patchSmokeWorkload(
+	ctx context.Context,
+	opts SmokeOptions,
+	workload, description string,
+	patch map[string]any,
+) error {
 	data, err := json.Marshal(patch)
 	if err != nil {
 		return fmt.Errorf("marshal %s patch: %w", description, err)
 	}
 
 	fmt.Fprintf(opts.Stdout, "Patching %s for %s\n", workload, description)
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "patch", workload, "--type=strategic", "--patch", string(data))
+	stdout, stderr, err := runSmokeKubectl(
+		ctx,
+		opts,
+		nil,
+		"patch",
+		workload,
+		"--type=strategic",
+		"--patch",
+		string(data),
+	)
 	if err != nil {
 		return fmt.Errorf("patch %s for %s: %w: %s%s", workload, description, err, stdout, stderr)
 	}
@@ -524,7 +565,11 @@ type smokeKnoxLeafCertificateOptions struct {
 	TTL         time.Duration
 }
 
-func newSmokeKnoxLeafCertificate(caPEM []byte, caKey *ecdsa.PrivateKey, opts smokeKnoxLeafCertificateOptions) ([]byte, []byte, error) {
+func newSmokeKnoxLeafCertificate(
+	caPEM []byte,
+	caKey *ecdsa.PrivateKey,
+	opts smokeKnoxLeafCertificateOptions,
+) ([]byte, []byte, error) {
 	block, _ := pem.Decode(caPEM)
 	if block == nil {
 		return nil, nil, fmt.Errorf("generated CA PEM could not be decoded")

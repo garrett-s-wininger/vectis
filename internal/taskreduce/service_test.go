@@ -73,7 +73,12 @@ func TestServiceProcessRecordsTraceDecision(t *testing.T) {
 		t.Fatalf("ended spans: got %d, want 1", len(spans))
 	}
 
-	if got := spanAttributeString(spans[0].Attributes(), "vectis.task.reduce.outcome"); got != string(taskreduce.OutcomeFailed) {
+	if got := spanAttributeString(
+		spans[0].Attributes(),
+		"vectis.task.reduce.outcome",
+	); got != string(
+		taskreduce.OutcomeFailed,
+	) {
 		t.Fatalf("reduce outcome attr: got %q, want %q", got, taskreduce.OutcomeFailed)
 	}
 

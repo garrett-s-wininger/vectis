@@ -13,7 +13,9 @@ import (
 )
 
 func TestRunStateReferenceMentionsLifecycleConstants(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "website", "docs", "operating", "reference", "run-state-reference.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "website", "docs", "operating", "reference", "run-state-reference.md"),
+	)
 	if err != nil {
 		t.Fatalf("read run state reference: %v", err)
 	}

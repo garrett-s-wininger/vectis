@@ -42,7 +42,9 @@ func TestPostgresDSNWithExtraParamsMergesAndOverrides(t *testing.T) {
 func TestPostgresDSNWithExtraParamsRejectsMalformedParams(t *testing.T) {
 	t.Setenv(envPostgresDSNParams, "plan_cache_mode=%zz")
 
-	if _, err := postgresDSNWithExtraParams("postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=disable"); err == nil {
+	if _, err := postgresDSNWithExtraParams(
+		"postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=disable",
+	); err == nil {
 		t.Fatal("postgresDSNWithExtraParams succeeded with malformed params")
 	}
 }

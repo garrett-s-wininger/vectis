@@ -219,7 +219,8 @@ func TestServeGRPC_ContextCancellationForcesStopAfterTimeout(t *testing.T) {
 	}
 	defer conn.Close()
 
-	stream, err := healthpb.NewHealthClient(conn).Watch(context.Background(), &healthpb.HealthCheckRequest{Service: "test"})
+	stream, err := healthpb.NewHealthClient(conn).
+		Watch(context.Background(), &healthpb.HealthCheckRequest{Service: "test"})
 	if err != nil {
 		t.Fatalf("watch health: %v", err)
 	}

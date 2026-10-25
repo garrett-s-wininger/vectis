@@ -117,12 +117,25 @@ func failingScriptForTest() string {
 	return "false"
 }
 
-func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
+func executeAndWait(
+	t *testing.T,
+	executor *job.Executor,
+	testJob *api.Job,
+	mockLogClient *mocks.MockLogClient,
+	mockLogger *mocks.MockLogger,
+) error {
 	t.Helper()
 	return executeAndWaitWithOptions(t, executor, testJob, mockLogClient, mockLogger, job.ExecuteOptions{})
 }
 
-func executeAndWaitWithOptions(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger, opts job.ExecuteOptions) error {
+func executeAndWaitWithOptions(
+	t *testing.T,
+	executor *job.Executor,
+	testJob *api.Job,
+	mockLogClient *mocks.MockLogClient,
+	mockLogger *mocks.MockLogger,
+	opts job.ExecuteOptions,
+) error {
 	t.Helper()
 	streamCh := make(chan job.LogStreamWaiter, 1)
 	executor.TestLogStreamHook = streamCh
@@ -142,12 +155,27 @@ func executeAndWaitWithOptions(t *testing.T, executor *job.Executor, testJob *ap
 	return err
 }
 
-func executeTaskAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, taskKey string, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
+func executeTaskAndWait(
+	t *testing.T,
+	executor *job.Executor,
+	testJob *api.Job,
+	taskKey string,
+	mockLogClient *mocks.MockLogClient,
+	mockLogger *mocks.MockLogger,
+) error {
 	t.Helper()
 	return executeTaskAndWaitWithOptions(t, executor, testJob, taskKey, mockLogClient, mockLogger, job.ExecuteOptions{})
 }
 
-func executeTaskAndWaitWithOptions(t *testing.T, executor *job.Executor, testJob *api.Job, taskKey string, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger, opts job.ExecuteOptions) error {
+func executeTaskAndWaitWithOptions(
+	t *testing.T,
+	executor *job.Executor,
+	testJob *api.Job,
+	taskKey string,
+	mockLogClient *mocks.MockLogClient,
+	mockLogger *mocks.MockLogger,
+	opts job.ExecuteOptions,
+) error {
 	t.Helper()
 	streamCh := make(chan job.LogStreamWaiter, 1)
 	executor.TestLogStreamHook = streamCh
@@ -167,13 +195,28 @@ func executeTaskAndWaitWithOptions(t *testing.T, executor *job.Executor, testJob
 	return err
 }
 
-func executeJobInWorkspaceWithOptionsAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger, workspace string, opts job.ExecuteOptions) error {
+func executeJobInWorkspaceWithOptionsAndWait(
+	t *testing.T,
+	executor *job.Executor,
+	testJob *api.Job,
+	mockLogClient *mocks.MockLogClient,
+	mockLogger *mocks.MockLogger,
+	workspace string,
+	opts job.ExecuteOptions,
+) error {
 	t.Helper()
 	streamCh := make(chan job.LogStreamWaiter, 1)
 	executor.TestLogStreamHook = streamCh
 	defer func() { executor.TestLogStreamHook = nil }()
 
-	err := executor.ExecuteJobInWorkspaceWithOptions(context.Background(), testJob, mockLogClient, mockLogger, workspace, opts)
+	err := executor.ExecuteJobInWorkspaceWithOptions(
+		context.Background(),
+		testJob,
+		mockLogClient,
+		mockLogger,
+		workspace,
+		opts,
+	)
 
 	select {
 	case stream := <-streamCh:
@@ -368,14 +411,22 @@ func TestExecutor_ExecuteJob_MaterializesSecretFiles(t *testing.T) {
 		},
 	}
 
-	err := executeJobInWorkspaceWithOptionsAndWait(t, executor, testJob, mockLogClient, mockLogger, workspace, job.ExecuteOptions{
-		SecretFiles: []secrets.FileMaterial{{
-			ID:   "npm-token",
-			Path: "npm/token",
-			Data: []byte("secret-value"),
-			Mode: secrets.DefaultFileMode,
-		}},
-	})
+	err := executeJobInWorkspaceWithOptionsAndWait(
+		t,
+		executor,
+		testJob,
+		mockLogClient,
+		mockLogger,
+		workspace,
+		job.ExecuteOptions{
+			SecretFiles: []secrets.FileMaterial{{
+				ID:   "npm-token",
+				Path: "npm/token",
+				Data: []byte("secret-value"),
+				Mode: secrets.DefaultFileMode,
+			}},
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("ExecuteJobInWorkspaceWithOptions: %v", err)
@@ -774,13 +825,17 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 
 	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
 	if err != nil {
-		t.Errorf("expected no error when stream stays unavailable; run outcome must not depend on log delivery: %v", err)
+		t.Errorf(
+			"expected no error when stream stays unavailable; run outcome must not depend on log delivery: %v",
+			err,
+		)
 	}
 
 	warnCalls := mockLogger.GetWarnCalls()
 	foundFlushWarn := false
 	for _, msg := range warnCalls {
-		if strings.Contains(msg, "flush will continue in background") || strings.Contains(msg, "Log stream flush incomplete") {
+		if strings.Contains(msg, "flush will continue in background") ||
+			strings.Contains(msg, "Log stream flush incomplete") {
 			foundFlushWarn = true
 			break
 		}
@@ -1387,7 +1442,13 @@ func TestExecutor_ExecuteJobInWorkspace_WarnsForBroadWorkspacePermissions(t *tes
 		},
 	}
 
-	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+	if err := executor.ExecuteJobInWorkspace(
+		context.Background(),
+		testJob,
+		mockLogClient,
+		mockLogger,
+		workspace,
+	); err != nil {
 		t.Fatalf("ExecuteJobInWorkspace: %v", err)
 	}
 
@@ -1476,7 +1537,13 @@ func TestExecutor_ExecuteJobInWorkspace_DoesNotRemoveWorkspace(t *testing.T) {
 		},
 	}
 
-	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+	if err := executor.ExecuteJobInWorkspace(
+		context.Background(),
+		testJob,
+		mockLogClient,
+		mockLogger,
+		workspace,
+	); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -1494,7 +1561,13 @@ type workspaceModeExecutor struct {
 	mode    os.FileMode
 }
 
-func (e *workspaceModeExecutor) Start(_ context.Context, _ string, _ []string, workDir string, _ []string) (interfaces.Process, error) {
+func (e *workspaceModeExecutor) Start(
+	_ context.Context,
+	_ string,
+	_ []string,
+	workDir string,
+	_ []string,
+) (interfaces.Process, error) {
 	info, err := os.Stat(workDir)
 	if err != nil {
 		return nil, err
@@ -1535,7 +1608,13 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 		},
 	}
 
-	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+	if err := executor.ExecuteJobInWorkspace(
+		context.Background(),
+		testJob,
+		mockLogClient,
+		mockLogger,
+		workspace,
+	); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -1611,7 +1690,13 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 		},
 	}
 
-	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+	if err := executor.ExecuteJobInWorkspace(
+		context.Background(),
+		testJob,
+		mockLogClient,
+		mockLogger,
+		workspace,
+	); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -1681,7 +1766,13 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 		},
 	}
 
-	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+	if err := executor.ExecuteJobInWorkspace(
+		context.Background(),
+		testJob,
+		mockLogClient,
+		mockLogger,
+		workspace,
+	); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -1749,11 +1840,25 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 		},
 	}
 
-	if err := executor.ExecuteTaskInWorkspace(context.Background(), testJob, vmStepID, mockLogClient, mockLogger, workspace); err != nil {
+	if err := executor.ExecuteTaskInWorkspace(
+		context.Background(),
+		testJob,
+		vmStepID,
+		mockLogClient,
+		mockLogger,
+		workspace,
+	); err != nil {
 		t.Fatalf("expected VM-default task to run, got %v", err)
 	}
 
-	if err := executor.ExecuteTaskInWorkspace(context.Background(), testJob, hostStepID, mockLogClient, mockLogger, workspace); err != nil {
+	if err := executor.ExecuteTaskInWorkspace(
+		context.Background(),
+		testJob,
+		hostStepID,
+		mockLogClient,
+		mockLogger,
+		workspace,
+	); err != nil {
 		t.Fatalf("expected host override task to run, got %v", err)
 	}
 
@@ -1799,7 +1904,13 @@ func TestExecutor_ExecuteJobInWorkspace_VMIsolationRequiresConfiguredExecutor(t 
 
 func TestExecutor_ExecuteJobInWorkspace_RequiresWorkspace(t *testing.T) {
 	executor := job.NewExecutor()
-	err := executor.ExecuteJobInWorkspace(context.Background(), &api.Job{}, mocks.NewMockLogClient(), mocks.NewMockLogger(), "")
+	err := executor.ExecuteJobInWorkspace(
+		context.Background(),
+		&api.Job{},
+		mocks.NewMockLogClient(),
+		mocks.NewMockLogger(),
+		"",
+	)
 	if err == nil || !strings.Contains(err.Error(), "workspace is required") {
 		t.Fatalf("expected workspace required error, got %v", err)
 	}

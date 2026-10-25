@@ -50,7 +50,10 @@ func TestWorkerExecutionPackagesDoNotBypassHardenedExecutor(t *testing.T) {
 	}
 
 	if len(violations) > 0 {
-		t.Fatalf("process-launching worker code must use interfaces.ExecExecutor, found raw os/exec usage:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf(
+			"process-launching worker code must use interfaces.ExecExecutor, found raw os/exec usage:\n%s",
+			strings.Join(violations, "\n"),
+		)
 	}
 }
 
@@ -95,7 +98,10 @@ func TestProviderProcessEscapeHatchesAreExplicitlyAllowed(t *testing.T) {
 	}
 
 	if len(violations) > 0 {
-		t.Fatalf("provider process launch escape hatches must be explicitly allowlisted:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf(
+			"provider process launch escape hatches must be explicitly allowlisted:\n%s",
+			strings.Join(violations, "\n"),
+		)
 	}
 }
 
@@ -150,7 +156,10 @@ func TestWorkerExecutionDestructiveFilesystemCallsAreExplicitlyAllowed(t *testin
 	}
 
 	if len(violations) > 0 {
-		t.Fatalf("destructive worker filesystem calls must be explicitly allowlisted:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf(
+			"destructive worker filesystem calls must be explicitly allowlisted:\n%s",
+			strings.Join(violations, "\n"),
+		)
 	}
 }
 
@@ -327,7 +336,7 @@ func providerProcessEscapeCalls(t *testing.T, root, path string, allowed map[str
 	if err != nil {
 		rel = path
 	}
-	
+
 	rel = filepath.ToSlash(rel)
 	var violations []string
 	ast.Inspect(file, func(node ast.Node) bool {

@@ -57,7 +57,11 @@ type recordingSourceSyncMetrics struct {
 	objectStoreRecords []sourceObjectStoreMetricRecord
 }
 
-func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
+func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(
+	_ context.Context,
+	trigger, sourceKind, checkoutMode, outcome, reason string,
+	_ time.Duration,
+) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -70,7 +74,11 @@ func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Contex
 	})
 }
 
-func (m *recordingSourceSyncMetrics) RecordSourceRefHydration(_ context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, _ time.Duration) {
+func (m *recordingSourceSyncMetrics) RecordSourceRefHydration(
+	_ context.Context,
+	sourceKind, checkoutMode, outcome, reason, tier, cacheState string,
+	_ time.Duration,
+) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -84,7 +92,14 @@ func (m *recordingSourceSyncMetrics) RecordSourceRefHydration(_ context.Context,
 	})
 }
 
-func (m *recordingSourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects, hydratedRefs int, warnings []observability.SourceRepositoryObjectStoreWarning) {
+func (m *recordingSourceSyncMetrics) RecordSourceRepositoryObjectStore(
+	_ context.Context,
+	repositoryID, sourceKind, checkoutMode, pressure string,
+	packFiles int,
+	packBytes int64,
+	looseObjects, hydratedRefs int,
+	warnings []observability.SourceRepositoryObjectStoreWarning,
+) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -118,7 +133,9 @@ func (m *recordingSourceSyncMetrics) has(trigger, sourceKind, checkoutMode, outc
 	return false
 }
 
-func (m *recordingSourceSyncMetrics) hasHydration(sourceKind, checkoutMode, outcome, reason, tier, cacheState string) bool {
+func (m *recordingSourceSyncMetrics) hasHydration(
+	sourceKind, checkoutMode, outcome, reason, tier, cacheState string,
+) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -243,11 +260,23 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDuplicate(t *testing.T) 
 		t.Fatalf("expected duplicate request not to run sync, got %d sync calls", got)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock) {
+	if !metrics.has(
+		observability.SourceSyncTriggerManual,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeExternal,
+		observability.SourceSyncOutcomeAlreadyRunning,
+		observability.SourceSyncReasonInMemoryLock,
+	) {
 		t.Fatalf("missing in-memory lock source sync metric: %+v", metrics.records)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+	if !metrics.has(
+		observability.SourceSyncTriggerManual,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeExternal,
+		observability.SourceSyncOutcomeSucceeded,
+		observability.SourceSyncReasonNone,
+	) {
 		t.Fatalf("missing manual success source sync metric: %+v", metrics.records)
 	}
 }
@@ -290,7 +319,12 @@ func TestAPIServer_SourceRefHydrationSingleflightsDuplicate(t *testing.T) {
 
 	firstDone := make(chan bool, 1)
 	go func() {
-		hydrated, err := server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+		hydrated, err := server.hydrateSourceRepositoryRefAfterNotFound(
+			context.Background(),
+			rec,
+			"feature/on-demand",
+			sourcepkg.ErrNotFound,
+		)
 		if err != nil {
 			t.Errorf("first hydration returned error: %v", err)
 		}
@@ -306,7 +340,12 @@ func TestAPIServer_SourceRefHydrationSingleflightsDuplicate(t *testing.T) {
 
 	secondDone := make(chan bool, 1)
 	go func() {
-		hydrated, err := server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+		hydrated, err := server.hydrateSourceRepositoryRefAfterNotFound(
+			context.Background(),
+			rec,
+			"feature/on-demand",
+			sourcepkg.ErrNotFound,
+		)
 		if err != nil {
 			t.Errorf("duplicate hydration returned error: %v", err)
 		}
@@ -397,11 +436,25 @@ func TestAPIServer_SourceRefHydrationCachesSuccessfulRemote(t *testing.T) {
 		t.Fatalf("preferred remotes = %+v", gotPreferred)
 	}
 
-	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone, "fallback-2", observability.SourceRefHydrationCacheMiss) {
+	if !metrics.hasHydration(
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeManaged,
+		observability.SourceSyncOutcomeSucceeded,
+		observability.SourceSyncReasonNone,
+		"fallback-2",
+		observability.SourceRefHydrationCacheMiss,
+	) {
 		t.Fatalf("missing hydration cache-miss metric: %+v", metrics.hydrationRecords)
 	}
 
-	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone, "fallback-2", observability.SourceRefHydrationCacheHit) {
+	if !metrics.hasHydration(
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeManaged,
+		observability.SourceSyncOutcomeSucceeded,
+		observability.SourceSyncReasonNone,
+		"fallback-2",
+		observability.SourceRefHydrationCacheHit,
+	) {
 		t.Fatalf("missing hydration cache-hit metric: %+v", metrics.hydrationRecords)
 	}
 }
@@ -451,11 +504,25 @@ func TestAPIServer_SourceRefHydrationCachesRecentMiss(t *testing.T) {
 		t.Fatalf("hydrator calls=%d, want 1", got)
 	}
 
-	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeFailed, sourceRefHydrationNotFoundErrorCode, "origin", observability.SourceRefHydrationCacheMiss) {
+	if !metrics.hasHydration(
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeManaged,
+		observability.SourceSyncOutcomeFailed,
+		sourceRefHydrationNotFoundErrorCode,
+		"origin",
+		observability.SourceRefHydrationCacheMiss,
+	) {
 		t.Fatalf("missing hydration miss metric: %+v", metrics.hydrationRecords)
 	}
 
-	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeFailed, sourceRefHydrationNotFoundErrorCode, "unknown", observability.SourceRefHydrationCacheHit) {
+	if !metrics.hasHydration(
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeManaged,
+		observability.SourceSyncOutcomeFailed,
+		sourceRefHydrationNotFoundErrorCode,
+		"unknown",
+		observability.SourceRefHydrationCacheHit,
+	) {
 		t.Fatalf("missing hydration miss-cache metric: %+v", metrics.hydrationRecords)
 	}
 }
@@ -480,7 +547,8 @@ func TestAPIServer_SourceRefHydrationDefersToDatabaseLease(t *testing.T) {
 	key := sourceRefHydrationKey(rec.RepositoryID, ref)
 	leaseName := sourceRefHydrationLeaseName(key)
 	now := time.Now().UTC()
-	acquired, err := repos.ServiceLeases().TryAcquire(context.Background(), leaseName, "other-api", now, now.Add(time.Minute))
+	acquired, err := repos.ServiceLeases().
+		TryAcquire(context.Background(), leaseName, "other-api", now, now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("acquire competing lease: %v", err)
 	}
@@ -504,14 +572,26 @@ func TestAPIServer_SourceRefHydrationDefersToDatabaseLease(t *testing.T) {
 
 	status := server.hydrateSourceRepositoryRef(context.Background(), rec, ref)
 	if status.ErrorCode != sourceRefHydrationInFlightErrorCode {
-		t.Fatalf("hydration status error=%q, want %q; status=%+v", status.ErrorCode, sourceRefHydrationInFlightErrorCode, status)
+		t.Fatalf(
+			"hydration status error=%q, want %q; status=%+v",
+			status.ErrorCode,
+			sourceRefHydrationInFlightErrorCode,
+			status,
+		)
 	}
 
 	if got := calls.Load(); got != 0 {
 		t.Fatalf("hydrator calls while DB lease held: got %d, want 0", got)
 	}
 
-	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeFailed, sourceRefHydrationInFlightErrorCode, "unknown", observability.SourceRefHydrationCacheMiss) {
+	if !metrics.hasHydration(
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeManaged,
+		observability.SourceSyncOutcomeFailed,
+		sourceRefHydrationInFlightErrorCode,
+		"unknown",
+		observability.SourceRefHydrationCacheMiss,
+	) {
 		t.Fatalf("missing in-flight hydration metric: %+v", metrics.hydrationRecords)
 	}
 }
@@ -605,7 +685,13 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *t
 		t.Fatalf("database-reserved sync should not run checkout work, got %d calls", got)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock) {
+	if !metrics.has(
+		observability.SourceSyncTriggerManual,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeExternal,
+		observability.SourceSyncOutcomeAlreadyRunning,
+		observability.SourceSyncReasonDatabaseLock,
+	) {
 		t.Fatalf("missing database lock source sync metric: %+v", metrics.records)
 	}
 }
@@ -683,7 +769,13 @@ func TestAPIServer_SyncSourceRepositoryReclaimsStaleDatabaseReservation(t *testi
 		t.Fatalf("expected stale reservation to run sync once, got %d calls", got)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+	if !metrics.has(
+		observability.SourceSyncTriggerManual,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeExternal,
+		observability.SourceSyncOutcomeSucceeded,
+		observability.SourceSyncReasonNone,
+	) {
 		t.Fatalf("missing stale recovery source sync metric: %+v", metrics.records)
 	}
 }
@@ -713,25 +805,27 @@ func TestAPIServer_SyncSourceRepositoryUsesConfiguredCheckoutStatus(t *testing.T
 	}
 
 	var calls atomic.Int32
-	server.SetSourceSyncCheckoutStatus(func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
-		calls.Add(1)
-		if rec.RepositoryID != "private-managed-repo" ||
-			rec.CheckoutMode != dal.SourceCheckoutModeManaged ||
-			rec.CredentialRef != "encryptedfs://git/private-managed-repo" ||
-			syncRef != "main" {
-			t.Fatalf("sync record mismatch: rec=%+v syncRef=%q", rec, syncRef)
-		}
+	server.SetSourceSyncCheckoutStatus(
+		func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+			calls.Add(1)
+			if rec.RepositoryID != "private-managed-repo" ||
+				rec.CheckoutMode != dal.SourceCheckoutModeManaged ||
+				rec.CredentialRef != "encryptedfs://git/private-managed-repo" ||
+				syncRef != "main" {
+				t.Fatalf("sync record mismatch: rec=%+v syncRef=%q", rec, syncRef)
+			}
 
-		return sourcepkg.GitCheckoutStatus{
-			CheckoutPath:       rec.CheckoutPath,
-			PathExists:         true,
-			PathIsDirectory:    true,
-			GitRepository:      true,
-			DefaultRef:         syncRef,
-			DefaultRefResolved: true,
-			ResolvedCommit:     "0123456789abcdef0123456789abcdef01234567",
-		}
-	})
+			return sourcepkg.GitCheckoutStatus{
+				CheckoutPath:       rec.CheckoutPath,
+				PathExists:         true,
+				PathIsDirectory:    true,
+				GitRepository:      true,
+				DefaultRef:         syncRef,
+				DefaultRefResolved: true,
+				ResolvedCommit:     "0123456789abcdef0123456789abcdef01234567",
+			}
+		},
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/private-managed-repo/sync", nil)
@@ -755,7 +849,13 @@ func TestAPIServer_SyncSourceRepositoryUsesConfiguredCheckoutStatus(t *testing.T
 		t.Fatalf("sync response mismatch: %+v", resp)
 	}
 
-	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+	if !metrics.has(
+		observability.SourceSyncTriggerManual,
+		dal.SourceKindLocalCheckout,
+		dal.SourceCheckoutModeManaged,
+		observability.SourceSyncOutcomeSucceeded,
+		observability.SourceSyncReasonNone,
+	) {
 		t.Fatalf("missing manual managed sync success metric: %+v", metrics.records)
 	}
 }

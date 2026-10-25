@@ -64,7 +64,8 @@ func TestProviderSetResolveRoutesByScheme(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	if len(encryptedfs.reqs) != 2 || encryptedfs.reqs[0].Secrets[0].ID != "one" || encryptedfs.reqs[1].Secrets[0].ID != "three" {
+	if len(encryptedfs.reqs) != 2 || encryptedfs.reqs[0].Secrets[0].ID != "one" ||
+		encryptedfs.reqs[1].Secrets[0].ID != "three" {
 		t.Fatalf("encryptedfs requests = %+v", encryptedfs.reqs)
 	}
 

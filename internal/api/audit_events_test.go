@@ -51,7 +51,15 @@ func TestListAuditEventsFiltersAndResponds(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/audit/events?event_type=auth.success&actor_id=%d&target_id=%d&correlation_id=corr-1&since=2026-06-29T11:00:00Z&until=2026-06-29T13:00:00Z&limit=5", actorID, targetID), nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf(
+			"/api/v1/audit/events?event_type=auth.success&actor_id=%d&target_id=%d&correlation_id=corr-1&since=2026-06-29T11:00:00Z&until=2026-06-29T13:00:00Z&limit=5",
+			actorID,
+			targetID,
+		),
+		nil,
+	)
 	s.ListAuditEvents(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -128,8 +136,16 @@ func TestListAuditEventsCursorPagination(t *testing.T) {
 
 	base := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
 	if err := s.authRepo.InsertAuditEvents(context.Background(), []*dal.AuditEventRecord{
-		{Type: "audit.page", Metadata: []byte(`{"page":3}`), CreatedAt: sql.NullTime{Time: base.Add(-2 * time.Minute), Valid: true}},
-		{Type: "audit.page", Metadata: []byte(`{"page":2}`), CreatedAt: sql.NullTime{Time: base.Add(-1 * time.Minute), Valid: true}},
+		{
+			Type:      "audit.page",
+			Metadata:  []byte(`{"page":3}`),
+			CreatedAt: sql.NullTime{Time: base.Add(-2 * time.Minute), Valid: true},
+		},
+		{
+			Type:      "audit.page",
+			Metadata:  []byte(`{"page":2}`),
+			CreatedAt: sql.NullTime{Time: base.Add(-1 * time.Minute), Valid: true},
+		},
 		{Type: "audit.page", Metadata: []byte(`{"page":1}`), CreatedAt: sql.NullTime{Time: base, Valid: true}},
 	}); err != nil {
 		t.Fatalf("InsertAuditEvents: %v", err)
@@ -160,7 +176,11 @@ func TestListAuditEventsCursorPagination(t *testing.T) {
 	}
 
 	secondRec := httptest.NewRecorder()
-	secondReq := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?event_type=audit.page&limit=2&cursor="+first.NextCursor, nil)
+	secondReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/audit/events?event_type=audit.page&limit=2&cursor="+first.NextCursor,
+		nil,
+	)
 	s.ListAuditEvents(secondRec, secondReq)
 	if secondRec.Code != http.StatusOK {
 		t.Fatalf("second code=%d body=%s", secondRec.Code, secondRec.Body.String())

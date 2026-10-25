@@ -49,7 +49,11 @@ func TestSDKDoesNotImportVectisInternals(t *testing.T) {
 			}
 
 			if strings.HasPrefix(importPath, "vectis/") && !allowedVectisSDKImport(importPath) {
-				t.Errorf("%s imports %q; SDK packages may only depend on api/gen/go or other sdk packages", path, importPath)
+				t.Errorf(
+					"%s imports %q; SDK packages may only depend on api/gen/go or other sdk packages",
+					path,
+					importPath,
+				)
 			}
 		}
 

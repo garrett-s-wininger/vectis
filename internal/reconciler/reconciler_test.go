@@ -67,11 +67,16 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 
 	if env.ExecutionID == "" || env.SegmentID == "" {
-		t.Fatalf("expected envelope execution and segment ids, got execution=%q segment=%q", env.ExecutionID, env.SegmentID)
+		t.Fatalf(
+			"expected envelope execution and segment ids, got execution=%q segment=%q",
+			env.ExecutionID,
+			env.SegmentID,
+		)
 	}
 
 	var last sql.NullInt64
-	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", runID).Scan(&last); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", runID).
+		Scan(&last); err != nil {
 		t.Fatalf("scan last_dispatched_at: %v", err)
 	}
 	if !last.Valid || last.Int64 == 0 {
@@ -168,7 +173,12 @@ func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 		t.Fatalf("marshal root payload: %v", err)
 	}
 
-	if _, _, err := runs.RecordExecutionPayload(ctx, runID, string(rootPayloadJSON), dal.DefinitionHash(jobDef)); err != nil {
+	if _, _, err := runs.RecordExecutionPayload(
+		ctx,
+		runID,
+		string(rootPayloadJSON),
+		dal.DefinitionHash(jobDef),
+	); err != nil {
 		t.Fatalf("record root payload: %v", err)
 	}
 
@@ -343,7 +353,15 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 		t.Fatalf("activated children mismatch: count=%d children=%+v", result.Activated, result.Children)
 	}
 
-	runfixture.FinalizeExecutionByClaimWithFailure(t, ctx, repos, failedBranch.ExecutionID, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "failed branch")
+	runfixture.FinalizeExecutionByClaimWithFailure(
+		t,
+		ctx,
+		repos,
+		failedBranch.ExecutionID,
+		dal.ExecutionStatusFailed,
+		dal.FailureCodeExecution,
+		"failed branch",
+	)
 
 	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "lease expired"); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
@@ -374,7 +392,8 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 	if failureCode != dal.FailureCodeExecution {
 		t.Fatalf("failure_code: got %q, want %q", failureCode, dal.FailureCodeExecution)
 	}
-	if !failureReason.Valid || !strings.Contains(failureReason.String, "1 task execution(s) ended in a terminal failure") {
+	if !failureReason.Valid ||
+		!strings.Contains(failureReason.String, "1 task execution(s) ended in a terminal failure") {
 		t.Fatalf("failure reason: %+v", failureReason)
 	}
 	if len(q.GetJobRequests()) != 0 {
@@ -426,14 +445,20 @@ func TestService_Process_ReplaysFrozenPayloadOnRedispatch(t *testing.T) {
 	}
 
 	var firstPayloadHash string
-	if err := db.QueryRowContext(ctx, "SELECT execution_payload_hash FROM job_runs WHERE run_id = ?", runID).Scan(&firstPayloadHash); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT execution_payload_hash FROM job_runs WHERE run_id = ?", runID).
+		Scan(&firstPayloadHash); err != nil {
 		t.Fatalf("query first payload hash: %v", err)
 	}
 	if firstPayloadHash == "" {
 		t.Fatal("expected frozen execution payload hash")
 	}
 
-	if _, err := db.ExecContext(ctx, "UPDATE job_runs SET last_dispatched_at = ? WHERE run_id = ?", now.Add(-time.Hour).Unix(), runID); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		"UPDATE job_runs SET last_dispatched_at = ? WHERE run_id = ?",
+		now.Add(-time.Hour).Unix(),
+		runID,
+	); err != nil {
 		t.Fatalf("force redispatch eligibility: %v", err)
 	}
 	clock.SetNow(now.Add(time.Hour))
@@ -452,7 +477,8 @@ func TestService_Process_ReplaysFrozenPayloadOnRedispatch(t *testing.T) {
 	}
 
 	var secondPayloadHash string
-	if err := db.QueryRowContext(ctx, "SELECT execution_payload_hash FROM job_runs WHERE run_id = ?", runID).Scan(&secondPayloadHash); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT execution_payload_hash FROM job_runs WHERE run_id = ?", runID).
+		Scan(&secondPayloadHash); err != nil {
 		t.Fatalf("query second payload hash: %v", err)
 	}
 	if secondPayloadHash != firstPayloadHash {

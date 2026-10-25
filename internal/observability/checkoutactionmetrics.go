@@ -54,10 +54,30 @@ func NewCheckoutActionMetrics() (*CheckoutActionMetrics, error) {
 		return nil, fmt.Errorf("vectis_checkout_action_results_total: %w", err)
 	}
 
-	duration, err := m.Float64Histogram("vectis_checkout_action_duration_seconds",
+	duration, err := m.Float64Histogram(
+		"vectis_checkout_action_duration_seconds",
 		metric.WithDescription("Wall time spent executing checkout actions"),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600))
+		metric.WithExplicitBucketBoundaries(
+			0.01,
+			0.05,
+			0.1,
+			0.25,
+			0.5,
+			1,
+			2.5,
+			5,
+			10,
+			30,
+			60,
+			120,
+			300,
+			600,
+			1200,
+			1800,
+			3600,
+		),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_checkout_action_duration_seconds: %w", err)
 	}
@@ -69,18 +89,60 @@ func NewCheckoutActionMetrics() (*CheckoutActionMetrics, error) {
 		return nil, fmt.Errorf("vectis_checkout_action_cache_checks_total: %w", err)
 	}
 
-	cacheCheckDuration, err := m.Float64Histogram("vectis_checkout_action_cache_check_duration_seconds",
+	cacheCheckDuration, err := m.Float64Histogram(
+		"vectis_checkout_action_cache_check_duration_seconds",
 		metric.WithDescription("Wall time spent checking the worker-core checkout cache"),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 1800))
+		metric.WithExplicitBucketBoundaries(
+			0.001,
+			0.005,
+			0.01,
+			0.025,
+			0.05,
+			0.1,
+			0.25,
+			0.5,
+			1,
+			2.5,
+			5,
+			10,
+			30,
+			60,
+			120,
+			300,
+			600,
+			1200,
+			1800,
+		),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_checkout_action_cache_check_duration_seconds: %w", err)
 	}
 
-	directCloneTime, err := m.Float64Histogram("vectis_checkout_action_direct_clone_duration_seconds",
+	directCloneTime, err := m.Float64Histogram(
+		"vectis_checkout_action_direct_clone_duration_seconds",
 		metric.WithDescription("Wall time spent in direct git clone execution after cache miss or cache bypass"),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600))
+		metric.WithExplicitBucketBoundaries(
+			0.01,
+			0.05,
+			0.1,
+			0.25,
+			0.5,
+			1,
+			2.5,
+			5,
+			10,
+			30,
+			60,
+			120,
+			300,
+			600,
+			1200,
+			1800,
+			3600,
+		),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_checkout_action_direct_clone_duration_seconds: %w", err)
 	}
@@ -94,7 +156,11 @@ func NewCheckoutActionMetrics() (*CheckoutActionMetrics, error) {
 	}, nil
 }
 
-func (m *CheckoutActionMetrics) RecordCheckoutActionResult(ctx context.Context, strategy, outcome, reason string, d time.Duration) {
+func (m *CheckoutActionMetrics) RecordCheckoutActionResult(
+	ctx context.Context,
+	strategy, outcome, reason string,
+	d time.Duration,
+) {
 	if m == nil {
 		return
 	}
@@ -114,7 +180,11 @@ func (m *CheckoutActionMetrics) RecordCheckoutActionResult(ctx context.Context, 
 	m.duration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
 }
 
-func (m *CheckoutActionMetrics) RecordCheckoutActionCacheCheck(ctx context.Context, outcome, reason string, d time.Duration) {
+func (m *CheckoutActionMetrics) RecordCheckoutActionCacheCheck(
+	ctx context.Context,
+	outcome, reason string,
+	d time.Duration,
+) {
 	if m == nil {
 		return
 	}
@@ -131,7 +201,11 @@ func (m *CheckoutActionMetrics) RecordCheckoutActionCacheCheck(ctx context.Conte
 	m.cacheCheckDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
 }
 
-func (m *CheckoutActionMetrics) RecordCheckoutActionDirectClone(ctx context.Context, cacheState, outcome, reason string, d time.Duration) {
+func (m *CheckoutActionMetrics) RecordCheckoutActionDirectClone(
+	ctx context.Context,
+	cacheState, outcome, reason string,
+	d time.Duration,
+) {
 	if m == nil {
 		return
 	}

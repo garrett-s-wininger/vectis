@@ -25,7 +25,10 @@ const (
 	defaultDeploymentEnv = "development"
 )
 
-func InitServiceMetrics(ctx context.Context, serviceName string) (metrics http.Handler, shutdown func(context.Context) error, err error) {
+func InitServiceMetrics(
+	ctx context.Context,
+	serviceName string,
+) (metrics http.Handler, shutdown func(context.Context) error, err error) {
 	reg := promclient.NewRegistry()
 
 	exp, err := prometheus.New(prometheus.WithRegisterer(reg))
@@ -137,7 +140,10 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 		query   string
 	}{
 		{"active_runs", `SELECT COUNT(*) FROM job_runs WHERE status NOT IN ('succeeded', 'failed')`},
-		{"terminal_runs", `SELECT COUNT(*) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')`},
+		{
+			"terminal_runs",
+			`SELECT COUNT(*) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')`,
+		},
 		{"run_dispatch_events", `SELECT COUNT(*) FROM run_dispatch_events`},
 		{"run_artifacts", `SELECT COUNT(*) FROM run_artifacts`},
 		{"run_tasks", `SELECT COUNT(*) FROM run_tasks`},
@@ -153,7 +159,10 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 		surface string
 		query   string
 	}{
-		{"terminal_runs", `SELECT CAST(MIN(finished_at) AS TEXT) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned') AND finished_at IS NOT NULL`},
+		{
+			"terminal_runs",
+			`SELECT CAST(MIN(finished_at) AS TEXT) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned') AND finished_at IS NOT NULL`,
+		},
 		{"job_definitions", `SELECT CAST(MIN(created_at) AS TEXT) FROM job_definitions`},
 		{"idempotency_keys", `SELECT CAST(MIN(updated_at) AS TEXT) FROM idempotency_keys`},
 		{"audit_log", `SELECT CAST(MIN(created_at) AS TEXT) FROM audit_log`},

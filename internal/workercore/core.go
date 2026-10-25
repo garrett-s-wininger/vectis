@@ -170,7 +170,9 @@ func NewTaskSession(opts TaskSessionOptions) TaskSession {
 		checkoutCacheRemotes = checkoutCacheRemotesFromURLs(checkoutCacheRemoteURLs)
 	}
 
-	checkoutCacheRemoteURLs = uniqueCheckoutCacheRemoteURLs(append(checkoutCacheRemoteURLs, checkoutCacheRemoteURLsFromRemotes(checkoutCacheRemotes)...))
+	checkoutCacheRemoteURLs = uniqueCheckoutCacheRemoteURLs(
+		append(checkoutCacheRemoteURLs, checkoutCacheRemoteURLsFromRemotes(checkoutCacheRemotes)...),
+	)
 
 	return taskSession{
 		sessionID:               opts.SessionID,

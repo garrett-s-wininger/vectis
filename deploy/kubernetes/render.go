@@ -99,9 +99,15 @@ func Render(opts RenderOptions) ([]byte, RenderResult, error) {
 		GRPCServerCert:     string(pki.grpcServerCert),
 		GRPCServerKey:      string(pki.grpcServerKey),
 		GRPCClientCABundle: string(bytes.Join([][]byte{pki.grpcCA, pki.spiffeCA}, nil)),
-		GRPCTLSChecksum:    checksumBytes(pki.grpcCA, pki.grpcServerCert, pki.grpcServerKey, pki.spiffeCA, pki.spiffeCAKey),
-		SPIFFECA:           string(pki.spiffeCA),
-		SPIFFECAKey:        string(pki.spiffeCAKey),
+		GRPCTLSChecksum: checksumBytes(
+			pki.grpcCA,
+			pki.grpcServerCert,
+			pki.grpcServerKey,
+			pki.spiffeCA,
+			pki.spiffeCAKey,
+		),
+		SPIFFECA:    string(pki.spiffeCA),
+		SPIFFECAKey: string(pki.spiffeCAKey),
 	}
 
 	tmpl, err := template.New("kubernetes-manifest").

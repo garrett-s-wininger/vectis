@@ -198,7 +198,10 @@ func TestBFFLoginCreatesHTTPSessionAndProxiesBearerToken(t *testing.T) {
 		case "/api/v1/setup/status":
 			return jsonResponse(http.StatusOK, `{"setup_complete":true,"auth_enabled":true}`), nil
 		case "/api/v1/login":
-			return jsonResponse(http.StatusOK, `{"token":"api-token","user_id":7,"expires_at":"2030-01-01T00:00:00Z"}`), nil
+			return jsonResponse(
+				http.StatusOK,
+				`{"token":"api-token","user_id":7,"expires_at":"2030-01-01T00:00:00Z"}`,
+			), nil
 		case "/api/v1/jobs":
 			if r.Header.Get("Authorization") == "Bearer api-token" {
 				sawBearer = true

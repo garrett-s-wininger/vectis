@@ -70,7 +70,11 @@ type recordingResolveMetrics struct {
 	records []resolveMetricRecord
 }
 
-func (m *recordingResolveMetrics) RecordResolve(_ context.Context, outcome, reason, provider string, duration time.Duration) {
+func (m *recordingResolveMetrics) RecordResolve(
+	_ context.Context,
+	outcome, reason, provider string,
+	duration time.Duration,
+) {
 	m.records = append(m.records, resolveMetricRecord{
 		outcome:  outcome,
 		reason:   reason,
@@ -154,7 +158,8 @@ func TestServerResolveSecretsRecordsSuccessMetricsAndSanitizedLog(t *testing.T) 
 	}
 
 	record := metrics.records[0]
-	if record.outcome != resolveOutcomeSuccess || record.reason != resolveReasonOK || record.provider != "fake" || record.duration < 0 {
+	if record.outcome != resolveOutcomeSuccess || record.reason != resolveReasonOK || record.provider != "fake" ||
+		record.duration < 0 {
 		t.Fatalf("metric record = %+v", record)
 	}
 
@@ -207,7 +212,8 @@ func TestServerResolveSecretsRejectsInvalidProviderBundle(t *testing.T) {
 	}
 
 	record := metrics.records[0]
-	if record.outcome != resolveOutcomeFailed || record.reason != resolveReasonInvalidBundle || record.provider != "fake" {
+	if record.outcome != resolveOutcomeFailed || record.reason != resolveReasonInvalidBundle ||
+		record.provider != "fake" {
 		t.Fatalf("metric record = %+v", record)
 	}
 }
@@ -244,7 +250,8 @@ func TestServerResolveSecretsRecordsAuthorizationDenial(t *testing.T) {
 	}
 
 	record := metrics.records[0]
-	if record.outcome != resolveOutcomeDenied || record.reason != resolveReasonAuthorizationDenied || record.provider != "fake" {
+	if record.outcome != resolveOutcomeDenied || record.reason != resolveReasonAuthorizationDenied ||
+		record.provider != "fake" {
 		t.Fatalf("metric record = %+v", record)
 	}
 }
@@ -311,9 +318,27 @@ func TestServerResolveSecretsMapsProviderErrors(t *testing.T) {
 		outcome string
 		reason  string
 	}{
-		{name: "not found", err: ErrNotFound, code: codes.NotFound, outcome: resolveOutcomeNotFound, reason: resolveReasonProviderNotFound},
-		{name: "denied", err: ErrDenied, code: codes.PermissionDenied, outcome: resolveOutcomeDenied, reason: resolveReasonProviderDenied},
-		{name: "internal", err: errors.New("backend unavailable"), code: codes.Internal, outcome: resolveOutcomeFailed, reason: resolveReasonProviderError},
+		{
+			name:    "not found",
+			err:     ErrNotFound,
+			code:    codes.NotFound,
+			outcome: resolveOutcomeNotFound,
+			reason:  resolveReasonProviderNotFound,
+		},
+		{
+			name:    "denied",
+			err:     ErrDenied,
+			code:    codes.PermissionDenied,
+			outcome: resolveOutcomeDenied,
+			reason:  resolveReasonProviderDenied,
+		},
+		{
+			name:    "internal",
+			err:     errors.New("backend unavailable"),
+			code:    codes.Internal,
+			outcome: resolveOutcomeFailed,
+			reason:  resolveReasonProviderError,
+		},
 	}
 
 	for _, tt := range tests {

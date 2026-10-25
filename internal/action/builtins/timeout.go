@@ -44,7 +44,12 @@ func (t *TimeoutNode) PortSchema() []action.PortSpec {
 	}}
 }
 
-func (t *TimeoutNode) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, ports action.Ports) action.Result {
+func (t *TimeoutNode) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	inputs map[string]any,
+	ports action.Ports,
+) action.Result {
 	body := ports.Children(taskgraph.BodyPort)
 	if len(body) == 0 {
 		return action.NewFailureResult(fmt.Errorf("timeout action requires at least one body node"))

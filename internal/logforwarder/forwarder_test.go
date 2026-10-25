@@ -46,7 +46,10 @@ func (c *assignedRecordingLogClient) StreamLogsForRun(ctx context.Context, runID
 	return c.StreamLogsForAssignedRun(ctx, runID, "")
 }
 
-func (c *assignedRecordingLogClient) StreamLogsForAssignedRun(_ context.Context, runID, logShardID string) (interfaces.LogStream, error) {
+func (c *assignedRecordingLogClient) StreamLogsForAssignedRun(
+	_ context.Context,
+	runID, logShardID string,
+) (interfaces.LogStream, error) {
 	c.streamCalls++
 	c.calls = append(c.calls, assignedStreamCall{runID: runID, logShardID: logShardID})
 	return &assignedRecordingLogStream{client: c, callIndex: len(c.calls) - 1}, nil
@@ -58,11 +61,19 @@ func (c *assignedRecordingLogClient) SendLogBatch(_ context.Context, chunks []*a
 	return nil
 }
 
-func (c *assignedRecordingLogClient) SendLogBatchForRun(ctx context.Context, runID string, chunks []*api.LogChunk) error {
+func (c *assignedRecordingLogClient) SendLogBatchForRun(
+	ctx context.Context,
+	runID string,
+	chunks []*api.LogChunk,
+) error {
 	return c.SendLogBatchForAssignedRun(ctx, runID, "", chunks)
 }
 
-func (c *assignedRecordingLogClient) SendLogBatchForAssignedRun(_ context.Context, runID, logShardID string, chunks []*api.LogChunk) error {
+func (c *assignedRecordingLogClient) SendLogBatchForAssignedRun(
+	_ context.Context,
+	runID, logShardID string,
+	chunks []*api.LogChunk,
+) error {
 	c.batchCalls++
 	c.calls = append(c.calls, assignedStreamCall{
 		runID:      runID,
@@ -236,11 +247,21 @@ func TestForwarderRoutesChunkGroupsByShardHint(t *testing.T) {
 	}
 
 	if client.batchCalls != 2 || client.streamCalls != 0 {
-		t.Fatalf("batch calls = %d stream calls = %d, want 2 batch calls and 0 stream calls", client.batchCalls, client.streamCalls)
+		t.Fatalf(
+			"batch calls = %d stream calls = %d, want 2 batch calls and 0 stream calls",
+			client.batchCalls,
+			client.streamCalls,
+		)
 	}
 
 	if client.calls[0].runID != runID || client.calls[0].logShardID != shardA {
-		t.Fatalf("first send = (%q, %q), want (%q, %q)", client.calls[0].runID, client.calls[0].logShardID, runID, shardA)
+		t.Fatalf(
+			"first send = (%q, %q), want (%q, %q)",
+			client.calls[0].runID,
+			client.calls[0].logShardID,
+			runID,
+			shardA,
+		)
 	}
 
 	if len(client.calls[0].chunks) != 2 {
@@ -248,7 +269,13 @@ func TestForwarderRoutesChunkGroupsByShardHint(t *testing.T) {
 	}
 
 	if client.calls[1].runID != runID || client.calls[1].logShardID != shardB {
-		t.Fatalf("second send = (%q, %q), want (%q, %q)", client.calls[1].runID, client.calls[1].logShardID, runID, shardB)
+		t.Fatalf(
+			"second send = (%q, %q), want (%q, %q)",
+			client.calls[1].runID,
+			client.calls[1].logShardID,
+			runID,
+			shardB,
+		)
 	}
 
 	if len(client.calls[1].chunks) != 1 {
@@ -278,7 +305,11 @@ func TestForwarderUsesSingleBatchForPreferredUnscopedClient(t *testing.T) {
 	}
 
 	if client.batchCalls != 1 || client.streamCalls != 0 {
-		t.Fatalf("batch calls = %d stream calls = %d, want 1 batch call and 0 stream calls", client.batchCalls, client.streamCalls)
+		t.Fatalf(
+			"batch calls = %d stream calls = %d, want 1 batch call and 0 stream calls",
+			client.batchCalls,
+			client.streamCalls,
+		)
 	}
 
 	if client.calls[0].runID != "" || client.calls[0].logShardID != "" {
@@ -313,15 +344,31 @@ func TestForwarderPreservesShardHintsForPreferredUnscopedClient(t *testing.T) {
 	}
 
 	if client.batchCalls != 2 || client.streamCalls != 0 {
-		t.Fatalf("batch calls = %d stream calls = %d, want 2 batch calls and 0 stream calls", client.batchCalls, client.streamCalls)
+		t.Fatalf(
+			"batch calls = %d stream calls = %d, want 2 batch calls and 0 stream calls",
+			client.batchCalls,
+			client.streamCalls,
+		)
 	}
 
 	if client.calls[0].runID != runA || client.calls[0].logShardID != shardA {
-		t.Fatalf("first send = (%q, %q), want (%q, %q)", client.calls[0].runID, client.calls[0].logShardID, runA, shardA)
+		t.Fatalf(
+			"first send = (%q, %q), want (%q, %q)",
+			client.calls[0].runID,
+			client.calls[0].logShardID,
+			runA,
+			shardA,
+		)
 	}
 
 	if client.calls[1].runID != runB || client.calls[1].logShardID != shardB {
-		t.Fatalf("second send = (%q, %q), want (%q, %q)", client.calls[1].runID, client.calls[1].logShardID, runB, shardB)
+		t.Fatalf(
+			"second send = (%q, %q), want (%q, %q)",
+			client.calls[1].runID,
+			client.calls[1].logShardID,
+			runB,
+			shardB,
+		)
 	}
 }
 

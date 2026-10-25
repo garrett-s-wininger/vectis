@@ -59,7 +59,9 @@ var (
 	benchmarkLineTagRE    = regexp.MustCompile(`^(.*)(-\d+)$`)
 	sanitizePartRE        = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 	sanitizePathRE        = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
-	pgStatLineRE          = regexp.MustCompile(`^# pg_stat_statements\s+(?:database=([^ ]+)\s+)?benchmark=([^ ]+)\s+iterations=(\d+)\s+rank=(\d+)\s+calls=(\d+)\s+total_ms=([0-9.]+)\s+mean_ms=([0-9.]+)\s+rows=(\d+)(?:\s+plans=(\d+)\s+total_plan_ms=([0-9.]+)\s+mean_plan_ms=([0-9.]+))?(?:\s+shared_blks_hit=(\d+)\s+shared_blks_read=(\d+)\s+shared_blks_dirtied=(\d+)\s+shared_blks_written=(\d+)\s+temp_blks_read=(\d+)\s+temp_blks_written=(\d+)\s+wal_records=(\d+)\s+wal_fpi=(\d+)\s+wal_bytes=(\d+))?\s+query="(.*)"$`)
+	pgStatLineRE          = regexp.MustCompile(
+		`^# pg_stat_statements\s+(?:database=([^ ]+)\s+)?benchmark=([^ ]+)\s+iterations=(\d+)\s+rank=(\d+)\s+calls=(\d+)\s+total_ms=([0-9.]+)\s+mean_ms=([0-9.]+)\s+rows=(\d+)(?:\s+plans=(\d+)\s+total_plan_ms=([0-9.]+)\s+mean_plan_ms=([0-9.]+))?(?:\s+shared_blks_hit=(\d+)\s+shared_blks_read=(\d+)\s+shared_blks_dirtied=(\d+)\s+shared_blks_written=(\d+)\s+temp_blks_read=(\d+)\s+temp_blks_written=(\d+)\s+wal_records=(\d+)\s+wal_fpi=(\d+)\s+wal_bytes=(\d+))?\s+query="(.*)"$`,
+	)
 )
 
 type suiteConfig struct {
@@ -220,20 +222,60 @@ func parseRunArgs(suite suiteConfig, args []string) (runArgs, error) {
 	fs.SetOutput(os.Stderr)
 
 	parsed := runArgs{suite: suite}
-	fs.StringVar(&parsed.benchtime, "benchtime", envString("VECTIS_PERF_BENCHTIME", "2s"), "Go benchmark duration per scenario.")
+	fs.StringVar(
+		&parsed.benchtime,
+		"benchtime",
+		envString("VECTIS_PERF_BENCHTIME", "2s"),
+		"Go benchmark duration per scenario.",
+	)
 	fs.IntVar(&parsed.count, "count", envInt("VECTIS_PERF_COUNT", 1), "Go benchmark repetition count.")
 	fs.StringVar(&parsed.bench, "bench", envString(suite.benchEnv, suite.defaultBench), "Go benchmark regex.")
 	fs.StringVar(&parsed.goBin, "go", envString("GO", "go"), "Go binary to use.")
-	fs.StringVar(&parsed.artifactDir, "artifact-dir", envString("VECTIS_PERF_ARTIFACT_DIR", defaultArtifactDir), "Directory where run artifacts are written.")
+	fs.StringVar(
+		&parsed.artifactDir,
+		"artifact-dir",
+		envString("VECTIS_PERF_ARTIFACT_DIR", defaultArtifactDir),
+		"Directory where run artifacts are written.",
+	)
 	fs.StringVar(&parsed.runName, "run-name", envString("VECTIS_PERF_RUN_NAME", ""), "Optional artifact run name.")
-	fs.StringVar(&parsed.baseline, "baseline", envString("VECTIS_PERF_BASELINE", ""), "Optional baseline Go benchmark output for benchstat.")
-	fs.StringVar(&parsed.benchstat, "benchstat", envString("BENCHSTAT", "benchstat"), "benchstat binary to use when --baseline is provided.")
-	fs.BoolVar(&parsed.serve, "serve", envBool(envPerfServe, false), "Serve the artifact directory after the run and wait for Ctrl-C.")
-	fs.StringVar(&parsed.serveHost, "serve-host", envString(envPerfServeHost, "127.0.0.1"), "Host used when --serve is enabled.")
-	fs.IntVar(&parsed.servePort, "serve-port", envNonNegativeInt(envPerfServePort, 0), "Port used when --serve is enabled. Use 0 to auto-select.")
+	fs.StringVar(
+		&parsed.baseline,
+		"baseline",
+		envString("VECTIS_PERF_BASELINE", ""),
+		"Optional baseline Go benchmark output for benchstat.",
+	)
+	fs.StringVar(
+		&parsed.benchstat,
+		"benchstat",
+		envString("BENCHSTAT", "benchstat"),
+		"benchstat binary to use when --baseline is provided.",
+	)
+	fs.BoolVar(
+		&parsed.serve,
+		"serve",
+		envBool(envPerfServe, false),
+		"Serve the artifact directory after the run and wait for Ctrl-C.",
+	)
+	fs.StringVar(
+		&parsed.serveHost,
+		"serve-host",
+		envString(envPerfServeHost, "127.0.0.1"),
+		"Host used when --serve is enabled.",
+	)
+	fs.IntVar(
+		&parsed.servePort,
+		"serve-port",
+		envNonNegativeInt(envPerfServePort, 0),
+		"Port used when --serve is enabled. Use 0 to auto-select.",
+	)
 
 	if suite.name == "macro" {
-		fs.StringVar(&parsed.databases, "databases", envString("VECTIS_PERF_MACRO_DATABASES", ""), "Optional comma-separated macro database matrix.")
+		fs.StringVar(
+			&parsed.databases,
+			"databases",
+			envString("VECTIS_PERF_MACRO_DATABASES", ""),
+			"Optional comma-separated macro database matrix.",
+		)
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -410,7 +452,12 @@ func goBenchmarkRunDir(args runArgs, started time.Time) (string, error) {
 	return runDir, os.MkdirAll(runDir, 0o755)
 }
 
-func captureGoBenchmarkOutput(args runArgs, command []string, databaseMatrix []string, runDir string) (string, int, []string, error) {
+func captureGoBenchmarkOutput(
+	args runArgs,
+	command []string,
+	databaseMatrix []string,
+	runDir string,
+) (string, int, []string, error) {
 	if len(databaseMatrix) > 0 {
 		return runMacroDatabaseMatrix(command, databaseMatrix, runDir)
 	}
@@ -531,7 +578,11 @@ func macroDatabaseEnv(database string) (map[string]string, error) {
 	}
 
 	if postgresDSN == "" {
-		return nil, fmt.Errorf("pgx macro database matrix runs require %s or %s", envPerfPostgresDSN, envPerfDatabaseDSN)
+		return nil, fmt.Errorf(
+			"pgx macro database matrix runs require %s or %s",
+			envPerfPostgresDSN,
+			envPerfDatabaseDSN,
+		)
 	}
 
 	env[envPerfDatabaseDSN] = postgresDSN
@@ -590,7 +641,10 @@ func canonicalMacroDatabaseDriver(database string) (string, error) {
 	case "pgx_container", "postgres_container", "testcontainers", "testcontainer":
 		return "pgx_podman", nil
 	default:
-		return "", fmt.Errorf("unsupported macro database backend %q; expected sqlite3, pgx, pgx_podman, or pgx_podman_unsafe", database)
+		return "", fmt.Errorf(
+			"unsupported macro database backend %q; expected sqlite3, pgx, pgx_podman, or pgx_podman_unsafe",
+			database,
+		)
 	}
 }
 
@@ -911,28 +965,62 @@ func printNextChecks(suite string) {
 	printHeading("Remaining Manual Checks")
 	switch suite {
 	case "queue":
-		emit("- Service boundary: rerun queue rows after any UDS/component split to isolate queue transport overhead from macro DB work.")
-		emit("- Durability shape: add a WAL/batch-focused queue row before using queue-only throughput as a persistence claim.")
-		emit("- End-to-end context: pair queue-only throughput with macro trigger-to-terminal rows when changing dispatch behavior.")
+		emit(
+			"- Service boundary: rerun queue rows after any UDS/component split to isolate queue transport overhead from macro DB work.",
+		)
+		emit(
+			"- Durability shape: add a WAL/batch-focused queue row before using queue-only throughput as a persistence claim.",
+		)
+		emit(
+			"- End-to-end context: pair queue-only throughput with macro trigger-to-terminal rows when changing dispatch behavior.",
+		)
 	case "dal":
-		emit("- DB matrix: run sqlite3, pgx_podman, and pgx_podman_unsafe before separating query cost from network and durability cost.")
-		emit("- Table shape: grow list, repair, and retention table-size scenarios beyond the default seed before making scan-cost claims.")
-		emit("- Pool pressure: capture connection wait and pg_stat_statements data alongside DAL rows when a change adds transactions or indexes.")
-		emit("- HA and multi-cell: add catalog/reconciler/cell-local workloads before treating single-database DAL numbers as topology capacity.")
+		emit(
+			"- DB matrix: run sqlite3, pgx_podman, and pgx_podman_unsafe before separating query cost from network and durability cost.",
+		)
+		emit(
+			"- Table shape: grow list, repair, and retention table-size scenarios beyond the default seed before making scan-cost claims.",
+		)
+		emit(
+			"- Pool pressure: capture connection wait and pg_stat_statements data alongside DAL rows when a change adds transactions or indexes.",
+		)
+		emit(
+			"- HA and multi-cell: add catalog/reconciler/cell-local workloads before treating single-database DAL numbers as topology capacity.",
+		)
 	case "job":
-		emit("- Action mix: add checkout, script-output, failure, and cancellation rows when executor changes touch non-result actions.")
-		emit("- Log transport: add forwarder/log-service gRPC rows before treating noop or local-store log sinks as production log cost.")
-		emit("- End-to-end context: compare executor rows with macro result-action rows when isolating scheduler and DB overhead.")
+		emit(
+			"- Action mix: add checkout, script-output, failure, and cancellation rows when executor changes touch non-result actions.",
+		)
+		emit(
+			"- Log transport: add forwarder/log-service gRPC rows before treating noop or local-store log sinks as production log cost.",
+		)
+		emit(
+			"- End-to-end context: compare executor rows with macro result-action rows when isolating scheduler and DB overhead.",
+		)
 	case "macro":
-		emit("- DB matrix: include sqlite3, pgx_podman, and pgx_podman_unsafe before attributing macro losses to network or durability.")
-		emit("- Choreography split: compare SQL, Orchestrator, and OrchestratorGRPC macro rows before claiming hot-state offload wins.")
-		emit("- Mixed traffic: add API reads, SSE/log replay clients, and repair/list traffic while trigger-to-terminal load is running.")
-		emit("- Topology: add multi-worker deployed, HA, and multi-cell rows before turning local macro throughput into a capacity envelope.")
-		emit("- Log pressure: vary log volume and concurrent replay clients beyond the current log-heavy row before changing observability claims.")
+		emit(
+			"- DB matrix: include sqlite3, pgx_podman, and pgx_podman_unsafe before attributing macro losses to network or durability.",
+		)
+		emit(
+			"- Choreography split: compare SQL, Orchestrator, and OrchestratorGRPC macro rows before claiming hot-state offload wins.",
+		)
+		emit(
+			"- Mixed traffic: add API reads, SSE/log replay clients, and repair/list traffic while trigger-to-terminal load is running.",
+		)
+		emit(
+			"- Topology: add multi-worker deployed, HA, and multi-cell rows before turning local macro throughput into a capacity envelope.",
+		)
+		emit(
+			"- Log pressure: vary log volume and concurrent replay clients beyond the current log-heavy row before changing observability claims.",
+		)
 	default:
-		emit("- Workload mix: add trigger bursts, API reads, log readers, and repair/list scans around the focused benchmark.")
+		emit(
+			"- Workload mix: add trigger bursts, API reads, log readers, and repair/list scans around the focused benchmark.",
+		)
 		emit("- Scale shape: vary worker count, database driver, and table size before making capacity claims.")
-		emit("- Topology: add HA and multi-cell rows when the change affects routing, catalog, reconciler, or DB ownership.")
+		emit(
+			"- Topology: add HA and multi-cell rows when the change affects routing, catalog, reconciler, or DB ownership.",
+		)
 	}
 }
 
@@ -998,15 +1086,29 @@ func writeMarkdownSummary(path string, summary Summary, rawName string) error {
 				metrics = append(metrics, markdownEscape(metric.Value+" "+metric.Unit))
 			}
 
-			lines = append(lines, fmt.Sprintf("| `%s` | %s | %s |", markdownEscape(result.Name), result.Iterations, strings.Join(metrics, ", ")))
+			lines = append(
+				lines,
+				fmt.Sprintf(
+					"| `%s` | %s | %s |",
+					markdownEscape(result.Name),
+					result.Iterations,
+					strings.Join(metrics, ", "),
+				),
+			)
 		}
 	}
 
 	finalStats := finalPGStatStatements(summary.PGStatStatements)
 	if len(finalStats) > 0 {
 		lines = append(lines, "", "## Postgres Statement Hot List", "")
-		lines = append(lines, "| Benchmark | Database | Iterations | Rank | Calls | Total ms | Mean ms | Plans | Total plan ms | Shared hit | Shared read | Shared dirtied | Shared written | Temp read | Temp written | WAL bytes | Query |")
-		lines = append(lines, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
+		lines = append(
+			lines,
+			"| Benchmark | Database | Iterations | Rank | Calls | Total ms | Mean ms | Plans | Total plan ms | Shared hit | Shared read | Shared dirtied | Shared written | Temp read | Temp written | WAL bytes | Query |",
+		)
+		lines = append(
+			lines,
+			"| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+		)
 
 		for _, stat := range finalStats {
 			lines = append(lines, fmt.Sprintf(

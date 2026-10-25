@@ -45,11 +45,20 @@ func ValidateResolveIdentityBinding(req *ResolveRequest) error {
 		}
 
 		if workload.X509SVID != nil {
-			if err := normalizeResolveSPIFFEIDField("workload X.509-SVID SPIFFE ID", &workload.X509SVID.SPIFFEID, true); err != nil {
+			if err := normalizeResolveSPIFFEIDField(
+				"workload X.509-SVID SPIFFE ID",
+				&workload.X509SVID.SPIFFEID,
+				true,
+			); err != nil {
 				return err
 			}
 
-			if err := sameResolveIdentityField("workload SPIFFE ID", workload.SPIFFEID, "workload X.509-SVID SPIFFE ID", workload.X509SVID.SPIFFEID); err != nil {
+			if err := sameResolveIdentityField(
+				"workload SPIFFE ID",
+				workload.SPIFFEID,
+				"workload X.509-SVID SPIFFE ID",
+				workload.X509SVID.SPIFFEID,
+			); err != nil {
 				return err
 			}
 		}
@@ -58,48 +67,98 @@ func ValidateResolveIdentityBinding(req *ResolveRequest) error {
 			return err
 		}
 
-		if err := sameResolveIdentityField("request execution_id", req.ExecutionID, "workload execution_id", workload.ExecutionID); err != nil {
+		if err := sameResolveIdentityField(
+			"request execution_id",
+			req.ExecutionID,
+			"workload execution_id",
+			workload.ExecutionID,
+		); err != nil {
 			return err
 		}
 
-		if err := sameResolveIdentityField("peer SPIFFE ID", req.PeerSPIFFEID, "workload SPIFFE ID", workload.SPIFFEID); err != nil {
+		if err := sameResolveIdentityField(
+			"peer SPIFFE ID",
+			req.PeerSPIFFEID,
+			"workload SPIFFE ID",
+			workload.SPIFFEID,
+		); err != nil {
 			return err
 		}
 	}
 
 	if resolveScopePresent(req.Scope) {
 		scope := req.Scope
-		if err := sameResolveIdentityField("request run_id", req.RunID, "execution scope run_id", scope.RunID); err != nil {
+		if err := sameResolveIdentityField(
+			"request run_id",
+			req.RunID,
+			"execution scope run_id",
+			scope.RunID,
+		); err != nil {
 			return err
 		}
 
-		if err := sameResolveIdentityField("request execution_id", req.ExecutionID, "execution scope execution_id", scope.ExecutionID); err != nil {
+		if err := sameResolveIdentityField(
+			"request execution_id",
+			req.ExecutionID,
+			"execution scope execution_id",
+			scope.ExecutionID,
+		); err != nil {
 			return err
 		}
 
-		if err := sameResolveIdentityField("peer SPIFFE ID", req.PeerSPIFFEID, "execution scope SPIFFE ID", scope.SPIFFEID); err != nil {
+		if err := sameResolveIdentityField(
+			"peer SPIFFE ID",
+			req.PeerSPIFFEID,
+			"execution scope SPIFFE ID",
+			scope.SPIFFEID,
+		); err != nil {
 			return err
 		}
 
 		if req.Workload != nil {
 			workload := req.Workload
-			if err := sameResolveIdentityField("workload SPIFFE ID", workload.SPIFFEID, "execution scope SPIFFE ID", scope.SPIFFEID); err != nil {
+			if err := sameResolveIdentityField(
+				"workload SPIFFE ID",
+				workload.SPIFFEID,
+				"execution scope SPIFFE ID",
+				scope.SPIFFEID,
+			); err != nil {
 				return err
 			}
 
-			if err := sameResolveIdentityField("workload trust domain", workload.TrustDomain, "execution scope trust domain", scope.TrustDomain); err != nil {
+			if err := sameResolveIdentityField(
+				"workload trust domain",
+				workload.TrustDomain,
+				"execution scope trust domain",
+				scope.TrustDomain,
+			); err != nil {
 				return err
 			}
 
-			if err := sameResolveIdentityField("workload namespace", workload.NamespacePath, "execution scope namespace", scope.NamespacePath); err != nil {
+			if err := sameResolveIdentityField(
+				"workload namespace",
+				workload.NamespacePath,
+				"execution scope namespace",
+				scope.NamespacePath,
+			); err != nil {
 				return err
 			}
 
-			if err := sameResolveIdentityField("workload cell_id", workload.CellID, "execution scope cell_id", scope.CellID); err != nil {
+			if err := sameResolveIdentityField(
+				"workload cell_id",
+				workload.CellID,
+				"execution scope cell_id",
+				scope.CellID,
+			); err != nil {
 				return err
 			}
 
-			if err := sameResolveIdentityField("workload job_id", workload.JobID, "execution scope job_id", scope.JobID); err != nil {
+			if err := sameResolveIdentityField(
+				"workload job_id",
+				workload.JobID,
+				"execution scope job_id",
+				scope.JobID,
+			); err != nil {
 				return err
 			}
 		}
@@ -163,7 +222,14 @@ func sameResolveIdentityField(leftLabel, left, rightLabel, right string) error {
 	}
 
 	if left != right {
-		return fmt.Errorf("%w: %s %q does not match %s %q", ErrInvalidResolveIdentity, leftLabel, left, rightLabel, right)
+		return fmt.Errorf(
+			"%w: %s %q does not match %s %q",
+			ErrInvalidResolveIdentity,
+			leftLabel,
+			left,
+			rightLabel,
+			right,
+		)
 	}
 
 	return nil

@@ -61,7 +61,7 @@ func TestGitCheckoutObjectStoreStatusCountsHydratedRefsFromFiles(t *testing.T) {
 	if got, want := status.HydratedRefs, 2; got != want {
 		t.Fatalf("HydratedRefs got %d, want %d", got, want)
 	}
-	
+
 	if status.HydratedRefsTruncated {
 		t.Fatalf("HydratedRefsTruncated got true, want false")
 	}

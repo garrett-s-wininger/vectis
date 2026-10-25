@@ -319,12 +319,35 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 		WaiverPath:            retentionWaiver,
 	}
 
-	evidenceManifest, err := applyRetentionCleanupEvidenceManifest(retentionCleanupEvidenceManifest, retentionCleanupFlagChangesFromCommand(cmd), &backupOptions, &auditExportOptions, &holdReviewOptions, &gateOptions, time.Now().UTC())
+	evidenceManifest, err := applyRetentionCleanupEvidenceManifest(
+		retentionCleanupEvidenceManifest,
+		retentionCleanupFlagChangesFromCommand(cmd),
+		&backupOptions,
+		&auditExportOptions,
+		&holdReviewOptions,
+		&gateOptions,
+		time.Now().UTC(),
+	)
 	if err != nil {
 		runCLIError(err)
 	}
 
-	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest))
+	runCLIError(
+		retentionCleanup(
+			cmd.Context(),
+			os.Stdout,
+			policy,
+			retentionDryRun,
+			retentionYes,
+			retentionLogDir,
+			retentionArtifactDir,
+			backupOptions,
+			auditExportOptions,
+			holdReviewOptions,
+			gateOptions,
+			evidenceManifest,
+		),
+	)
 }
 
 func runRetentionEvidenceManifest(cmd *cobra.Command, args []string) {
@@ -350,20 +373,38 @@ func runRetentionEvidenceManifest(cmd *cobra.Command, args []string) {
 		Waiver:                retentionEvidenceWaiver,
 	}
 
-	manifest, err := buildRetentionCleanupEvidenceManifest(now, generatedBy, retentionEvidenceManifestExternalRef, buildOptions)
+	manifest, err := buildRetentionCleanupEvidenceManifest(
+		now,
+		generatedBy,
+		retentionEvidenceManifestExternalRef,
+		buildOptions,
+	)
 	if err != nil {
 		runCLIError(err)
 	}
 
 	var verification *retentionCleanupEvidenceManifestVerification
 	if retentionEvidenceManifestVerify {
-		verification, err = verifyRetentionCleanupEvidenceManifest(cmd.Context(), retentionEvidenceManifestPolicy(), buildOptions, now)
+		verification, err = verifyRetentionCleanupEvidenceManifest(
+			cmd.Context(),
+			retentionEvidenceManifestPolicy(),
+			buildOptions,
+			now,
+		)
 		if err != nil {
 			runCLIError(err)
 		}
 	}
 
-	runCLIError(writeRetentionCleanupEvidenceManifest(os.Stdout, retentionEvidenceManifestOutput, retentionEvidenceManifestPromote, manifest, verification))
+	runCLIError(
+		writeRetentionCleanupEvidenceManifest(
+			os.Stdout,
+			retentionEvidenceManifestOutput,
+			retentionEvidenceManifestPromote,
+			manifest,
+			verification,
+		),
+	)
 }
 
 func runRetentionEvidenceMetrics(cmd *cobra.Command, args []string) {
@@ -429,7 +470,9 @@ func runRetentionScheduledCleanup(cmd *cobra.Command, args []string) {
 
 func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionScheduledCleanupOptions) error {
 	if !opts.DryRun && !opts.Yes {
-		return fmt.Errorf("retention scheduled-cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
+		return fmt.Errorf(
+			"retention scheduled-cleanup deletes durable records; pass --dry-run to inspect or --yes to apply",
+		)
 	}
 
 	now := opts.Now
@@ -453,7 +496,9 @@ func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionS
 		manifestPath = promotePath
 	}
 	if manifestPath == "" {
-		return fmt.Errorf("retention scheduled-cleanup requires --evidence-manifest-output or --evidence-manifest-promote")
+		return fmt.Errorf(
+			"retention scheduled-cleanup requires --evidence-manifest-output or --evidence-manifest-promote",
+		)
 	}
 
 	auditExportPath, err := retentionScheduledRetainedPath("--audit-export-output", opts.AuditExportOutputPath)
@@ -482,7 +527,14 @@ func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionS
 	}
 
 	if holdReviewPath != "" {
-		if err := writeScheduledRetentionHoldReview(ctx, holdReviewPath, now, opts.HoldReviewReviewedBy, opts.HoldReviewReason, opts.ExternalRef); err != nil {
+		if err := writeScheduledRetentionHoldReview(
+			ctx,
+			holdReviewPath,
+			now,
+			opts.HoldReviewReviewedBy,
+			opts.HoldReviewReason,
+			opts.ExternalRef,
+		); err != nil {
 			return err
 		}
 		buildOptions.HoldReview = holdReviewPath
@@ -498,7 +550,13 @@ func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionS
 		return err
 	}
 
-	if err := writeRetentionCleanupEvidenceManifest(io.Discard, outputPath, promotePath, manifest, verification); err != nil {
+	if err := writeRetentionCleanupEvidenceManifest(
+		io.Discard,
+		outputPath,
+		promotePath,
+		manifest,
+		verification,
+	); err != nil {
 		return err
 	}
 
@@ -506,7 +564,15 @@ func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionS
 	var auditExportOptions retentionAuditExportCheckOptions
 	var holdReviewOptions retentionHoldReviewCheckOptions
 	var gateOptions retentionPolicyGateOptions
-	evidenceManifest, err := applyRetentionCleanupEvidenceManifest(manifestPath, retentionCleanupFlagChanges{}, &backupOptions, &auditExportOptions, &holdReviewOptions, &gateOptions, now)
+	evidenceManifest, err := applyRetentionCleanupEvidenceManifest(
+		manifestPath,
+		retentionCleanupFlagChanges{},
+		&backupOptions,
+		&auditExportOptions,
+		&holdReviewOptions,
+		&gateOptions,
+		now,
+	)
 	if err != nil {
 		return err
 	}
@@ -531,7 +597,21 @@ func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionS
 		printRetentionScheduledCleanupReceipt(w, result)
 	}
 
-	if err := retentionCleanupAt(ctx, cleanupWriter, opts.Policy, opts.DryRun, opts.Yes, opts.LogStorageDir, opts.ArtifactStorageDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest, now); err != nil {
+	if err := retentionCleanupAt(
+		ctx,
+		cleanupWriter,
+		opts.Policy,
+		opts.DryRun,
+		opts.Yes,
+		opts.LogStorageDir,
+		opts.ArtifactStorageDir,
+		backupOptions,
+		auditExportOptions,
+		holdReviewOptions,
+		gateOptions,
+		evidenceManifest,
+		now,
+	); err != nil {
 		return err
 	}
 
@@ -561,7 +641,12 @@ func retentionScheduledRetainedPath(flagName, path string) (string, error) {
 	return path, nil
 }
 
-func writeScheduledRetentionHoldReview(ctx context.Context, outputPath string, generatedAt time.Time, reviewedBy, reason, externalRef string) error {
+func writeScheduledRetentionHoldReview(
+	ctx context.Context,
+	outputPath string,
+	generatedAt time.Time,
+	reviewedBy, reason, externalRef string,
+) error {
 	db, err := openRetentionDatabase()
 	if err != nil {
 		return err
@@ -609,7 +694,12 @@ func retentionEvidenceManifestPolicy() retention.Policy {
 	}
 }
 
-func verifyRetentionCleanupEvidenceManifest(ctx context.Context, policy retention.Policy, opts retentionCleanupEvidenceManifestBuildOptions, checkedAt time.Time) (*retentionCleanupEvidenceManifestVerification, error) {
+func verifyRetentionCleanupEvidenceManifest(
+	ctx context.Context,
+	policy retention.Policy,
+	opts retentionCleanupEvidenceManifestBuildOptions,
+	checkedAt time.Time,
+) (*retentionCleanupEvidenceManifestVerification, error) {
 	backupOptions := retentionBackupCheckOptions{
 		ManifestPath:        opts.BackupManifest,
 		ExpectPath:          opts.BackupExpect,
@@ -707,7 +797,12 @@ func verifyRetentionCleanupEvidenceManifest(ctx context.Context, policy retentio
 	}
 
 	if strings.TrimSpace(auditExportOptions.ExportPath) != "" {
-		auditExportEvidence, err = checkRetentionAuditExport(auditExportOptions, report.Cutoffs.AuditLog, report.Counts.AuditLog, checkedAt)
+		auditExportEvidence, err = checkRetentionAuditExport(
+			auditExportOptions,
+			report.Cutoffs.AuditLog,
+			report.Counts.AuditLog,
+			checkedAt,
+		)
 		verification.AuditExport = auditExportEvidence
 		if err != nil {
 			return verification, err
@@ -722,7 +817,11 @@ func verifyRetentionCleanupEvidenceManifest(ctx context.Context, policy retentio
 	return verification, nil
 }
 
-func buildRetentionCleanupEvidenceManifest(generatedAt time.Time, generatedBy, externalRef string, opts retentionCleanupEvidenceManifestBuildOptions) (retentionCleanupEvidenceManifestFile, error) {
+func buildRetentionCleanupEvidenceManifest(
+	generatedAt time.Time,
+	generatedBy, externalRef string,
+	opts retentionCleanupEvidenceManifestBuildOptions,
+) (retentionCleanupEvidenceManifestFile, error) {
 	if generatedAt.IsZero() {
 		generatedAt = time.Now().UTC()
 	}
@@ -794,7 +893,9 @@ func buildRetentionCleanupEvidenceManifest(generatedAt time.Time, generatedBy, e
 	}
 
 	if len(backupStorageReports) == 0 && backupStorageMaxAge != "" {
-		return retentionCleanupEvidenceManifestFile{}, fmt.Errorf("--backup-storage-max-age requires --backup-storage-report")
+		return retentionCleanupEvidenceManifestFile{}, fmt.Errorf(
+			"--backup-storage-max-age requires --backup-storage-report",
+		)
 	}
 
 	if auditExport == "" && auditExportMaxAge != "" {
@@ -878,7 +979,12 @@ func retentionEvidenceBoolPtr(value bool) *bool {
 	return &value
 }
 
-func writeRetentionCleanupEvidenceManifest(w io.Writer, outputPath, promotePath string, manifest retentionCleanupEvidenceManifestFile, verification *retentionCleanupEvidenceManifestVerification) error {
+func writeRetentionCleanupEvidenceManifest(
+	w io.Writer,
+	outputPath, promotePath string,
+	manifest retentionCleanupEvidenceManifestFile,
+	verification *retentionCleanupEvidenceManifestVerification,
+) error {
 	outputPath = strings.TrimSpace(outputPath)
 	if outputPath == "" {
 		outputPath = "-"
@@ -934,7 +1040,10 @@ func writeRetentionCleanupEvidenceManifest(w io.Writer, outputPath, promotePath 
 	return writeRetentionCleanupEvidenceManifestReceipt(w, result)
 }
 
-func writeRetentionCleanupEvidenceManifestReceipt(w io.Writer, result retentionCleanupEvidenceManifestWriteResult) error {
+func writeRetentionCleanupEvidenceManifestReceipt(
+	w io.Writer,
+	result retentionCleanupEvidenceManifestWriteResult,
+) error {
 	if outputIsJSON() {
 		return writeJSON(w, result)
 	}
@@ -1048,22 +1157,50 @@ func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte
 			return nil, err
 		}
 
-		if err := writeRetentionEvidenceGeneratedMetric(&b, "scheduled_cleanup", "default", result.GeneratedAt); err != nil {
+		if err := writeRetentionEvidenceGeneratedMetric(
+			&b,
+			"scheduled_cleanup",
+			"default",
+			result.GeneratedAt,
+		); err != nil {
 			return nil, err
 		}
 
 		writeRetentionEvidenceStatusMetric(&b, "scheduled_cleanup", "default", result.Status)
-		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_applied", "scheduled_cleanup", "default", result.Applied)
-		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_dry_run", "scheduled_cleanup", "default", result.DryRun)
+		writeRetentionEvidenceBoolMetric(
+			&b,
+			"vectis_retention_evidence_applied",
+			"scheduled_cleanup",
+			"default",
+			result.Applied,
+		)
+		writeRetentionEvidenceBoolMetric(
+			&b,
+			"vectis_retention_evidence_dry_run",
+			"scheduled_cleanup",
+			"default",
+			result.DryRun,
+		)
 		verified := false
 		if result.Verification != nil {
 			verified = result.Verification.Verified
-			if err := writeRetentionEvidenceCheckedMetric(&b, "scheduled_cleanup", "default", result.Verification.CheckedAt); err != nil {
+			if err := writeRetentionEvidenceCheckedMetric(
+				&b,
+				"scheduled_cleanup",
+				"default",
+				result.Verification.CheckedAt,
+			); err != nil {
 				return nil, err
 			}
 		}
 
-		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_verified", "scheduled_cleanup", "default", verified)
+		writeRetentionEvidenceBoolMetric(
+			&b,
+			"vectis_retention_evidence_verified",
+			"scheduled_cleanup",
+			"default",
+			verified,
+		)
 	}
 
 	if path := strings.TrimSpace(opts.BackupManifestPath); path != "" {
@@ -1072,7 +1209,12 @@ func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte
 			return nil, err
 		}
 
-		if err := writeRetentionEvidenceGeneratedMetric(&b, "backup_manifest", "default", manifest.GeneratedAt); err != nil {
+		if err := writeRetentionEvidenceGeneratedMetric(
+			&b,
+			"backup_manifest",
+			"default",
+			manifest.GeneratedAt,
+		); err != nil {
 			return nil, err
 		}
 
@@ -1085,18 +1227,34 @@ func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte
 			return nil, err
 		}
 
-		if err := writeRetentionEvidenceGeneratedMetric(&b, "restore_validation", "default", validation.GeneratedAt); err != nil {
+		if err := writeRetentionEvidenceGeneratedMetric(
+			&b,
+			"restore_validation",
+			"default",
+			validation.GeneratedAt,
+		); err != nil {
 			return nil, err
 		}
 
 		if validation.Verification.CheckedAt != "" {
-			if err := writeRetentionEvidenceCheckedMetric(&b, "restore_validation", "default", validation.Verification.CheckedAt); err != nil {
+			if err := writeRetentionEvidenceCheckedMetric(
+				&b,
+				"restore_validation",
+				"default",
+				validation.Verification.CheckedAt,
+			); err != nil {
 				return nil, err
 			}
 		}
 
 		writeRetentionEvidenceStatusMetric(&b, "restore_validation", "default", validation.Status)
-		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_verified", "restore_validation", "default", strings.EqualFold(validation.Status, backupManifestStatusOK))
+		writeRetentionEvidenceBoolMetric(
+			&b,
+			"vectis_retention_evidence_verified",
+			"restore_validation",
+			"default",
+			strings.EqualFold(validation.Status, backupManifestStatusOK),
+		)
 	}
 
 	storageNames := make(map[string]int)
@@ -1120,14 +1278,49 @@ func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte
 			return nil, fmt.Errorf("storage report evidence missing checked_at")
 		}
 
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_checked_timestamp_seconds", retentionEvidenceMetricLabels("storage_report", name), float64(report.CheckedAt.UTC().Unix()))
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_checked_timestamp_seconds",
+			retentionEvidenceMetricLabels("storage_report", name),
+			float64(report.CheckedAt.UTC().Unix()),
+		)
 		writeRetentionEvidenceStatusMetric(&b, "storage_report", name, report.Status)
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_checked_files", retentionEvidenceMetricLabels("storage_report", name), float64(report.CheckedFiles))
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_checked_bytes", retentionEvidenceMetricLabels("storage_report", name), float64(report.CheckedBytes))
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_records", retentionEvidenceMetricLabels("storage_report", name), float64(report.Records))
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_batches", retentionEvidenceMetricLabels("storage_report", name), float64(report.Batches))
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_errors", retentionEvidenceMetricLabels("storage_report", name), float64(len(report.Errors)))
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_warnings", retentionEvidenceMetricLabels("storage_report", name), float64(len(report.Warnings)))
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_storage_checked_files",
+			retentionEvidenceMetricLabels("storage_report", name),
+			float64(report.CheckedFiles),
+		)
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_storage_checked_bytes",
+			retentionEvidenceMetricLabels("storage_report", name),
+			float64(report.CheckedBytes),
+		)
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_storage_records",
+			retentionEvidenceMetricLabels("storage_report", name),
+			float64(report.Records),
+		)
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_storage_batches",
+			retentionEvidenceMetricLabels("storage_report", name),
+			float64(report.Batches),
+		)
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_storage_errors",
+			retentionEvidenceMetricLabels("storage_report", name),
+			float64(len(report.Errors)),
+		)
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_storage_warnings",
+			retentionEvidenceMetricLabels("storage_report", name),
+			float64(len(report.Warnings)),
+		)
 	}
 
 	if path := strings.TrimSpace(opts.AuditExportPath); path != "" {
@@ -1141,7 +1334,12 @@ func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte
 		}
 
 		writeRetentionEvidenceStatusMetric(&b, "audit_export", "default", "present")
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_rows", retentionEvidenceMetricLabels("audit_export", "default"), float64(export.RowCount))
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_rows",
+			retentionEvidenceMetricLabels("audit_export", "default"),
+			float64(export.RowCount),
+		)
 	}
 
 	if path := strings.TrimSpace(opts.HoldReviewPath); path != "" {
@@ -1155,7 +1353,12 @@ func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte
 		}
 
 		writeRetentionEvidenceStatusMetric(&b, "hold_review", "default", "present")
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_holds", retentionEvidenceMetricLabels("hold_review", "default"), float64(review.ActiveHolds))
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_holds",
+			retentionEvidenceMetricLabels("hold_review", "default"),
+			float64(review.ActiveHolds),
+		)
 	}
 
 	if path := strings.TrimSpace(opts.WaiverPath); path != "" {
@@ -1169,7 +1372,12 @@ func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte
 			return nil, err
 		}
 
-		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_expires_timestamp_seconds", retentionEvidenceMetricLabels("waiver", "default"), float64(expiresAt.Unix()))
+		writeRetentionPrometheusGauge(
+			&b,
+			"vectis_retention_evidence_expires_timestamp_seconds",
+			retentionEvidenceMetricLabels("waiver", "default"),
+			float64(expiresAt.Unix()),
+		)
 		writeRetentionEvidenceStatusMetric(&b, "waiver", "default", "present")
 	}
 
@@ -1263,7 +1471,12 @@ func writeRetentionEvidenceGeneratedMetric(b *strings.Builder, kind, name, value
 		return err
 	}
 
-	writeRetentionPrometheusGauge(b, "vectis_retention_evidence_generated_timestamp_seconds", retentionEvidenceMetricLabels(kind, name), float64(timestamp.Unix()))
+	writeRetentionPrometheusGauge(
+		b,
+		"vectis_retention_evidence_generated_timestamp_seconds",
+		retentionEvidenceMetricLabels(kind, name),
+		float64(timestamp.Unix()),
+	)
 	return nil
 }
 
@@ -1273,13 +1486,23 @@ func writeRetentionEvidenceCheckedMetric(b *strings.Builder, kind, name, value s
 		return err
 	}
 
-	writeRetentionPrometheusGauge(b, "vectis_retention_evidence_checked_timestamp_seconds", retentionEvidenceMetricLabels(kind, name), float64(timestamp.Unix()))
+	writeRetentionPrometheusGauge(
+		b,
+		"vectis_retention_evidence_checked_timestamp_seconds",
+		retentionEvidenceMetricLabels(kind, name),
+		float64(timestamp.Unix()),
+	)
 	return nil
 }
 
 func writeRetentionEvidenceStatusMetric(b *strings.Builder, kind, name, status string) {
 	status = retentionEvidenceMetricToken(status, "unknown")
-	writeRetentionPrometheusGauge(b, "vectis_retention_evidence_status", append(retentionEvidenceMetricLabels(kind, name), retentionPrometheusLabel{Name: "status", Value: status}), 1)
+	writeRetentionPrometheusGauge(
+		b,
+		"vectis_retention_evidence_status",
+		append(retentionEvidenceMetricLabels(kind, name), retentionPrometheusLabel{Name: "status", Value: status}),
+		1,
+	)
 }
 
 func writeRetentionEvidenceBoolMetric(b *strings.Builder, metric, kind, name string, value bool) {
@@ -1291,7 +1514,12 @@ func writeRetentionEvidenceBoolMetric(b *strings.Builder, metric, kind, name str
 	writeRetentionPrometheusGauge(b, metric, retentionEvidenceMetricLabels(kind, name), 0)
 }
 
-func writeRetentionPrometheusGauge(b *strings.Builder, metric string, labels []retentionPrometheusLabel, value float64) {
+func writeRetentionPrometheusGauge(
+	b *strings.Builder,
+	metric string,
+	labels []retentionPrometheusLabel,
+	value float64,
+) {
 	b.WriteString(metric)
 	if len(labels) > 0 {
 		b.WriteByte('{')
@@ -1393,11 +1621,48 @@ func retentionPrometheusEscapeLabelValue(value string) string {
 	return b.String()
 }
 
-func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions, evidenceManifest *retentionCleanupEvidenceManifestEvidence) error {
-	return retentionCleanupAt(ctx, w, policy, dryRun, yes, logStorageDir, artifactStorageDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest, time.Now().UTC())
+func retentionCleanup(
+	ctx context.Context,
+	w io.Writer,
+	policy retention.Policy,
+	dryRun, yes bool,
+	logStorageDir, artifactStorageDir string,
+	backupOptions retentionBackupCheckOptions,
+	auditExportOptions retentionAuditExportCheckOptions,
+	holdReviewOptions retentionHoldReviewCheckOptions,
+	gateOptions retentionPolicyGateOptions,
+	evidenceManifest *retentionCleanupEvidenceManifestEvidence,
+) error {
+	return retentionCleanupAt(
+		ctx,
+		w,
+		policy,
+		dryRun,
+		yes,
+		logStorageDir,
+		artifactStorageDir,
+		backupOptions,
+		auditExportOptions,
+		holdReviewOptions,
+		gateOptions,
+		evidenceManifest,
+		time.Now().UTC(),
+	)
 }
 
-func retentionCleanupAt(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions, evidenceManifest *retentionCleanupEvidenceManifestEvidence, now time.Time) error {
+func retentionCleanupAt(
+	ctx context.Context,
+	w io.Writer,
+	policy retention.Policy,
+	dryRun, yes bool,
+	logStorageDir, artifactStorageDir string,
+	backupOptions retentionBackupCheckOptions,
+	auditExportOptions retentionAuditExportCheckOptions,
+	holdReviewOptions retentionHoldReviewCheckOptions,
+	gateOptions retentionPolicyGateOptions,
+	evidenceManifest *retentionCleanupEvidenceManifestEvidence,
+	now time.Time,
+) error {
 	if !dryRun && !yes {
 		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
 	}
@@ -1473,7 +1738,12 @@ func retentionCleanupAt(ctx context.Context, w io.Writer, policy retention.Polic
 	}
 
 	if strings.TrimSpace(auditExportOptions.ExportPath) != "" {
-		auditExportEvidence, err = checkRetentionAuditExport(auditExportOptions, precheckedReport.Cutoffs.AuditLog, precheckedReport.Counts.AuditLog, now)
+		auditExportEvidence, err = checkRetentionAuditExport(
+			auditExportOptions,
+			precheckedReport.Cutoffs.AuditLog,
+			precheckedReport.Counts.AuditLog,
+			now,
+		)
 		if err != nil {
 			return err
 		}
@@ -1481,7 +1751,12 @@ func retentionCleanupAt(ctx context.Context, w io.Writer, policy retention.Polic
 		return fmt.Errorf("--audit-export-max-age requires --audit-export")
 	}
 
-	if err := enforceRetentionAuditExportGate(gateOptions, auditExportEvidence, waiverEvidence, precheckedReport); err != nil {
+	if err := enforceRetentionAuditExportGate(
+		gateOptions,
+		auditExportEvidence,
+		waiverEvidence,
+		precheckedReport,
+	); err != nil {
 		return err
 	}
 
@@ -1618,7 +1893,16 @@ func retentionCleanupAt(ctx context.Context, w io.Writer, policy retention.Polic
 		return writeJSON(w, payload)
 	}
 
-	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence, holdReviewEvidence, evidenceManifest, waiverEvidence)
+	printRetentionReport(
+		w,
+		report,
+		fileReport,
+		backupEvidence,
+		auditExportEvidence,
+		holdReviewEvidence,
+		evidenceManifest,
+		waiverEvidence,
+	)
 	if dryRun {
 		fmt.Fprintln(w, "Cleanup not applied.")
 		return nil
@@ -1647,7 +1931,15 @@ func retentionCleanupFlagChangesFromCommand(cmd *cobra.Command) retentionCleanup
 	}
 }
 
-func applyRetentionCleanupEvidenceManifest(path string, changes retentionCleanupFlagChanges, backupOptions *retentionBackupCheckOptions, auditExportOptions *retentionAuditExportCheckOptions, holdReviewOptions *retentionHoldReviewCheckOptions, gateOptions *retentionPolicyGateOptions, checkedAt time.Time) (*retentionCleanupEvidenceManifestEvidence, error) {
+func applyRetentionCleanupEvidenceManifest(
+	path string,
+	changes retentionCleanupFlagChanges,
+	backupOptions *retentionBackupCheckOptions,
+	auditExportOptions *retentionAuditExportCheckOptions,
+	holdReviewOptions *retentionHoldReviewCheckOptions,
+	gateOptions *retentionPolicyGateOptions,
+	checkedAt time.Time,
+) (*retentionCleanupEvidenceManifestEvidence, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, nil
@@ -1669,7 +1961,11 @@ func applyRetentionCleanupEvidenceManifest(path string, changes retentionCleanup
 
 	manifest.SchemaVersion = strings.TrimSpace(manifest.SchemaVersion)
 	if manifest.SchemaVersion != retentionCleanupEvidenceManifestSchemaVersion {
-		return nil, fmt.Errorf("retention cleanup evidence manifest schema_version = %q, want %q", manifest.SchemaVersion, retentionCleanupEvidenceManifestSchemaVersion)
+		return nil, fmt.Errorf(
+			"retention cleanup evidence manifest schema_version = %q, want %q",
+			manifest.SchemaVersion,
+			retentionCleanupEvidenceManifestSchemaVersion,
+		)
 	}
 
 	baseDir := filepath.Dir(path)
@@ -1735,7 +2031,10 @@ func applyRetentionCleanupEvidenceManifest(path string, changes retentionCleanup
 		return nil, err
 	}
 
-	backupStorageMaxAge, backupStorageMaxAgeText, err := parseDuration("backup_storage_max_age", manifest.BackupStorageMaxAge)
+	backupStorageMaxAge, backupStorageMaxAgeText, err := parseDuration(
+		"backup_storage_max_age",
+		manifest.BackupStorageMaxAge,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1856,7 +2155,12 @@ func openRetentionDatabase() (*sql.DB, error) {
 	return db, nil
 }
 
-func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff *time.Time, rowsEligible int64, checkedAt time.Time) (*retentionAuditExportEvidence, error) {
+func checkRetentionAuditExport(
+	options retentionAuditExportCheckOptions,
+	cutoff *time.Time,
+	rowsEligible int64,
+	checkedAt time.Time,
+) (*retentionAuditExportEvidence, error) {
 	options.ExportPath = strings.TrimSpace(options.ExportPath)
 	if options.ExportPath == "" {
 		if options.MaxAge > 0 {
@@ -1899,11 +2203,19 @@ func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff 
 	}
 
 	if export.SchemaVersion != auditExportSchemaVersion {
-		return evidence, fmt.Errorf("audit export schema_version = %q, want %q", export.SchemaVersion, auditExportSchemaVersion)
+		return evidence, fmt.Errorf(
+			"audit export schema_version = %q, want %q",
+			export.SchemaVersion,
+			auditExportSchemaVersion,
+		)
 	}
 
 	if export.RowCount != len(export.Events) {
-		return evidence, fmt.Errorf("audit export row_count=%d does not match events length %d", export.RowCount, len(export.Events))
+		return evidence, fmt.Errorf(
+			"audit export row_count=%d does not match events length %d",
+			export.RowCount,
+			len(export.Events),
+		)
 	}
 
 	if export.MayBeTruncated {
@@ -1927,15 +2239,26 @@ func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff 
 	age := checkedAt.Sub(generatedAt)
 	evidence.Age = age.String()
 	if age < 0 {
-		return evidence, fmt.Errorf("audit export generated_at %s is after check time %s", export.GeneratedAt, checkedAt.Format(time.RFC3339))
+		return evidence, fmt.Errorf(
+			"audit export generated_at %s is after check time %s",
+			export.GeneratedAt,
+			checkedAt.Format(time.RFC3339),
+		)
 	}
 
 	if options.MaxAge > 0 && age > options.MaxAge {
-		return evidence, fmt.Errorf("audit export is stale: generated_at=%s age=%s max_age=%s", export.GeneratedAt, age, options.MaxAge)
+		return evidence, fmt.Errorf(
+			"audit export is stale: generated_at=%s age=%s max_age=%s",
+			export.GeneratedAt,
+			age,
+			options.MaxAge,
+		)
 	}
 
 	if !auditExportHasFullRetentionRange(export.Filters) {
-		return evidence, fmt.Errorf("audit export for retention cleanup must not set event, actor, target, correlation, or since filters")
+		return evidence, fmt.Errorf(
+			"audit export for retention cleanup must not set event, actor, target, correlation, or since filters",
+		)
 	}
 
 	if cutoff != nil {
@@ -1947,20 +2270,32 @@ func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff 
 			}
 
 			if untilTime.Before(cutoff.UTC()) {
-				return evidence, fmt.Errorf("audit export until %s is before audit cleanup cutoff %s", until, cutoff.UTC().Format(time.RFC3339))
+				return evidence, fmt.Errorf(
+					"audit export until %s is before audit cleanup cutoff %s",
+					until,
+					cutoff.UTC().Format(time.RFC3339),
+				)
 			}
 		}
 	}
 
 	if rowsEligible > int64(export.RowCount) {
-		return evidence, fmt.Errorf("audit export row_count=%d is less than retention-eligible audit rows=%d", export.RowCount, rowsEligible)
+		return evidence, fmt.Errorf(
+			"audit export row_count=%d is less than retention-eligible audit rows=%d",
+			export.RowCount,
+			rowsEligible,
+		)
 	}
 
 	evidence.Verified = true
 	return evidence, nil
 }
 
-func buildRetentionHoldReviewFile(holds []retention.Hold, generatedAt time.Time, reviewedBy, reason, externalRef string) (retentionHoldReviewFile, error) {
+func buildRetentionHoldReviewFile(
+	holds []retention.Hold,
+	generatedAt time.Time,
+	reviewedBy, reason, externalRef string,
+) (retentionHoldReviewFile, error) {
 	reviewedBy = strings.TrimSpace(reviewedBy)
 	reason = strings.TrimSpace(reason)
 	externalRef = strings.TrimSpace(externalRef)
@@ -1990,7 +2325,11 @@ func buildRetentionHoldReviewFile(holds []retention.Hold, generatedAt time.Time,
 	}, nil
 }
 
-func checkRetentionHoldReview(options retentionHoldReviewCheckOptions, currentHolds []retention.Hold, checkedAt time.Time) (*retentionHoldReviewEvidence, error) {
+func checkRetentionHoldReview(
+	options retentionHoldReviewCheckOptions,
+	currentHolds []retention.Hold,
+	checkedAt time.Time,
+) (*retentionHoldReviewEvidence, error) {
 	options.ReviewPath = strings.TrimSpace(options.ReviewPath)
 	if options.ReviewPath == "" {
 		if options.MaxAge > 0 {
@@ -2034,7 +2373,11 @@ func checkRetentionHoldReview(options retentionHoldReviewCheckOptions, currentHo
 	}
 
 	if evidence.SchemaVersion != retentionHoldReviewSchemaVersion {
-		return evidence, fmt.Errorf("retention hold review schema_version = %q, want %q", evidence.SchemaVersion, retentionHoldReviewSchemaVersion)
+		return evidence, fmt.Errorf(
+			"retention hold review schema_version = %q, want %q",
+			evidence.SchemaVersion,
+			retentionHoldReviewSchemaVersion,
+		)
 	}
 
 	if evidence.GeneratedAt == "" {
@@ -2055,7 +2398,11 @@ func checkRetentionHoldReview(options retentionHoldReviewCheckOptions, currentHo
 	}
 
 	if evidence.ActiveHolds != len(evidence.Holds) {
-		return evidence, fmt.Errorf("retention hold review active_holds=%d does not match holds length %d", evidence.ActiveHolds, len(evidence.Holds))
+		return evidence, fmt.Errorf(
+			"retention hold review active_holds=%d does not match holds length %d",
+			evidence.ActiveHolds,
+			len(evidence.Holds),
+		)
 	}
 
 	holdsSHA256, err := retentionHoldReviewRecordsSHA256(evidence.Holds)
@@ -2079,11 +2426,20 @@ func checkRetentionHoldReview(options retentionHoldReviewCheckOptions, currentHo
 	age := checkedAt.Sub(generatedAt)
 	evidence.Age = age.String()
 	if age < 0 {
-		return evidence, fmt.Errorf("retention hold review generated_at %s is after check time %s", evidence.GeneratedAt, checkedAt.Format(time.RFC3339))
+		return evidence, fmt.Errorf(
+			"retention hold review generated_at %s is after check time %s",
+			evidence.GeneratedAt,
+			checkedAt.Format(time.RFC3339),
+		)
 	}
 
 	if options.MaxAge > 0 && age > options.MaxAge {
-		return evidence, fmt.Errorf("retention hold review is stale: generated_at=%s age=%s max_age=%s", evidence.GeneratedAt, age, options.MaxAge)
+		return evidence, fmt.Errorf(
+			"retention hold review is stale: generated_at=%s age=%s max_age=%s",
+			evidence.GeneratedAt,
+			age,
+			options.MaxAge,
+		)
 	}
 
 	evidence.Verified = true
@@ -2175,7 +2531,11 @@ func checkRetentionWaiver(path string, checkedAt time.Time) (*retentionWaiverEvi
 	}
 
 	if evidence.SchemaVersion != retentionWaiverSchemaVersion {
-		return evidence, fmt.Errorf("retention waiver schema_version = %q, want %q", evidence.SchemaVersion, retentionWaiverSchemaVersion)
+		return evidence, fmt.Errorf(
+			"retention waiver schema_version = %q, want %q",
+			evidence.SchemaVersion,
+			retentionWaiverSchemaVersion,
+		)
 	}
 
 	if len(evidence.Waives) == 0 {
@@ -2234,7 +2594,11 @@ func normalizeRetentionWaiverNames(values []string) []string {
 	return out
 }
 
-func enforceRetentionBackupGate(options retentionPolicyGateOptions, backupEvidence *retentionBackupEvidence, waiverEvidence *retentionWaiverEvidence) error {
+func enforceRetentionBackupGate(
+	options retentionPolicyGateOptions,
+	backupEvidence *retentionBackupEvidence,
+	waiverEvidence *retentionWaiverEvidence,
+) error {
 	if !options.RequireBackupManifest {
 		return nil
 	}
@@ -2247,10 +2611,18 @@ func enforceRetentionBackupGate(options retentionPolicyGateOptions, backupEviden
 		return nil
 	}
 
-	return fmt.Errorf("--require-backup-manifest requires --backup-manifest or a retention waiver for %s", retentionWaiverBackup)
+	return fmt.Errorf(
+		"--require-backup-manifest requires --backup-manifest or a retention waiver for %s",
+		retentionWaiverBackup,
+	)
 }
 
-func enforceRetentionAuditExportGate(options retentionPolicyGateOptions, auditExportEvidence *retentionAuditExportEvidence, waiverEvidence *retentionWaiverEvidence, report *retention.Report) error {
+func enforceRetentionAuditExportGate(
+	options retentionPolicyGateOptions,
+	auditExportEvidence *retentionAuditExportEvidence,
+	waiverEvidence *retentionWaiverEvidence,
+	report *retention.Report,
+) error {
 	if !options.RequireAuditExport {
 		return nil
 	}
@@ -2267,10 +2639,18 @@ func enforceRetentionAuditExportGate(options retentionPolicyGateOptions, auditEx
 		return nil
 	}
 
-	return fmt.Errorf("--require-audit-export requires --audit-export or a retention waiver for %s before deleting %d audit row(s)", retentionWaiverAuditExport, report.Counts.AuditLog)
+	return fmt.Errorf(
+		"--require-audit-export requires --audit-export or a retention waiver for %s before deleting %d audit row(s)",
+		retentionWaiverAuditExport,
+		report.Counts.AuditLog,
+	)
 }
 
-func enforceRetentionHoldReviewGate(options retentionPolicyGateOptions, holdReviewEvidence *retentionHoldReviewEvidence, waiverEvidence *retentionWaiverEvidence) error {
+func enforceRetentionHoldReviewGate(
+	options retentionPolicyGateOptions,
+	holdReviewEvidence *retentionHoldReviewEvidence,
+	waiverEvidence *retentionWaiverEvidence,
+) error {
 	if !options.RequireHoldReview {
 		return nil
 	}
@@ -2283,7 +2663,10 @@ func enforceRetentionHoldReviewGate(options retentionPolicyGateOptions, holdRevi
 		return nil
 	}
 
-	return fmt.Errorf("--require-hold-review requires --hold-review or a retention waiver for %s", retentionWaiverHoldReview)
+	return fmt.Errorf(
+		"--require-hold-review requires --hold-review or a retention waiver for %s",
+		retentionWaiverHoldReview,
+	)
 }
 
 func retentionWaiverAllows(evidence *retentionWaiverEvidence, gate string) bool {
@@ -2325,12 +2708,18 @@ func parseAuditExportRetentionTime(value string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("audit export until must be RFC3339 or YYYY-MM-DD")
 }
 
-func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt time.Time) (*retentionBackupEvidence, error) {
+func checkRetentionBackupManifest(
+	options retentionBackupCheckOptions,
+	checkedAt time.Time,
+) (*retentionBackupEvidence, error) {
 	options.ManifestPath = strings.TrimSpace(options.ManifestPath)
 	options.ExpectPath = strings.TrimSpace(options.ExpectPath)
 	if options.ManifestPath == "" {
-		if options.ExpectPath != "" || options.MaxAge > 0 || len(options.StorageReportPaths) > 0 || options.StorageReportMaxAge > 0 {
-			return nil, fmt.Errorf("--backup-expect, --backup-max-age, --backup-storage-report, and --backup-storage-max-age require --backup-manifest")
+		if options.ExpectPath != "" || options.MaxAge > 0 || len(options.StorageReportPaths) > 0 ||
+			options.StorageReportMaxAge > 0 {
+			return nil, fmt.Errorf(
+				"--backup-expect, --backup-max-age, --backup-storage-report, and --backup-storage-max-age require --backup-manifest",
+			)
 		}
 
 		return nil, nil
@@ -2340,7 +2729,8 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 		return nil, fmt.Errorf("--backup-storage-max-age requires --backup-storage-report")
 	}
 
-	if options.ManifestPath == "-" && (options.ExpectPath == "-" || backupStorageReportPathsContainStdin(options.StorageReportPaths)) {
+	if options.ManifestPath == "-" &&
+		(options.ExpectPath == "-" || backupStorageReportPathsContainStdin(options.StorageReportPaths)) {
 		return nil, fmt.Errorf("manifest, expected topology, and storage reports cannot share stdin")
 	}
 
@@ -2368,7 +2758,13 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 		return nil, err
 	}
 
-	result := verifyBackupManifestWithStorage(manifest, expected, storageReports, options.StorageReportMaxAge, checkedAt)
+	result := verifyBackupManifestWithStorage(
+		manifest,
+		expected,
+		storageReports,
+		options.StorageReportMaxAge,
+		checkedAt,
+	)
 	evidence := &retentionBackupEvidence{
 		ManifestPath:           options.ManifestPath,
 		ExpectPath:             options.ExpectPath,
@@ -2400,18 +2796,36 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 		age := checkedAt.Sub(generatedAt)
 		evidence.Age = age.String()
 		if age < 0 {
-			return evidence, fmt.Errorf("backup manifest generated_at %s is after check time %s", manifest.GeneratedAt, checkedAt.Format(time.RFC3339))
+			return evidence, fmt.Errorf(
+				"backup manifest generated_at %s is after check time %s",
+				manifest.GeneratedAt,
+				checkedAt.Format(time.RFC3339),
+			)
 		}
 
 		if age > options.MaxAge {
-			return evidence, fmt.Errorf("backup manifest is stale: generated_at=%s age=%s max_age=%s", manifest.GeneratedAt, age, options.MaxAge)
+			return evidence, fmt.Errorf(
+				"backup manifest is stale: generated_at=%s age=%s max_age=%s",
+				manifest.GeneratedAt,
+				age,
+				options.MaxAge,
+			)
 		}
 	}
 
 	return evidence, nil
 }
 
-func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence, holdReviewEvidence *retentionHoldReviewEvidence, evidenceManifest *retentionCleanupEvidenceManifestEvidence, waiverEvidence *retentionWaiverEvidence) {
+func printRetentionReport(
+	w io.Writer,
+	report retention.Report,
+	fileReport retention.FileReport,
+	backupEvidence *retentionBackupEvidence,
+	auditExportEvidence *retentionAuditExportEvidence,
+	holdReviewEvidence *retentionHoldReviewEvidence,
+	evidenceManifest *retentionCleanupEvidenceManifestEvidence,
+	waiverEvidence *retentionWaiverEvidence,
+) {
 	prefix := "deleted"
 	if report.DryRun {
 		prefix = "would_delete"
@@ -2593,7 +3007,11 @@ func runRetentionHoldCreate(cmd *cobra.Command, args []string) {
 		runCLIError(err)
 	}
 
-	scope, targetID, err := retentionHoldCreateScopeAndTarget(retentionHoldRunID, retentionHoldAuditSince, retentionHoldAuditUntil)
+	scope, targetID, err := retentionHoldCreateScopeAndTarget(
+		retentionHoldRunID,
+		retentionHoldAuditSince,
+		retentionHoldAuditUntil,
+	)
 	if err != nil {
 		runCLIError(err)
 	}
@@ -2692,7 +3110,13 @@ func runRetentionHoldReview(cmd *cobra.Command, args []string) {
 		runCLIError(err)
 	}
 
-	review, err := buildRetentionHoldReviewFile(holds, now, reviewedBy, retentionHoldReviewReason, retentionHoldReviewExternalRef)
+	review, err := buildRetentionHoldReviewFile(
+		holds,
+		now,
+		reviewedBy,
+		retentionHoldReviewReason,
+		retentionHoldReviewExternalRef,
+	)
 	if err != nil {
 		runCLIError(err)
 	}
@@ -2707,7 +3131,9 @@ func retentionHoldCreateScopeAndTarget(runID, auditSince, auditUntil string) (sc
 
 	if runID != "" {
 		if auditSince != "" || auditUntil != "" {
-			return "", "", fmt.Errorf("retention hold target must be either --run or --audit-since/--audit-until, not both")
+			return "", "", fmt.Errorf(
+				"retention hold target must be either --run or --audit-since/--audit-until, not both",
+			)
 		}
 
 		return retention.HoldScopeRun, runID, nil

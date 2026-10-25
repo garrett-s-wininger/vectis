@@ -28,15 +28,25 @@ That matches the API started by `./bin/vectis-local`.
 
 ## Authentication
 
-`vectis-local` enables API authentication by default. If you start it with `--auth=false`, workflow commands can run without a token.
+`vectis-local` enables API authentication by default and finishes first-admin setup once the API is healthy. A terminal prompts for the username and password. A non-interactive start creates user `admin`, writes the password under `$XDG_DATA_HOME/vectis/local-admin-password` (or `~/.local/share/vectis/local-admin-password`), and saves the CLI token. If you start it with `--auth=false`, workflow commands can run without a token. Pass `--setup=off`, or set `VECTIS_API_AUTH_BOOTSTRAP_TOKEN`, to leave setup for the bootstrap token:
 
-For the default authenticated local stack, log in once:
+```sh
+curl -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"bootstrap_token":"<bootstrap-token>","admin_username":"admin","admin_password":"<admin-password>"}' \
+  http://localhost:8080/api/v1/setup/complete
+export VECTIS_API_TOKEN=<api_token>
+```
+
+The admin password must be at least 8 characters. `api_token` in that response is a bearer token. With the UI running after automatic setup, sign in at `http://localhost:8089`. The browser setup form remains only when setup has not been completed, and that browser session does not fill the CLI token file.
+
+After an admin account exists, log in once:
 
 ```sh
 ./bin/vectis-cli auth login --username <username>
 ```
 
-The CLI prompts for a password, requests a bearer-capable login session, and saves the returned session token in your user config directory. Later commands use that saved token automatically.
+The CLI prompts for a password, requests a bearer-capable login session, and saves the returned session token in your user config directory. Later commands use that saved token automatically. `auth login` fails until setup has created that user.
 
 You can also provide a token for one shell session:
 
@@ -168,7 +178,9 @@ For safe client retries after a network error, pass an idempotency key:
 
 ## List, Show, And Trigger Jobs
 
-Reusable jobs are source-backed. Use the jobs commands with `--repository` to select the repository that owns the definition:
+Reusable jobs are source-backed. `jobs create` commits into a repository registered with `--checkout-mode managed` and `--authoring-mode local_commit`. A read-only or external checkout rejects local definition writes. `vectis-local` registers `vectis-local` in that mode. Register another repository with `sources register` when you need one.
+
+Use the jobs commands with `--repository` to select the repository that owns the definition. When exactly one enabled source repository is registered, these commands use that repository if you omit `--repository`:
 
 ```sh
 ./bin/vectis-cli jobs create ./build.json --repository vectis-local --branch main --message "Add build job"
@@ -207,10 +219,16 @@ Deleting a source-backed job commits removal of the source definition file. Hist
 
 ## Manage Source Repositories
 
-Register a source repository checkout:
+Register another managed checkout when Vectis should own the git directory and accept `jobs create`. `vectis-local` already registers `vectis-local` this way:
 
 ```sh
-./bin/vectis-cli sources register vectis-local /srv/vectis-repo --default-ref main
+./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
+```
+
+Register an external checkout when the git directory already exists on disk. External checkouts default to read-only authoring; `local_commit` is rejected for that checkout mode:
+
+```sh
+./bin/vectis-cli sources register external-checkout /srv/vectis-repo --default-ref main
 ```
 
 Operators can also declare repositories with `VECTIS_SOURCE_REPOSITORIES` so `vectis-api` reconciles them on startup. Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` when those configured repositories should also be cloned, fetched, or probed before the API starts serving. Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_INTERVAL` to periodically refresh enabled configured repositories in the background; use the matching max-concurrency and failure-backoff settings to control large-repository pressure. Source cron schedules can be declared with `VECTIS_SOURCE_SCHEDULES`; they reference a configured repository, stable `schedule_id`, `job_id`, cron expression, and optional `ref` or path override.
@@ -243,10 +261,10 @@ Temporarily point a source schedule at a hotfix ref or definition path, then cle
 ./bin/vectis-cli sources clear-override nightly-build
 ```
 
-For a Vectis-managed checkout, omit the checkout path and provide the canonical clone URL:
+For a Vectis-managed checkout of an existing remote, omit the checkout path and provide the canonical clone URL. This registration stays read-only until you set `local_commit`:
 
 ```sh
-./bin/vectis-cli sources register vectis-local --checkout-mode managed --canonical-url https://git.example.com/acme/vectis.git --default-ref main
+./bin/vectis-cli sources register upstream --checkout-mode managed --canonical-url https://git.example.com/acme/vectis.git --default-ref main
 ```
 
 For a large repository that workers should keep warm without mirroring every provider ref up front, use persistent cache mode with explicit warm refspecs:
@@ -557,11 +575,12 @@ For operational context, see [Configuration](../operating/configuration.md), [Re
 For local development, a comfortable CLI loop looks like this:
 
 1. Start `./bin/vectis-local`.
-2. Run `./bin/vectis-cli health check`.
-3. Edit a job JSON file.
-4. Run it with `./bin/vectis-cli jobs run <file> --follow`.
-5. Commit it once it works: `./bin/vectis-cli jobs create <file> --repository <repo> --branch <branch>`.
-6. Trigger future runs with `./bin/vectis-cli jobs trigger <job-id> --repository <repo> --follow`.
-7. Inspect history with `./bin/vectis-cli runs list <job-id> --repository <repo>`.
+2. On a new database, let `vectis-local` finish setup, or with `--setup=off` export `VECTIS_API_TOKEN` or run `./bin/vectis-cli auth login` after the admin account exists.
+3. Run `./bin/vectis-cli health check`.
+4. Edit a job JSON file.
+5. Run it with `./bin/vectis-cli jobs run <file> --follow`.
+6. Commit it once it works: `./bin/vectis-cli jobs create <file> --repository <repo> --branch <branch>`. The repository must be a managed checkout with `local_commit` authoring.
+7. Trigger future runs with `./bin/vectis-cli jobs trigger <job-id> --repository <repo> --follow`.
+8. Inspect history with `./bin/vectis-cli runs list <job-id> --repository <repo>`.
 
 That keeps experimentation fast while still exercising the same API and worker path used by reusable source-backed jobs.

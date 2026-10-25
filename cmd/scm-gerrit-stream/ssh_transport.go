@@ -41,18 +41,33 @@ func sshReconnectOptionsFromViper(logger interfaces.Logger) sshstream.ReconnectO
 	}
 }
 
-func consumeSSHStreamWithReconnect(ctx context.Context, sshOpts sshstream.Options, reconnectOpts sshstream.ReconnectOptions, streamOpts scmgerrit.StreamOptions, handle scmgerrit.StreamHandler) error {
+func consumeSSHStreamWithReconnect(
+	ctx context.Context,
+	sshOpts sshstream.Options,
+	reconnectOpts sshstream.ReconnectOptions,
+	streamOpts scmgerrit.StreamOptions,
+	handle scmgerrit.StreamHandler,
+) error {
 	sshOpts = normalizeGerritSSHStreamOptions(sshOpts)
 	if logger := reconnectOpts.Logger; logger != nil {
 		normalized, err := sshstream.NormalizeOptions(sshOpts)
 		if err == nil {
-			logger.Info("Gerrit stream bridge reading managed SSH stream %s as %s", normalized.Address(), normalized.User)
+			logger.Info(
+				"Gerrit stream bridge reading managed SSH stream %s as %s",
+				normalized.Address(),
+				normalized.User,
+			)
 		}
 	}
 
-	return sshstream.ConsumeWithReconnect(ctx, sshOpts, reconnectOpts, func(ctx context.Context, reader io.Reader) error {
-		return scmgerrit.ConsumeStream(ctx, reader, streamOpts, handle)
-	})
+	return sshstream.ConsumeWithReconnect(
+		ctx,
+		sshOpts,
+		reconnectOpts,
+		func(ctx context.Context, reader io.Reader) error {
+			return scmgerrit.ConsumeStream(ctx, reader, streamOpts, handle)
+		},
+	)
 }
 
 func normalizeGerritSSHStreamOptions(opts sshstream.Options) sshstream.Options {

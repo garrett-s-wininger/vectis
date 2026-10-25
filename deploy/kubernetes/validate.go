@@ -114,7 +114,15 @@ func RunValidate(ctx context.Context, opts ValidateOptions) (ValidateResult, err
 	}
 
 	fmt.Fprintf(opts.Stdout, "Applying Kubernetes manifest %s\n", opts.OutputPath)
-	if err := runValidateKubectlPhase(ctx, opts, validateKubectlCluster, nil, "apply", "-f", opts.OutputPath); err != nil {
+	if err := runValidateKubectlPhase(
+		ctx,
+		opts,
+		validateKubectlCluster,
+		nil,
+		"apply",
+		"-f",
+		opts.OutputPath,
+	); err != nil {
 		return ValidateResult{}, fmt.Errorf("apply Kubernetes manifest %s: %w", opts.OutputPath, err)
 	}
 
@@ -135,7 +143,16 @@ func RunValidate(ctx context.Context, opts ValidateOptions) (ValidateResult, err
 	}
 
 	fmt.Fprintln(opts.Stdout, "Checking Vectis pod readiness")
-	if err := runValidateKubectlPhase(ctx, opts, validateKubectlNamespaced, nil, "get", "pods", "-o", "wide"); err != nil {
+	if err := runValidateKubectlPhase(
+		ctx,
+		opts,
+		validateKubectlNamespaced,
+		nil,
+		"get",
+		"pods",
+		"-o",
+		"wide",
+	); err != nil {
 		return ValidateResult{}, fmt.Errorf("list Kubernetes pods: %w", err)
 	}
 
@@ -273,7 +290,17 @@ func waitForValidateWorkload(ctx context.Context, opts ValidateOptions, kind, na
 	waitCtx, cancel := context.WithTimeout(ctx, opts.Wait)
 	defer cancel()
 
-	if err := runValidateKubectlPhase(waitCtx, opts, validateKubectlNamespaced, nil, "rollout", "status", resource, "--timeout", opts.Wait.String()); err != nil {
+	if err := runValidateKubectlPhase(
+		waitCtx,
+		opts,
+		validateKubectlNamespaced,
+		nil,
+		"rollout",
+		"status",
+		resource,
+		"--timeout",
+		opts.Wait.String(),
+	); err != nil {
 		return fmt.Errorf("wait for Kubernetes %s rollout: %w", resource, err)
 	}
 
@@ -305,7 +332,13 @@ func smokeOptionsForValidate(opts ValidateOptions) SmokeOptions {
 	return smokeOpts
 }
 
-func runValidateKubectlPhase(ctx context.Context, opts ValidateOptions, scope validateKubectlScope, stdin io.Reader, args ...string) error {
+func runValidateKubectlPhase(
+	ctx context.Context,
+	opts ValidateOptions,
+	scope validateKubectlScope,
+	stdin io.Reader,
+	args ...string,
+) error {
 	phaseCtx, cancel := context.WithTimeout(ctx, opts.Wait)
 	defer cancel()
 
@@ -336,9 +369,18 @@ func kubectlError(err error, stdout, stderr string) error {
 	return fmt.Errorf("%w: %s", err, text)
 }
 
-func defaultRunValidateKubectlCommand(ctx context.Context, opts ValidateOptions, scope validateKubectlScope, stdin io.Reader, args ...string) (string, string, error) {
+func defaultRunValidateKubectlCommand(
+	ctx context.Context,
+	opts ValidateOptions,
+	scope validateKubectlScope,
+	stdin io.Reader,
+	args ...string,
+) (string, string, error) {
 	kubectlArgs := validateKubectlArgs(opts.Context, opts.Namespace, scope, args...)
-	cmd := exec.CommandContext(ctx, opts.Kubectl, kubectlArgs...) // #nosec G204 -- kubectl path and args are validation-harness controlled.
+	cmd := exec.CommandContext(
+		ctx,
+		opts.Kubectl,
+		kubectlArgs...) // #nosec G204 -- kubectl path and args are validation-harness controlled.
 	cmd.Stdin = stdin
 
 	var stdout, stderr bytes.Buffer

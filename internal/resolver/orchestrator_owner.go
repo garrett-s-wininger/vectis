@@ -90,11 +90,23 @@ type OrchestratorDial struct {
 	InstanceID string
 }
 
-func DialOrchestratorWithOwner(ctx context.Context, logger interfaces.Logger, pinnedOrchestratorAddr, registryDialAddr, cellID, selectionKey string, retryMetrics backoff.RetryMetrics) (OrchestratorDial, func(), error) {
+func DialOrchestratorWithOwner(
+	ctx context.Context,
+	logger interfaces.Logger,
+	pinnedOrchestratorAddr, registryDialAddr, cellID, selectionKey string,
+	retryMetrics backoff.RetryMetrics,
+) (OrchestratorDial, func(), error) {
 	pinnedOrchestratorAddr = strings.TrimSpace(pinnedOrchestratorAddr)
 	if pinnedOrchestratorAddr != "" {
 		logger.Info("Using pinned orchestrator address: %s", pinnedOrchestratorAddr)
-		conn, cleanup, err := NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_ORCHESTRATOR, pinnedOrchestratorAddr, logger, nil, retryMetrics)
+		conn, cleanup, err := NewClientWithPinnedAddress(
+			ctx,
+			api.Component_COMPONENT_ORCHESTRATOR,
+			pinnedOrchestratorAddr,
+			logger,
+			nil,
+			retryMetrics,
+		)
 		if err != nil {
 			return OrchestratorDial{}, nil, err
 		}
@@ -119,10 +131,20 @@ func DialOrchestratorWithOwner(ctx context.Context, logger interfaces.Logger, pi
 
 	address := normalizeRegistryDialAddr(entry.GetAddress())
 	if address == "" {
-		return OrchestratorDial{}, nil, fmt.Errorf("%s address not available", api.Component_COMPONENT_ORCHESTRATOR.String())
+		return OrchestratorDial{}, nil, fmt.Errorf(
+			"%s address not available",
+			api.Component_COMPONENT_ORCHESTRATOR.String(),
+		)
 	}
 
-	conn, cleanup, err := NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_ORCHESTRATOR, address, logger, nil, retryMetrics)
+	conn, cleanup, err := NewClientWithPinnedAddress(
+		ctx,
+		api.Component_COMPONENT_ORCHESTRATOR,
+		address,
+		logger,
+		nil,
+		retryMetrics,
+	)
 	if err != nil {
 		return OrchestratorDial{}, nil, err
 	}
@@ -143,12 +165,24 @@ func DialOrchestratorWithOwner(ctx context.Context, logger interfaces.Logger, pi
 
 type orchestratorRegistry interface {
 	InstanceAddress(ctx context.Context, component api.Component, instanceID string) (string, error)
-	ListRegistrations(ctx context.Context, component api.Component, metadata map[string]string) ([]*api.RegistryEntry, error)
+	ListRegistrations(
+		ctx context.Context,
+		component api.Component,
+		metadata map[string]string,
+	) ([]*api.RegistryEntry, error)
 	Close() error
 }
 
-func selectOrchestratorRegistryEntry(ctx context.Context, reg orchestratorRegistry, cellID, selectionKey string) (*api.RegistryEntry, error) {
-	entries, err := reg.ListRegistrations(ctx, api.Component_COMPONENT_ORCHESTRATOR, registry.DefaultServiceMetadataForCell(cellID))
+func selectOrchestratorRegistryEntry(
+	ctx context.Context,
+	reg orchestratorRegistry,
+	cellID, selectionKey string,
+) (*api.RegistryEntry, error) {
+	entries, err := reg.ListRegistrations(
+		ctx,
+		api.Component_COMPONENT_ORCHESTRATOR,
+		registry.DefaultServiceMetadataForCell(cellID),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +265,11 @@ type orchestratorOwnerClient struct {
 	close  func()
 }
 
-func NewOrchestratorOwnerClientResolver(logger interfaces.Logger, registryAddress string, retryMetrics backoff.RetryMetrics) *OrchestratorOwnerClientResolver {
+func NewOrchestratorOwnerClientResolver(
+	logger interfaces.Logger,
+	registryAddress string,
+	retryMetrics backoff.RetryMetrics,
+) *OrchestratorOwnerClientResolver {
 	return &OrchestratorOwnerClientResolver{
 		logger:          logger,
 		registryAddress: strings.TrimSpace(registryAddress),
@@ -240,7 +278,10 @@ func NewOrchestratorOwnerClientResolver(logger interfaces.Logger, registryAddres
 	}
 }
 
-func (r *OrchestratorOwnerClientResolver) Client(ctx context.Context, ownerID, cellID, selectionKey string) (api.OrchestratorServiceClient, bool, error) {
+func (r *OrchestratorOwnerClientResolver) Client(
+	ctx context.Context,
+	ownerID, cellID, selectionKey string,
+) (api.OrchestratorServiceClient, bool, error) {
 	if r == nil {
 		return nil, false, nil
 	}
@@ -308,7 +349,10 @@ func (r *OrchestratorOwnerClientResolver) registryClient(ctx context.Context) (o
 	return reg, nil
 }
 
-func (r *OrchestratorOwnerClientResolver) clientForAddress(ctx context.Context, address string) (api.OrchestratorServiceClient, error) {
+func (r *OrchestratorOwnerClientResolver) clientForAddress(
+	ctx context.Context,
+	address string,
+) (api.OrchestratorServiceClient, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return nil, fmt.Errorf("%s address not available", api.Component_COMPONENT_ORCHESTRATOR.String())
@@ -321,7 +365,14 @@ func (r *OrchestratorOwnerClientResolver) clientForAddress(ctx context.Context, 
 	}
 	r.mu.Unlock()
 
-	conn, cleanup, err := NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_ORCHESTRATOR, address, r.logger, nil, r.retryMetrics)
+	conn, cleanup, err := NewClientWithPinnedAddress(
+		ctx,
+		api.Component_COMPONENT_ORCHESTRATOR,
+		address,
+		r.logger,
+		nil,
+		r.retryMetrics,
+	)
 	if err != nil {
 		return nil, err
 	}

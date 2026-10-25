@@ -59,7 +59,10 @@ func TestRunSmokeAuthenticatesAndRejectsWrongPassword(t *testing.T) {
 }
 
 func TestRunSmokeRequiresURL(t *testing.T) {
-	_, err := RunSmoke(context.Background(), SmokeOptions{URL: " ", BaseDN: "dc=example,dc=org", Username: "alice", Password: "secret"})
+	_, err := RunSmoke(
+		context.Background(),
+		SmokeOptions{URL: " ", BaseDN: "dc=example,dc=org", Username: "alice", Password: "secret"},
+	)
 	if err == nil || !strings.Contains(err.Error(), "url is required") {
 		t.Fatalf("RunSmoke error = %v, want url required", err)
 	}

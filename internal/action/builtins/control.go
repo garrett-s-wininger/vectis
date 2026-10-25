@@ -14,8 +14,15 @@ func validateExecutionMode(with map[string]string) []action.FieldError {
 		return nil
 	}
 
-	return []action.FieldError{{
-		Field:   taskgraph.ExecutionField,
-		Message: fmt.Sprintf("must be %q or %q, got %q", taskgraph.ExecutionLocal, taskgraph.ExecutionDistributed, strings.TrimSpace(raw)),
-	}}
+	return []action.FieldError{
+		{
+			Field: taskgraph.ExecutionField,
+			Message: fmt.Sprintf(
+				"must be %q or %q, got %q",
+				taskgraph.ExecutionLocal,
+				taskgraph.ExecutionDistributed,
+				strings.TrimSpace(raw),
+			),
+		},
+	}
 }

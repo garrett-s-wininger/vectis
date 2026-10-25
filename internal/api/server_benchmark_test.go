@@ -131,7 +131,11 @@ func BenchmarkAPIServer_Write_CreateJob(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		jobID := fmt.Sprintf("bench-api-create-%06d", i)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(fmt.Sprintf(benchAPIJobDefinition, jobID)))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/jobs",
+			strings.NewReader(fmt.Sprintf(benchAPIJobDefinition, jobID)),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 
@@ -280,7 +284,11 @@ func BenchmarkAPIServer_Write_ForceFailRun(b *testing.B) {
 		runID := seedBenchmarkAPIRun(b, ctx, repos, jobID, i+1)
 		b.StartTimer()
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-fail", strings.NewReader(`{"reason":"benchmark"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/runs/"+runID+"/force-fail",
+			strings.NewReader(`{"reason":"benchmark"}`),
+		)
 		req.SetPathValue("id", runID)
 		rec := httptest.NewRecorder()
 
@@ -364,7 +372,11 @@ func BenchmarkAPIServer_Write_RepairMarkAbandoned(b *testing.B) {
 		}
 
 		b.StartTimer()
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/repair/abandoned", strings.NewReader(`{"reason":"benchmark"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/runs/"+runID+"/repair/abandoned",
+			strings.NewReader(`{"reason":"benchmark"}`),
+		)
 		req.SetPathValue("id", runID)
 		rec := httptest.NewRecorder()
 
@@ -533,7 +545,11 @@ func BenchmarkAPIServer_HTTP_Write_ForceFailRun(b *testing.B) {
 		runID := seedBenchmarkAPIRun(b, ctx, repos, jobID, i+1)
 		b.StartTimer()
 
-		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-fail", `{"reason":"benchmark"}`)
+		req := newBenchmarkAPIHTTPRequest(
+			http.MethodPost,
+			"/api/v1/runs/"+runID+"/force-fail",
+			`{"reason":"benchmark"}`,
+		)
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -616,7 +632,11 @@ func BenchmarkAPIServer_HTTP_Write_RepairMarkAbandoned(b *testing.B) {
 		}
 
 		b.StartTimer()
-		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/runs/"+runID+"/repair/mark-abandoned", `{"reason":"benchmark"}`)
+		req := newBenchmarkAPIHTTPRequest(
+			http.MethodPost,
+			"/api/v1/runs/"+runID+"/repair/mark-abandoned",
+			`{"reason":"benchmark"}`,
+		)
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -730,7 +750,13 @@ func seedBenchmarkAPIStoredJob(b *testing.B, ctx context.Context, repos *dal.SQL
 	}
 }
 
-func seedBenchmarkAPIRun(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string, runIndex int) string {
+func seedBenchmarkAPIRun(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	jobID string,
+	runIndex int,
+) string {
 	b.Helper()
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, &runIndex, 1)
@@ -765,7 +791,8 @@ func waitBenchmarkAPIDispatched(b *testing.B, db *sql.DB, runID string) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		var dispatchedAt sql.NullInt64
-		err := db.QueryRowContext(context.Background(), "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", runID).Scan(&dispatchedAt)
+		err := db.QueryRowContext(context.Background(), "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", runID).
+			Scan(&dispatchedAt)
 		if err != nil {
 			b.Fatalf("query last_dispatched_at: %v", err)
 		}
@@ -782,7 +809,13 @@ func waitBenchmarkAPIDispatched(b *testing.B, db *sql.DB, runID string) {
 	}
 }
 
-func seedBenchmarkAPIRunReadTasks(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, mode string, childTasks int) string {
+func seedBenchmarkAPIRunReadTasks(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	mode string,
+	childTasks int,
+) string {
 	b.Helper()
 
 	switch mode {
@@ -796,7 +829,12 @@ func seedBenchmarkAPIRunReadTasks(b *testing.B, ctx context.Context, repos *dal.
 	}
 }
 
-func seedBenchmarkAPIRunReadLiveTasks(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, childTasks int) string {
+func seedBenchmarkAPIRunReadLiveTasks(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	childTasks int,
+) string {
 	b.Helper()
 
 	jobID := fmt.Sprintf("bench-api-run-read-live-%d", childTasks)
@@ -825,7 +863,13 @@ func seedBenchmarkAPIRunReadLiveTasks(b *testing.B, ctx context.Context, repos *
 	return runID
 }
 
-func seedBenchmarkAPIRunReadHotStateTasks(b *testing.B, ctx context.Context, server *api.APIServer, repos *dal.SQLRepositories, childTasks int) string {
+func seedBenchmarkAPIRunReadHotStateTasks(
+	b *testing.B,
+	ctx context.Context,
+	server *api.APIServer,
+	repos *dal.SQLRepositories,
+	childTasks int,
+) string {
 	b.Helper()
 
 	jobID := fmt.Sprintf("bench-api-run-read-hot-state-%d", childTasks)
@@ -889,7 +933,12 @@ func seedBenchmarkAPIRunReadHotStateTasks(b *testing.B, ctx context.Context, ser
 	return runID
 }
 
-func seedBenchmarkAPIRunReadFinalFacts(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, childTasks int) string {
+func seedBenchmarkAPIRunReadFinalFacts(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	childTasks int,
+) string {
 	b.Helper()
 
 	jobID := fmt.Sprintf("bench-api-run-read-final-facts-%d", childTasks)

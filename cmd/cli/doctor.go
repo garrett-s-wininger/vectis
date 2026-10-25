@@ -82,8 +82,28 @@ func runDoctor(cmd *cobra.Command, args []string) {
 func doctor(w io.Writer) error {
 	setupStatus := doctorSetupStatus()
 	checks := []doctorCheck{
-		doctorHTTPStatus("api.live", http.MethodGet, "/health/live", http.StatusOK, "API liveness probe passed", severityCritical, "API liveness", "Check API server process", "website/docs/operating/reliability/runbooks.md"),
-		doctorHTTPStatus("api.ready", http.MethodGet, "/health/ready", http.StatusOK, "API readiness probe passed", severityCritical, "API readiness", "Check API server and dependencies (DB, queue)", "website/docs/operating/reliability/runbooks.md"),
+		doctorHTTPStatus(
+			"api.live",
+			http.MethodGet,
+			"/health/live",
+			http.StatusOK,
+			"API liveness probe passed",
+			severityCritical,
+			"API liveness",
+			"Check API server process",
+			"website/docs/operating/reliability/runbooks.md",
+		),
+		doctorHTTPStatus(
+			"api.ready",
+			http.MethodGet,
+			"/health/ready",
+			http.StatusOK,
+			"API readiness probe passed",
+			severityCritical,
+			"API readiness",
+			"Check API server and dependencies (DB, queue)",
+			"website/docs/operating/reliability/runbooks.md",
+		),
 		setupStatus,
 		doctorCLIToken(setupStatus.apiAuthEnabled),
 		doctorAPIEdgeConfig(setupStatus.apiAuthEnabled),
@@ -98,7 +118,8 @@ func doctor(w io.Writer) error {
 		doctorCatalogInbox(),
 	}
 	checks = append(checks, doctorSourceControlChecks()...)
-	checks = append(checks,
+	checks = append(
+		checks,
 		doctorLogReachable(),
 		doctorLogForwarderSocket(),
 		doctorAuditFlushFailures(),
@@ -109,9 +130,24 @@ func doctor(w io.Writer) error {
 		doctorServiceIdentityConfig(),
 		doctorMetricsListenersConfig(),
 		doctorTLSFiles(),
-		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
-		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
-		doctorFilesystemPressure("log.forwarder.spool.filesystem", "Log forwarder spool filesystem", "log-forwarder spool", envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir())),
+		doctorFilesystemPressure(
+			"queue.persistence.filesystem",
+			"Queue persistence filesystem",
+			"queue persistence",
+			envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir()),
+		),
+		doctorFilesystemPressure(
+			"log.storage.filesystem",
+			"Log storage filesystem",
+			"log storage",
+			envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir()),
+		),
+		doctorFilesystemPressure(
+			"log.forwarder.spool.filesystem",
+			"Log forwarder spool filesystem",
+			"log-forwarder spool",
+			envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir()),
+		),
 		doctorArtifactFilesystemCheck(),
 	)
 
@@ -126,7 +162,14 @@ func writeDoctorText(w io.Writer, checks []doctorCheck) error {
 	passed, warned, failed := doctorStatusCounts(checks)
 	fmt.Fprintln(w, "Vectis health check")
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "Overall: %s  %d passed, %d warnings, %d failed\n", doctorOverallStatus(failed, warned), passed, warned, failed)
+	fmt.Fprintf(
+		w,
+		"Overall: %s  %d passed, %d warnings, %d failed\n",
+		doctorOverallStatus(failed, warned),
+		passed,
+		warned,
+		failed,
+	)
 
 	checkByID := make(map[string]doctorCheck, len(checks))
 	for _, check := range checks {
@@ -328,20 +371,50 @@ func writeDoctorJSON(w io.Writer, checks []doctorCheck) error {
 	return evaluateDoctorChecks(checks)
 }
 
-func doctorHTTPStatus(id, method, path string, want int, okMessage string, severity doctorSeverity, title, action, doc string) doctorCheck {
+func doctorHTTPStatus(
+	id, method, path string,
+	want int,
+	okMessage string,
+	severity doctorSeverity,
+	title, action, doc string,
+) doctorCheck {
 	req, err := newAPIRequest(method, path, nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severity, Summary: err.Error(), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severity,
+			Summary:         err.Error(),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severity, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severity,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != want {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severity, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severity,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severity, Summary: okMessage, DocLink: doc}
@@ -352,17 +425,41 @@ func doctorSetupStatus() doctorCheck {
 	title := "Setup complete"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/setup/status", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reliability/runbooks.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reliability/runbooks.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reliability/runbooks.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reliability/runbooks.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reliability/runbooks.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reliability/runbooks.md",
+		}
 	}
 
 	var result struct {
@@ -371,7 +468,15 @@ func doctorSetupStatus() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reliability/runbooks.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reliability/runbooks.md",
+		}
 	}
 
 	authEnabled := config.APIAuthEnabled()
@@ -380,28 +485,73 @@ func doctorSetupStatus() doctorCheck {
 	}
 
 	if !authEnabled {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup not required; API auth is disabled", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: false}
+		return doctorCheck{
+			ID:             id,
+			Title:          title,
+			Status:         doctorOK,
+			Severity:       severityWarning,
+			Summary:        "initial setup not required; API auth is disabled",
+			DocLink:        "website/docs/operating/reliability/runbooks.md",
+			apiAuthEnabled: false,
+		}
 	}
 
 	if result.SetupComplete {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup is complete", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: true}
+		return doctorCheck{
+			ID:             id,
+			Title:          title,
+			Status:         doctorOK,
+			Severity:       severityWarning,
+			Summary:        "initial setup is complete",
+			DocLink:        "website/docs/operating/reliability/runbooks.md",
+			apiAuthEnabled: true,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "initial setup is not complete", SuggestedAction: "Complete setup via the API or CLI", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: true}
+	return doctorCheck{
+		ID:              id,
+		Title:           title,
+		Status:          doctorWarn,
+		Severity:        severityWarning,
+		Summary:         "initial setup is not complete",
+		SuggestedAction: "Restart vectis-local to finish setup, or pass --setup=off and complete POST /api/v1/setup/complete, then set VECTIS_API_TOKEN or run vectis-cli auth login",
+		DocLink:         "website/docs/getting-started.md",
+		apiAuthEnabled:  true,
+	}
 }
 
 func doctorCLIToken(apiAuthEnabled bool) doctorCheck {
 	const id = "cli.token"
 	title := "CLI token present"
 	if !apiAuthEnabled {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "CLI API token not required; API auth is disabled"}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "CLI API token not required; API auth is disabled",
+		}
 	}
 
 	if effectiveToken() == "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "no CLI API token configured", SuggestedAction: "Set VECTIS_API_TOKEN or run vectis-cli auth login", DocLink: "website/docs/operating/reliability/repair-runbooks.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "no CLI API token configured",
+			SuggestedAction: "Set VECTIS_API_TOKEN or run vectis-cli auth login",
+			DocLink:         "website/docs/operating/reliability/repair-runbooks.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "CLI API token is configured"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "CLI API token is configured",
+	}
 }
 
 func doctorAPIEdgeConfig(apiAuthEnabled bool) doctorCheck {
@@ -432,16 +582,27 @@ func doctorAPIEdgeConfig(apiAuthEnabled bool) doctorCheck {
 		}
 	}
 
-	if authEnabled && localVisible && !config.APIAuthEnabled() && !config.APISessionCookieSecure() && !config.APIHTTPSEnabled() && !config.APISessionAllowInsecureCookies() {
-		problems = append(problems, "auth-enabled API edge config should set VECTIS_API_SESSION_COOKIE_SECURE=true or configure direct API TLS")
+	if authEnabled && localVisible && !config.APIAuthEnabled() && !config.APISessionCookieSecure() &&
+		!config.APIHTTPSEnabled() &&
+		!config.APISessionAllowInsecureCookies() {
+		problems = append(
+			problems,
+			"auth-enabled API edge config should set VECTIS_API_SESSION_COOKIE_SECURE=true or configure direct API TLS",
+		)
 	}
 
 	if authEnabled && localVisible && config.APISessionAllowInsecureCookies() {
-		problems = append(problems, "auth-enabled API edge config allows insecure browser cookies; reserve VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES for local development only")
+		problems = append(
+			problems,
+			"auth-enabled API edge config allows insecure browser cookies; reserve VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES for local development only",
+		)
 	}
 
 	if authEnabled && localVisible && doctorAPIHostExternallyBound() && !doctorAPIAllowedHostsConfigured() {
-		problems = append(problems, "externally bound auth-enabled API should configure VECTIS_API_ALLOWED_HOSTS with the browser-facing DNS names")
+		problems = append(
+			problems,
+			"externally bound auth-enabled API should configure VECTIS_API_ALLOWED_HOSTS with the browser-facing DNS names",
+		)
 	}
 
 	if config.APIHTTPSEnabled() && config.APIHSTSMaxAgeSeconds() == 0 {
@@ -449,18 +610,51 @@ func doctorAPIEdgeConfig(apiAuthEnabled bool) doctorCheck {
 	}
 
 	if len(problems) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check VECTIS_API_* edge, session, Host, CORS, proxy, HSTS, and TLS settings", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         strings.Join(problems, "; "),
+			Evidence:        evidence,
+			SuggestedAction: "Check VECTIS_API_* edge, session, Host, CORS, proxy, HSTS, and TLS settings",
+			DocLink:         doc,
+		}
 	}
 
 	if !localVisible {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "API edge config is not visible in this shell", Evidence: evidence, DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "API edge config is not visible in this shell",
+			Evidence: evidence,
+			DocLink:  doc,
+		}
 	}
 
 	if authEnabled {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "auth-enabled API edge config is valid", Evidence: evidence, DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "auth-enabled API edge config is valid",
+			Evidence: evidence,
+			DocLink:  doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "API edge config is valid; API auth is disabled", Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "API edge config is valid; API auth is disabled",
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorBindAPIEdgeEnv() {
@@ -559,17 +753,41 @@ func doctorSchemaCurrent() doctorCheck {
 	title := "Database schema current"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/schema/status", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityCritical,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityCritical,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityCritical,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -578,14 +796,38 @@ func doctorSchemaCurrent() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityCritical,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if !result.HasSchema {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: "no schema found — database may be uninitialized", SuggestedAction: "Run vectis-cli database migrate", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityCritical,
+			Summary:         "no schema found — database may be uninitialized",
+			SuggestedAction: "Run vectis-cli database migrate",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityCritical, Summary: fmt.Sprintf("schema at version %d", result.CurrentVersion), Evidence: fmt.Sprintf("%d", result.CurrentVersion), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityCritical,
+		Summary:  fmt.Sprintf("schema at version %d", result.CurrentVersion),
+		Evidence: fmt.Sprintf("%d", result.CurrentVersion),
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 func doctorReconcilerActive() doctorCheck {
@@ -593,31 +835,77 @@ func doctorReconcilerActive() doctorCheck {
 	title := "Reconciler heartbeat recent"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/reconciler/heartbeat", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
 		Active bool `json:"active"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if !result.Active {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no reconciler recovery activity recorded", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no reconciler recovery activity recorded",
+			DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "reconciler recovery activity recorded", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "reconciler recovery activity recorded",
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 func doctorAuditDrops() doctorCheck {
@@ -625,17 +913,41 @@ func doctorAuditDrops() doctorCheck {
 	title := "No recent audit drops"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/audit/drops", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -643,14 +955,38 @@ func doctorAuditDrops() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.Dropped > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d audit events dropped", result.Dropped), Evidence: fmt.Sprintf("%d", result.Dropped), SuggestedAction: "Check audit buffer configuration; check DB write capacity", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d audit events dropped", result.Dropped),
+			Evidence:        fmt.Sprintf("%d", result.Dropped),
+			SuggestedAction: "Check audit buffer configuration; check DB write capacity",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit events dropped", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "no audit events dropped",
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 func doctorDBPool() doctorCheck {
@@ -658,17 +994,41 @@ func doctorDBPool() doctorCheck {
 	title := "DB connection pool healthy"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/db/pool-stats", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -678,14 +1038,49 @@ func doctorDBPool() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.OpenConnections > 0 && result.InUse == result.OpenConnections && result.WaitCount > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("pool exhausted: %d in-use / %d open, %d waits", result.InUse, result.OpenConnections, result.WaitCount), Evidence: fmt.Sprintf("in_use=%d open=%d wait=%d", result.InUse, result.OpenConnections, result.WaitCount), SuggestedAction: "Increase max connections or check slow queries", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorWarn,
+			Severity: severityWarning,
+			Summary: fmt.Sprintf(
+				"pool exhausted: %d in-use / %d open, %d waits",
+				result.InUse,
+				result.OpenConnections,
+				result.WaitCount,
+			),
+			Evidence: fmt.Sprintf(
+				"in_use=%d open=%d wait=%d",
+				result.InUse,
+				result.OpenConnections,
+				result.WaitCount,
+			),
+			SuggestedAction: "Increase max connections or check slow queries",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("pool healthy: %d open, %d in-use", result.OpenConnections, result.InUse), Evidence: fmt.Sprintf("open=%d in_use=%d", result.OpenConnections, result.InUse), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("pool healthy: %d open, %d in-use", result.OpenConnections, result.InUse),
+		Evidence: fmt.Sprintf("open=%d in_use=%d", result.OpenConnections, result.InUse),
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 func doctorQueueBacklog() doctorCheck {
@@ -693,17 +1088,41 @@ func doctorQueueBacklog() doctorCheck {
 	title := "Queue backlog within threshold"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/queue/backlog", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -712,14 +1131,39 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.Queued > 100 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("backlog high: %d queued", result.Queued),
+			Evidence:        formatDoctorQueueBacklogEvidence(result.Queued, result.Cells),
+			SuggestedAction: "Check queue service health and worker count",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("backlog ok: %d queued", result.Queued),
+		Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells),
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 type doctorQueueBacklogCell struct {
@@ -754,38 +1198,104 @@ func doctorCronSchedules() doctorCheck {
 	title := "Cron schedules current"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/cron/status", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result doctorCronStatus
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	evidence := formatDoctorCronEvidence(result)
 	if result.DueCount > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d cron schedules are due for dispatch", result.DueCount), Evidence: evidence, SuggestedAction: "Check vectis-cron process health, database access, and queue/cell ingress handoff", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d cron schedules are due for dispatch", result.DueCount),
+			Evidence:        evidence,
+			SuggestedAction: "Check vectis-cron process health, database access, and queue/cell ingress handoff",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.ClaimedCount > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d cron schedules are held by active claims", result.ClaimedCount), Evidence: evidence, SuggestedAction: "Check vectis-cron logs for slow or stuck schedule handoff", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d cron schedules are held by active claims", result.ClaimedCount),
+			Evidence:        evidence,
+			SuggestedAction: "Check vectis-cron logs for slow or stuck schedule handoff",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.ScheduleCount == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no enabled cron schedules", Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no enabled cron schedules",
+			Evidence: evidence,
+			DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("cron schedules current: %d enabled", result.ScheduleCount), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("cron schedules current: %d enabled", result.ScheduleCount),
+		Evidence: evidence,
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 type doctorCronStatus struct {
@@ -804,7 +1314,10 @@ func formatDoctorCronEvidence(status doctorCronStatus) string {
 	}
 
 	if status.OldestDueUnix != nil {
-		parts = append(parts, fmt.Sprintf("oldest_due=%s", time.Unix(*status.OldestDueUnix, 0).UTC().Format(time.RFC3339)))
+		parts = append(
+			parts,
+			fmt.Sprintf("oldest_due=%s", time.Unix(*status.OldestDueUnix, 0).UTC().Format(time.RFC3339)),
+		)
 	}
 
 	return strings.Join(parts, " ")
@@ -815,17 +1328,41 @@ func doctorStuckRuns() doctorCheck {
 	title := "No stuck runs or task repair backlog"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/reconciler/stuck-runs", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -838,14 +1375,49 @@ func doctorStuckRuns() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.Stuck > 0 || result.TaskFinalizationPending > 0 || result.TaskContinuationPending > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: formatDoctorStuckRunsSummary(result.Stuck, result.TaskFinalizationPending, result.TaskContinuationPending), Evidence: formatDoctorStuckRunsEvidence(result.Stuck, result.Cells, result.TaskFinalizationPending, result.TaskFinalizationCells, result.TaskContinuationPending, result.TaskContinuationCells), SuggestedAction: "Check reconciler; check queued dispatch, task continuation, and task finalization paths", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorWarn,
+			Severity: severityWarning,
+			Summary: formatDoctorStuckRunsSummary(
+				result.Stuck,
+				result.TaskFinalizationPending,
+				result.TaskContinuationPending,
+			),
+			Evidence: formatDoctorStuckRunsEvidence(
+				result.Stuck,
+				result.Cells,
+				result.TaskFinalizationPending,
+				result.TaskFinalizationCells,
+				result.TaskContinuationPending,
+				result.TaskContinuationCells,
+			),
+			SuggestedAction: "Check reconciler; check queued dispatch, task continuation, and task finalization paths",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no stuck runs or task repair backlog", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "no stuck runs or task repair backlog",
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 type doctorStuckRunCell struct {
@@ -875,10 +1447,19 @@ func formatDoctorStuckRunsSummary(stuck, taskFinalizationPending, taskContinuati
 	return strings.Join(parts, " and ") + " detected"
 }
 
-func formatDoctorStuckRunsEvidence(stuck int64, cells []doctorStuckRunCell, taskFinalizationPending int64, taskFinalizationCells []doctorPendingCellCount, taskContinuationPending int64, taskContinuationCells []doctorPendingCellCount) string {
+func formatDoctorStuckRunsEvidence(
+	stuck int64,
+	cells []doctorStuckRunCell,
+	taskFinalizationPending int64,
+	taskFinalizationCells []doctorPendingCellCount,
+	taskContinuationPending int64,
+	taskContinuationCells []doctorPendingCellCount,
+) string {
 	parts := []string{fmt.Sprintf("stuck=%d", stuck)}
 	if len(cells) == 0 {
-		if stuck > 0 && taskFinalizationPending == 0 && len(taskFinalizationCells) == 0 && taskContinuationPending == 0 && len(taskContinuationCells) == 0 {
+		if stuck > 0 && taskFinalizationPending == 0 && len(taskFinalizationCells) == 0 &&
+			taskContinuationPending == 0 &&
+			len(taskContinuationCells) == 0 {
 			return fmt.Sprintf("%d", stuck)
 		}
 	} else {
@@ -936,17 +1517,41 @@ func doctorCellIngressRoutes() doctorCheck {
 	title := "Cell ingress routes reachable"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/cells/status", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -954,11 +1559,26 @@ func doctorCellIngressRoutes() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if len(result.Cells) == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no cell ingress routes configured", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no cell ingress routes configured",
+			DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	ready := 0
@@ -981,14 +1601,39 @@ func doctorCellIngressRoutes() doctorCheck {
 
 	evidence := formatDoctorCellIngressEvidence(result.Cells)
 	if unhealthy > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d cell ingress routes unhealthy", unhealthy), Evidence: evidence, SuggestedAction: "Check cell ingress processes, route map, and network path", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d cell ingress routes unhealthy", unhealthy),
+			Evidence:        evidence,
+			SuggestedAction: "Check cell ingress processes, route map, and network path",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if required == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no cell ingress routes required", Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no cell ingress routes required",
+			Evidence: evidence,
+			DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("%d cell ingress routes ready", ready), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("%d cell ingress routes ready", ready),
+		Evidence: evidence,
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 type doctorCellIngressStatus struct {
@@ -1018,23 +1663,55 @@ func doctorCatalogInbox() doctorCheck {
 	title := "Catalog inbox healthy"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/catalog/status", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result doctorCatalogStatus
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	evidence := formatDoctorCatalogInboxEvidence(result)
@@ -1044,14 +1721,40 @@ func doctorCatalogInbox() doctorCheck {
 			label = "event"
 		}
 
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d catalog %s failed", result.Failed, label), Evidence: evidence, SuggestedAction: "Inspect vectis-catalog logs and failed cell catalog events", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d catalog %s failed", result.Failed, label),
+			Evidence:        evidence,
+			SuggestedAction: "Inspect vectis-catalog logs and failed cell catalog events",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.Pending > doctorCatalogPendingWarn {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("catalog inbox backlog high: %d pending", result.Pending), Evidence: evidence, SuggestedAction: "Check vectis-catalog process health and database write latency", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("catalog inbox backlog high: %d pending", result.Pending),
+			Evidence:        evidence,
+			SuggestedAction: "Check vectis-catalog process health and database write latency",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("catalog inbox ok: %d pending", result.Pending), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("catalog inbox ok: %d pending", result.Pending),
+		Evidence: evidence,
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 type doctorCatalogStatus struct {
@@ -1071,7 +1774,13 @@ type doctorCatalogSourceStatus struct {
 }
 
 func formatDoctorCatalogInboxEvidence(status doctorCatalogStatus) string {
-	base := fmt.Sprintf("pending=%d applied=%d failed=%d total=%d", status.Pending, status.Applied, status.Failed, status.Total)
+	base := fmt.Sprintf(
+		"pending=%d applied=%d failed=%d total=%d",
+		status.Pending,
+		status.Applied,
+		status.Failed,
+		status.Total,
+	)
 	if len(status.Sources) == 0 {
 		return base
 	}
@@ -1172,11 +1881,28 @@ func doctorSourceCheckoutFilesystem() doctorCheck {
 
 	root := defaultDoctorSourceCheckoutRoot()
 	if strings.TrimSpace(root) == "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source checkout path is not configured", SuggestedAction: "Configure VECTIS_SOURCE_CHECKOUT_ROOT or run vectis-cli health check on the API host", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "source checkout path is not configured",
+			SuggestedAction: "Configure VECTIS_SOURCE_CHECKOUT_ROOT or run vectis-cli health check on the API host",
+			DocLink:         doc,
+		}
 	}
 
 	if !filepath.IsAbs(root) {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source checkout path must be absolute", Evidence: fmt.Sprintf("path=%s", root), SuggestedAction: "Set VECTIS_SOURCE_CHECKOUT_ROOT to an absolute managed checkout root", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "source checkout path must be absolute",
+			Evidence:        fmt.Sprintf("path=%s", root),
+			SuggestedAction: "Set VECTIS_SOURCE_CHECKOUT_ROOT to an absolute managed checkout root",
+			DocLink:         doc,
+		}
 	}
 
 	return doctorFilesystemPressure(id, title, "source checkout", root)
@@ -1325,7 +2051,9 @@ func doctorLoadSourceSchedules(repositories []sourceRepositorySummary) ([]source
 			continue
 		}
 
-		repoSchedules, loadError := doctorLoadSourceSchedulesPath("/api/v1/source-repositories/" + url.PathEscape(repoID) + "/schedules")
+		repoSchedules, loadError := doctorLoadSourceSchedulesPath(
+			"/api/v1/source-repositories/" + url.PathEscape(repoID) + "/schedules",
+		)
 		if loadError != "" {
 			return nil, loadError
 		}
@@ -1366,20 +2094,54 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string) doctorC
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if statusLoadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         statusLoadError,
+			SuggestedAction: "Check source status API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	evidence := formatDoctorSourceModeEvidence(status)
 	if !status.RepositoriesConfigured {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "config-as-code is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "config-as-code is missing source repository persistence",
+			Evidence:        evidence,
+			SuggestedAction: "Check API database wiring",
+			DocLink:         doc,
+		}
 	}
 
 	enabled := status.Repositories.Enabled
 	if enabled == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "config-as-code has no enabled source repositories", Evidence: evidence, SuggestedAction: "Declare or enable a source repository", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "config-as-code has no enabled source repositories",
+			Evidence:        evidence,
+			SuggestedAction: "Declare or enable a source repository",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("config-as-code ready: %d enabled source repositories", enabled), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("config-as-code ready: %d enabled source repositories", enabled),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func formatDoctorSourceModeEvidence(status doctorSourceStatus) string {
@@ -1403,11 +2165,26 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if loadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source repository API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         loadError,
+			SuggestedAction: "Check source repository API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if len(repositories) == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source repositories configured",
+			DocLink:  doc,
+		}
 	}
 
 	var enabled, disabled, succeeded, failed, running, never, unknown int
@@ -1447,11 +2224,27 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 			never++
 		default:
 			unknown++
-			unknownStatusRepositories = append(unknownStatusRepositories, fmt.Sprintf("%s:%s", repo.RepositoryID, status))
+			unknownStatusRepositories = append(
+				unknownStatusRepositories,
+				fmt.Sprintf("%s:%s", repo.RepositoryID, status),
+			)
 		}
 	}
 
-	evidence := formatDoctorSourceRepositorySyncEvidence(len(repositories), enabled, disabled, succeeded, failed, running, never, unknown, failedRepositories, credentialFailedRepositories, staleRunningRepositories, unknownStatusRepositories)
+	evidence := formatDoctorSourceRepositorySyncEvidence(
+		len(repositories),
+		enabled,
+		disabled,
+		succeeded,
+		failed,
+		running,
+		never,
+		unknown,
+		failedRepositories,
+		credentialFailedRepositories,
+		staleRunningRepositories,
+		unknownStatusRepositories,
+	)
 	if len(failedRepositories) > 0 || len(staleRunningRepositories) > 0 || len(unknownStatusRepositories) > 0 {
 		problems := make([]string, 0, 3)
 		if len(failedRepositories) > 0 {
@@ -1459,7 +2252,10 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 		}
 
 		if len(credentialFailedRepositories) > 0 {
-			problems = append(problems, fmt.Sprintf("%d credential resolution failed", len(credentialFailedRepositories)))
+			problems = append(
+				problems,
+				fmt.Sprintf("%d credential resolution failed", len(credentialFailedRepositories)),
+			)
 		}
 
 		if len(staleRunningRepositories) > 0 {
@@ -1475,14 +2271,39 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 			suggestedAction = "Run vectis-cli sources status <repository-id>, verify credential_ref and source credential resolver configuration, then retry vectis-cli sources sync <repository-id>"
 		}
 
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source repository sync needs attention: " + strings.Join(problems, ", "), Evidence: evidence, SuggestedAction: suggestedAction, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "source repository sync needs attention: " + strings.Join(problems, ", "),
+			Evidence:        evidence,
+			SuggestedAction: suggestedAction,
+			DocLink:         doc,
+		}
 	}
 
 	if enabled == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("no enabled source repositories (%d disabled)", disabled), Evidence: evidence, DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  fmt.Sprintf("no enabled source repositories (%d disabled)", disabled),
+			Evidence: evidence,
+			DocLink:  doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repository sync ok: %d enabled", enabled), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("source repository sync ok: %d enabled", enabled),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func sourceRepositorySyncCredentialFailure(syncError string) bool {
@@ -1499,11 +2320,26 @@ func doctorSourceRepositorySyncFromStatus(status doctorSourceStatus, statusLoadE
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if statusLoadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         statusLoadError,
+			SuggestedAction: "Check source status API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if status.Repositories.Total == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source repositories configured",
+			DocLink:  doc,
+		}
 	}
 
 	evidence := formatDoctorSourceRepositorySyncEvidence(
@@ -1522,13 +2358,32 @@ func doctorSourceRepositorySyncFromStatus(status doctorSourceStatus, statusLoadE
 	)
 
 	if status.Repositories.Enabled == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("no enabled source repositories (%d disabled)", status.Repositories.Disabled), Evidence: evidence, DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  fmt.Sprintf("no enabled source repositories (%d disabled)", status.Repositories.Disabled),
+			Evidence: evidence,
+			DocLink:  doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repository sync ok: %d enabled", status.Repositories.Enabled), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("source repository sync ok: %d enabled", status.Repositories.Enabled),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
-func formatDoctorSourceRepositorySyncEvidence(total, enabled, disabled, succeeded, failed, running, never, unknown int, failedRepositories, credentialFailedRepositories, staleRunningRepositories, unknownStatusRepositories []string) string {
+func formatDoctorSourceRepositorySyncEvidence(
+	total, enabled, disabled, succeeded, failed, running, never, unknown int,
+	failedRepositories, credentialFailedRepositories, staleRunningRepositories, unknownStatusRepositories []string,
+) string {
 	parts := []string{
 		fmt.Sprintf("repositories=%d", total),
 		fmt.Sprintf("enabled=%d", enabled),
@@ -1563,11 +2418,26 @@ func doctorSourceRepositoryDeclarations(repositories []sourceRepositorySummary, 
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if loadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source repository API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         loadError,
+			SuggestedAction: "Check source repository API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if len(repositories) == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source repositories configured",
+			DocLink:  doc,
+		}
 	}
 
 	var enabled, disabled, declared, staleEnabled, staleDisabled int
@@ -1594,12 +2464,38 @@ func doctorSourceRepositoryDeclarations(repositories []sourceRepositorySummary, 
 		}
 	}
 
-	evidence := formatDoctorSourceRepositoryDeclarationEvidence(len(repositories), enabled, disabled, declared, staleEnabled, staleDisabled, staleEnabledIDs, staleDisabledIDs)
+	evidence := formatDoctorSourceRepositoryDeclarationEvidence(
+		len(repositories),
+		enabled,
+		disabled,
+		declared,
+		staleEnabled,
+		staleDisabled,
+		staleEnabledIDs,
+		staleDisabledIDs,
+	)
 	if staleEnabled > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source repositories", staleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source repositories or restore their source repository declarations", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d enabled stale source repositories", staleEnabled),
+			Evidence:        evidence,
+			SuggestedAction: "Disable stale source repositories or restore their source repository declarations",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repositories aligned: %d repositories", len(repositories)), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("source repositories aligned: %d repositories", len(repositories)),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorSourceRepositoryDeclarationsFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
@@ -1608,22 +2504,66 @@ func doctorSourceRepositoryDeclarationsFromStatus(status doctorSourceStatus, sta
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if statusLoadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         statusLoadError,
+			SuggestedAction: "Check source status API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if status.Repositories.Total == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source repositories configured",
+			DocLink:  doc,
+		}
 	}
 
-	evidence := formatDoctorSourceRepositoryDeclarationEvidence(status.Repositories.Total, status.Repositories.Enabled, status.Repositories.Disabled, status.Repositories.Declared, status.Repositories.StaleEnabled, status.Repositories.StaleDisabled, nil, nil)
+	evidence := formatDoctorSourceRepositoryDeclarationEvidence(
+		status.Repositories.Total,
+		status.Repositories.Enabled,
+		status.Repositories.Disabled,
+		status.Repositories.Declared,
+		status.Repositories.StaleEnabled,
+		status.Repositories.StaleDisabled,
+		nil,
+		nil,
+	)
 	if status.Repositories.StaleEnabled > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source repositories", status.Repositories.StaleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source repositories or restore their source repository declarations", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d enabled stale source repositories", status.Repositories.StaleEnabled),
+			Evidence:        evidence,
+			SuggestedAction: "Disable stale source repositories or restore their source repository declarations",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repositories aligned: %d repositories", status.Repositories.Total), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("source repositories aligned: %d repositories", status.Repositories.Total),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
-func formatDoctorSourceRepositoryDeclarationEvidence(total, enabled, disabled, declared, staleEnabled, staleDisabled int, staleEnabledIDs, staleDisabledIDs []string) string {
+func formatDoctorSourceRepositoryDeclarationEvidence(
+	total, enabled, disabled, declared, staleEnabled, staleDisabled int,
+	staleEnabledIDs, staleDisabledIDs []string,
+) string {
 	parts := []string{
 		fmt.Sprintf("repositories=%d", total),
 		fmt.Sprintf("enabled=%d", enabled),
@@ -1654,11 +2594,26 @@ func doctorSourceScheduleDeclarations(schedules []sourceScheduleSummary, loadErr
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if loadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source schedule API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         loadError,
+			SuggestedAction: "Check source schedule API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if len(schedules) == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source schedules configured",
+			DocLink:  doc,
+		}
 	}
 
 	var enabled, disabled, declared, staleEnabled, staleDisabled int
@@ -1685,12 +2640,38 @@ func doctorSourceScheduleDeclarations(schedules []sourceScheduleSummary, loadErr
 		}
 	}
 
-	evidence := formatDoctorSourceScheduleDeclarationEvidence(len(schedules), enabled, disabled, declared, staleEnabled, staleDisabled, staleEnabledIDs, staleDisabledIDs)
+	evidence := formatDoctorSourceScheduleDeclarationEvidence(
+		len(schedules),
+		enabled,
+		disabled,
+		declared,
+		staleEnabled,
+		staleDisabled,
+		staleEnabledIDs,
+		staleDisabledIDs,
+	)
 	if staleEnabled > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source schedules", staleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source schedules or restore their source schedule declarations", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d enabled stale source schedules", staleEnabled),
+			Evidence:        evidence,
+			SuggestedAction: "Disable stale source schedules or restore their source schedule declarations",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source schedules aligned: %d schedules", len(schedules)), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("source schedules aligned: %d schedules", len(schedules)),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorSourceScheduleDeclarationsFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
@@ -1699,22 +2680,66 @@ func doctorSourceScheduleDeclarationsFromStatus(status doctorSourceStatus, statu
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if statusLoadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         statusLoadError,
+			SuggestedAction: "Check source status API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if status.Schedules.Total == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source schedules configured",
+			DocLink:  doc,
+		}
 	}
 
-	evidence := formatDoctorSourceScheduleDeclarationEvidence(status.Schedules.Total, status.Schedules.Enabled, status.Schedules.Disabled, status.Schedules.Declared, status.Schedules.StaleEnabled, status.Schedules.StaleDisabled, nil, nil)
+	evidence := formatDoctorSourceScheduleDeclarationEvidence(
+		status.Schedules.Total,
+		status.Schedules.Enabled,
+		status.Schedules.Disabled,
+		status.Schedules.Declared,
+		status.Schedules.StaleEnabled,
+		status.Schedules.StaleDisabled,
+		nil,
+		nil,
+	)
 	if status.Schedules.StaleEnabled > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source schedules", status.Schedules.StaleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source schedules or restore their source schedule declarations", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d enabled stale source schedules", status.Schedules.StaleEnabled),
+			Evidence:        evidence,
+			SuggestedAction: "Disable stale source schedules or restore their source schedule declarations",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source schedules aligned: %d schedules", status.Schedules.Total), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("source schedules aligned: %d schedules", status.Schedules.Total),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
-func formatDoctorSourceScheduleDeclarationEvidence(total, enabled, disabled, declared, staleEnabled, staleDisabled int, staleEnabledIDs, staleDisabledIDs []string) string {
+func formatDoctorSourceScheduleDeclarationEvidence(
+	total, enabled, disabled, declared, staleEnabled, staleDisabled int,
+	staleEnabledIDs, staleDisabledIDs []string,
+) string {
 	parts := []string{
 		fmt.Sprintf("schedules=%d", total),
 		fmt.Sprintf("enabled=%d", enabled),
@@ -1745,11 +2770,26 @@ func doctorSourceScheduleOverrides(schedules []sourceScheduleSummary, loadError 
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if loadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source schedule API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         loadError,
+			SuggestedAction: "Check source schedule API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if len(schedules) == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source schedules configured",
+			DocLink:  doc,
+		}
 	}
 
 	overrideIDs := make([]string, 0)
@@ -1761,10 +2801,27 @@ func doctorSourceScheduleOverrides(schedules []sourceScheduleSummary, loadError 
 
 	evidence := formatDoctorSourceScheduleOverrideEvidence(len(schedules), len(overrideIDs), overrideIDs)
 	if len(overrideIDs) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d active source schedule overrides", len(overrideIDs)), Evidence: evidence, SuggestedAction: "Clear source schedule overrides after hotfixes land back in source", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d active source schedule overrides", len(overrideIDs)),
+			Evidence:        evidence,
+			SuggestedAction: "Clear source schedule overrides after hotfixes land back in source",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no active source schedule overrides", Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "no active source schedule overrides",
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorSourceScheduleOverridesFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
@@ -1773,19 +2830,55 @@ func doctorSourceScheduleOverridesFromStatus(status doctorSourceStatus, statusLo
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if statusLoadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         statusLoadError,
+			SuggestedAction: "Check source status API reachability",
+			DocLink:         doc,
+		}
 	}
 
 	if status.Schedules.Total == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "no source schedules configured",
+			DocLink:  doc,
+		}
 	}
 
-	evidence := formatDoctorSourceScheduleOverrideEvidence(status.Schedules.Total, status.Schedules.ActiveOverrides, nil)
+	evidence := formatDoctorSourceScheduleOverrideEvidence(
+		status.Schedules.Total,
+		status.Schedules.ActiveOverrides,
+		nil,
+	)
 	if status.Schedules.ActiveOverrides > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d active source schedule overrides", status.Schedules.ActiveOverrides), Evidence: evidence, SuggestedAction: "Clear source schedule overrides after hotfixes land back in source", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d active source schedule overrides", status.Schedules.ActiveOverrides),
+			Evidence:        evidence,
+			SuggestedAction: "Clear source schedule overrides after hotfixes land back in source",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no active source schedule overrides", Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "no active source schedule overrides",
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func formatDoctorSourceScheduleOverrideEvidence(total, overrideCount int, overrideIDs []string) string {
@@ -1807,17 +2900,41 @@ func doctorLogReachable() doctorCheck {
 	title := "Log service reachable"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/log/reachable", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -1825,14 +2942,37 @@ func doctorLogReachable() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if !result.Reachable {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "log service is not reachable", SuggestedAction: "Check log service connectivity; check log DB", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "log service is not reachable",
+			SuggestedAction: "Check log service connectivity; check log DB",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "log service is reachable", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "log service is reachable",
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 func doctorAuditFlushFailures() doctorCheck {
@@ -1840,17 +2980,41 @@ func doctorAuditFlushFailures() doctorCheck {
 	title := "No recent audit flush failures"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/audit/flush-failures", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         err.Error(),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("request failed: %v", err),
+			SuggestedAction: "Check API server reachability",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unexpected status: %s", resp.Status),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	var result struct {
@@ -1858,14 +3022,38 @@ func doctorAuditFlushFailures() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("failed to parse response: %v", err),
+			SuggestedAction: "Check API server",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
 	if result.FlushFailures > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d audit flush failures", result.FlushFailures), Evidence: fmt.Sprintf("%d", result.FlushFailures), SuggestedAction: "Check audit persistence; check DB write capacity", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%d audit flush failures", result.FlushFailures),
+			Evidence:        fmt.Sprintf("%d", result.FlushFailures),
+			SuggestedAction: "Check audit persistence; check DB write capacity",
+			DocLink:         "website/docs/operating/reference/health-check-catalog.md",
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit flush failures", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "no audit flush failures",
+		DocLink:  "website/docs/operating/reference/health-check-catalog.md",
+	}
 }
 
 func doctorEncryptedFSFiles() doctorCheck {
@@ -1878,48 +3066,144 @@ func doctorEncryptedFSFiles() doctorCheck {
 	keyFile, keyConfigured := envValue(encryptedfs.EnvKeyFile)
 
 	if !rootConfigured && !keyConfigured {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "encryptedfs secret provider is not configured", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "encryptedfs secret provider is not configured",
+			DocLink:  doc,
+		}
 	}
 
 	if root == "" || keyFile == "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "encryptedfs root and key file must be configured together", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "encryptedfs root and key file must be configured together",
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
 	statPath, exists, err := existingPathForStat(root)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs root is not usable: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Check encryptedfs root ownership and parent path", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("encryptedfs root is not usable: %v", err),
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: "Check encryptedfs root ownership and parent path",
+			DocLink:         doc,
+		}
 	}
 
 	if !exists {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "encryptedfs root does not exist", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Create the encryptedfs root on durable private storage", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "encryptedfs root does not exist",
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: "Create the encryptedfs root on durable private storage",
+			DocLink:         doc,
+		}
 	}
 
 	if err := directoryUsable(root); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs root is not writable: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Check encryptedfs root ownership and permissions", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("encryptedfs root is not writable: %v", err),
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: "Check encryptedfs root ownership and permissions",
+			DocLink:         doc,
+		}
 	}
 
 	if _, err := doctorFilesystemStats(statPath); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for encryptedfs root: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Run vectis-cli health check on the host that owns the encryptedfs root", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("cannot inspect filesystem for encryptedfs root: %v", err),
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: "Run vectis-cli health check on the host that owns the encryptedfs root",
+			DocLink:         doc,
+		}
 	}
 
 	info, err := os.Stat(keyFile)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file is not readable: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("encryptedfs key file is not readable: %v", err),
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
 	if !info.Mode().IsRegular() {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "encryptedfs key file is not a regular file", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         "encryptedfs key file is not a regular file",
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
 	if doctorChecksPOSIXModeBits() && info.Mode().Perm()&0o077 != 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file permissions are too broad: %s", info.Mode().Perm()), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Restrict encryptedfs key file permissions to the service owner", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("encryptedfs key file permissions are too broad: %s", info.Mode().Perm()),
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: "Restrict encryptedfs key file permissions to the service owner",
+			DocLink:         doc,
+		}
 	}
 
 	if _, err := encryptedfs.LoadEncryptedFSKeyFile(keyFile); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file is invalid: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("encryptedfs key file is invalid: %v", err),
+			Evidence:        formatDoctorEncryptedFSEvidence(root, keyFile),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "encryptedfs root is writable and key file is valid", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "encryptedfs root is writable and key file is valid",
+		Evidence: formatDoctorEncryptedFSEvidence(root, keyFile),
+		DocLink:  doc,
+	}
 }
 
 func formatDoctorEncryptedFSEvidence(root, keyFile string) string {
@@ -1934,7 +3218,14 @@ func doctorWorkerCoreSockets() doctorCheck {
 	coreRaw, coreConfigured := envValue("VECTIS_WORKER_CORE_SOCKET")
 	shellRaw, shellConfigured := envValue("VECTIS_WORKER_CORE_SHELL_SOCKET")
 	if !coreConfigured && !shellConfigured {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "worker-core socket paths are not configured in this shell", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "worker-core socket paths are not configured in this shell",
+			DocLink:  doc,
+		}
 	}
 
 	checks := []doctorSocketPathCheck{}
@@ -1969,10 +3260,27 @@ func doctorWorkerCoreSockets() doctorCheck {
 
 	evidence := formatDoctorWorkerCoreSocketEvidence(resolved)
 	if len(problems) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check VECTIS_WORKER_CORE_SOCKET, VECTIS_WORKER_CORE_SHELL_SOCKET, worker-core, and worker service ownership", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         strings.Join(problems, "; "),
+			Evidence:        evidence,
+			SuggestedAction: "Check VECTIS_WORKER_CORE_SOCKET, VECTIS_WORKER_CORE_SHELL_SOCKET, worker-core, and worker service ownership",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured worker-core sockets are present and private", Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "configured worker-core sockets are present and private",
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorLogForwarderSocket() doctorCheck {
@@ -1982,16 +3290,40 @@ func doctorLogForwarderSocket() doctorCheck {
 
 	raw, configured := envValue("VECTIS_LOG_FORWARDER_SOCKET")
 	if !configured {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "log-forwarder socket path is not configured in this shell", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "log-forwarder socket path is not configured in this shell",
+			DocLink:  doc,
+		}
 	}
 
 	socketPath := strings.TrimSpace(raw)
 	evidence := fmt.Sprintf("socket=%s", socketPath)
 	if problem := doctorUnixSocketProblem("log-forwarder", socketPath); problem != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: problem, Evidence: evidence, SuggestedAction: "Check VECTIS_LOG_FORWARDER_SOCKET, vectis-log-forwarder service state, and runtime directory ownership", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         problem,
+			Evidence:        evidence,
+			SuggestedAction: "Check VECTIS_LOG_FORWARDER_SOCKET, vectis-log-forwarder service state, and runtime directory ownership",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured log-forwarder socket is present and private", Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "configured log-forwarder socket is present and private",
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorWorkerSPIFFEConfig() doctorCheck {
@@ -2002,11 +3334,29 @@ func doctorWorkerSPIFFEConfig() doctorCheck {
 	doctorBindWorkerSPIFFEEnv()
 	evidence := formatDoctorWorkerSPIFFEEvidence()
 	if err := config.ValidateWorkerExecutionIdentityConfig(); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("worker execution identity config is invalid: %v", err), Evidence: evidence, SuggestedAction: "Check VECTIS_WORKER_EXECUTION_IDENTITY_* values", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("worker execution identity config is invalid: %v", err),
+			Evidence:        evidence,
+			SuggestedAction: "Check VECTIS_WORKER_EXECUTION_IDENTITY_* values",
+			DocLink:         doc,
+		}
 	}
 
 	if err := config.ValidateWorkerSPIFFEConfig(); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("worker SPIFFE config is invalid: %v", err), Evidence: evidence, SuggestedAction: "Check VECTIS_WORKER_SPIFFE_* values and worker execution identity settings", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("worker SPIFFE config is invalid: %v", err),
+			Evidence:        evidence,
+			SuggestedAction: "Check VECTIS_WORKER_SPIFFE_* values and worker execution identity settings",
+			DocLink:         doc,
+		}
 	}
 
 	if !config.WorkerSPIFFEEnabled() {
@@ -2014,7 +3364,15 @@ func doctorWorkerSPIFFEConfig() doctorCheck {
 		if config.WorkerExecutionIdentityEnabled() {
 			summary = "worker SPIFFE is disabled; execution identity derivation is enabled"
 		}
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence, DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  summary,
+			Evidence: evidence,
+			DocLink:  doc,
+		}
 	}
 
 	var problems []string
@@ -2035,7 +3393,16 @@ func doctorWorkerSPIFFEConfig() doctorCheck {
 	}
 
 	if len(problems) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check SPIFFE socket mounts, service state, and socket permissions on the worker host", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         strings.Join(problems, "; "),
+			Evidence:        evidence,
+			SuggestedAction: "Check SPIFFE socket mounts, service state, and socket permissions on the worker host",
+			DocLink:         doc,
+		}
 	}
 
 	summary := "worker SPIFFE config ok; Workload API socket is present"
@@ -2043,7 +3410,15 @@ func doctorWorkerSPIFFEConfig() doctorCheck {
 		summary = "worker SPIFFE config ok; Workload API and registration sockets are present"
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  summary,
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorBindWorkerSPIFFEEnv() {
@@ -2241,12 +3616,24 @@ func doctorWorkerWorkspaceFilesystem() doctorCheck {
 		}
 	case workercore.ExecutionBackendLima:
 		if !guestRootConfigured {
-			warnings = append(warnings, "Lima guest workspace root is not configured; host workspace root must be mounted and writable in the guest")
+			warnings = append(
+				warnings,
+				"Lima guest workspace root is not configured; host workspace root must be mounted and writable in the guest",
+			)
 		} else if !strings.HasPrefix(guestRoot, "/") {
 			warnings = append(warnings, "Lima guest workspace root should be an absolute guest path")
 		}
 	default:
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unknown worker-core execution backend %q", backend), Evidence: evidence.String(), SuggestedAction: "Check VECTIS_WORKER_CORE_EXECUTION_BACKEND", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("unknown worker-core execution backend %q", backend),
+			Evidence:        evidence.String(),
+			SuggestedAction: "Check VECTIS_WORKER_CORE_EXECUTION_BACKEND",
+			DocLink:         doc,
+		}
 	}
 
 	if workspaceRoot == "" {
@@ -2257,7 +3644,16 @@ func doctorWorkerWorkspaceFilesystem() doctorCheck {
 
 	statPath, exists, err := existingPathForStat(workspaceRoot)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("workspace root is not usable: %v", err), Evidence: evidence.String(), SuggestedAction: "Check worker-core workspace root ownership and parent path", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("workspace root is not usable: %v", err),
+			Evidence:        evidence.String(),
+			SuggestedAction: "Check worker-core workspace root ownership and parent path",
+			DocLink:         doc,
+		}
 	}
 
 	evidence.StatPath = statPath
@@ -2269,7 +3665,16 @@ func doctorWorkerWorkspaceFilesystem() doctorCheck {
 
 	stats, err := doctorFilesystemStats(statPath)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for workspace root: %v", err), Evidence: evidence.String(), SuggestedAction: "Run vectis-cli health check on the worker-core host", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("cannot inspect filesystem for workspace root: %v", err),
+			Evidence:        evidence.String(),
+			SuggestedAction: "Run vectis-cli health check on the worker-core host",
+			DocLink:         doc,
+		}
 	}
 
 	evidence.FreeBytes = stats.freeBytes
@@ -2279,11 +3684,27 @@ func doctorWorkerWorkspaceFilesystem() doctorCheck {
 	}
 
 	if stats.freeBytes < doctorDiskWarnFreeBytes || (stats.freeInodesKnown && stats.freeInodes == 0) {
-		warnings = append(warnings, fmt.Sprintf("workspace filesystem pressure: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent))
+		warnings = append(
+			warnings,
+			fmt.Sprintf(
+				"workspace filesystem pressure: %s free (%d%%)",
+				formatBytes(stats.freeBytes),
+				stats.freePercent,
+			),
+		)
 	}
 
 	if len(warnings) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(warnings, "; "), Evidence: evidence.String(), SuggestedAction: "Check worker-core workspace root, durable storage, and Lima workspace mapping", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         strings.Join(warnings, "; "),
+			Evidence:        evidence.String(),
+			SuggestedAction: "Check worker-core workspace root, durable storage, and Lima workspace mapping",
+			DocLink:         doc,
+		}
 	}
 
 	summary := fmt.Sprintf("workspace filesystem ok: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent)
@@ -2291,7 +3712,15 @@ func doctorWorkerWorkspaceFilesystem() doctorCheck {
 		summary += "; using worker-core default temp root"
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence.String(), DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  summary,
+		Evidence: evidence.String(),
+		DocLink:  doc,
+	}
 }
 
 type doctorWorkerWorkspaceEvidence struct {
@@ -2364,7 +3793,15 @@ func doctorServiceIdentityConfig() doctorCheck {
 
 	evidence := formatDoctorServiceIdentityEvidence(counts, configuredAllowlists, identityCount)
 	if configuredAllowlists == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "service identity allowlists are not configured", Evidence: evidence, DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "service identity allowlists are not configured",
+			Evidence: evidence,
+			DocLink:  doc,
+		}
 	}
 
 	if config.GRPCTLSInsecure() {
@@ -2372,7 +3809,10 @@ func doctorServiceIdentityConfig() doctorCheck {
 	}
 
 	if doctorViperString("grpc_tls.cert_file") == "" || doctorViperString("grpc_tls.key_file") == "" {
-		problems = append(problems, "service identity allowlists require VECTIS_GRPC_TLS_CERT_FILE and VECTIS_GRPC_TLS_KEY_FILE")
+		problems = append(
+			problems,
+			"service identity allowlists require VECTIS_GRPC_TLS_CERT_FILE and VECTIS_GRPC_TLS_KEY_FILE",
+		)
 	}
 
 	if doctorViperString("grpc_tls.client_ca_file") == "" {
@@ -2380,10 +3820,27 @@ func doctorServiceIdentityConfig() doctorCheck {
 	}
 
 	if len(problems) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check VECTIS_SERVICE_IDENTITY_* allowlists and VECTIS_GRPC_TLS_* mTLS settings", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         strings.Join(problems, "; "),
+			Evidence:        evidence,
+			SuggestedAction: "Check VECTIS_SERVICE_IDENTITY_* allowlists and VECTIS_GRPC_TLS_* mTLS settings",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("service identity allowlists valid for %d listener roles", configuredAllowlists), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("service identity allowlists valid for %d listener roles", configuredAllowlists),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 type doctorServiceIdentityAllowlist struct {
@@ -2394,14 +3851,46 @@ type doctorServiceIdentityAllowlist struct {
 
 func doctorServiceIdentityAllowlists() []doctorServiceIdentityAllowlist {
 	return []doctorServiceIdentityAllowlist{
-		{label: "registry", evidenceLabel: "registry", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleRegistry)},
-		{label: "queue", evidenceLabel: "queue", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleQueue)},
-		{label: "log", evidenceLabel: "log", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleLog)},
-		{label: "artifact", evidenceLabel: "artifact", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleArtifact)},
-		{label: "orchestrator", evidenceLabel: "orchestrator", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleOrchestrator)},
-		{label: "worker control", evidenceLabel: "worker_control", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleWorkerControl)},
-		{label: "secrets", evidenceLabel: "secrets", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleSecrets)},
-		{label: "cell ingress", evidenceLabel: "cell_ingress", identities: config.CellIngressAllowedProducerIdentities()},
+		{
+			label:         "registry",
+			evidenceLabel: "registry",
+			identities:    config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleRegistry),
+		},
+		{
+			label:         "queue",
+			evidenceLabel: "queue",
+			identities:    config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleQueue),
+		},
+		{
+			label:         "log",
+			evidenceLabel: "log",
+			identities:    config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleLog),
+		},
+		{
+			label:         "artifact",
+			evidenceLabel: "artifact",
+			identities:    config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleArtifact),
+		},
+		{
+			label:         "orchestrator",
+			evidenceLabel: "orchestrator",
+			identities:    config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleOrchestrator),
+		},
+		{
+			label:         "worker control",
+			evidenceLabel: "worker_control",
+			identities:    config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleWorkerControl),
+		},
+		{
+			label:         "secrets",
+			evidenceLabel: "secrets",
+			identities:    config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleSecrets),
+		},
+		{
+			label:         "cell ingress",
+			evidenceLabel: "cell_ingress",
+			identities:    config.CellIngressAllowedProducerIdentities(),
+		},
 	}
 }
 
@@ -2506,20 +3995,52 @@ func doctorMetricsListenersConfig() doctorCheck {
 		if doctorMetricsHostOffHost(host) {
 			evidence.OffHostBinds++
 			if !globalAllowedConfigured && !allowedConfigured {
-				problems = append(problems, fmt.Sprintf("%s metrics binds off localhost without VECTIS_METRICS_ALLOWED_HOSTS or %s", surface.label, surface.allowedEnv))
+				problems = append(
+					problems,
+					fmt.Sprintf(
+						"%s metrics binds off localhost without VECTIS_METRICS_ALLOWED_HOSTS or %s",
+						surface.label,
+						surface.allowedEnv,
+					),
+				)
 			}
 		}
 	}
 
 	if len(problems) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence.String(), SuggestedAction: "Check VECTIS_METRICS_TLS_*, VECTIS_METRICS_ALLOWED_HOSTS, service metrics hosts, and service-specific metrics allowed Hosts", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         strings.Join(problems, "; "),
+			Evidence:        evidence.String(),
+			SuggestedAction: "Check VECTIS_METRICS_TLS_*, VECTIS_METRICS_ALLOWED_HOSTS, service metrics hosts, and service-specific metrics allowed Hosts",
+			DocLink:         doc,
+		}
 	}
 
 	if !localVisible {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "dedicated metrics listener config is not visible in this shell", Evidence: evidence.String(), DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "dedicated metrics listener config is not visible in this shell",
+			Evidence: evidence.String(),
+			DocLink:  doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "dedicated metrics listener config is valid", Evidence: evidence.String(), DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "dedicated metrics listener config is valid",
+		Evidence: evidence.String(),
+		DocLink:  doc,
+	}
 }
 
 type doctorMetricsSurface struct {
@@ -2531,17 +4052,72 @@ type doctorMetricsSurface struct {
 
 func doctorMetricsSurfaces() []doctorMetricsSurface {
 	return []doctorMetricsSurface{
-		{label: "queue", hostEnv: "VECTIS_QUEUE_METRICS_HOST", allowedEnv: "VECTIS_QUEUE_METRICS_ALLOWED_HOSTS", defaultHost: config.QueueMetricsHost()},
-		{label: "orchestrator", hostEnv: "VECTIS_ORCHESTRATOR_METRICS_HOST", allowedEnv: "VECTIS_ORCHESTRATOR_METRICS_ALLOWED_HOSTS", defaultHost: config.OrchestratorMetricsHost()},
-		{label: "worker", hostEnv: "VECTIS_WORKER_METRICS_HOST", allowedEnv: "VECTIS_WORKER_METRICS_ALLOWED_HOSTS", defaultHost: config.WorkerMetricsHost()},
-		{label: "worker-core", hostEnv: "VECTIS_WORKER_CORE_METRICS_HOST", allowedEnv: "VECTIS_WORKER_CORE_METRICS_ALLOWED_HOSTS", defaultHost: config.WorkerCoreMetricsHost()},
-		{label: "log", hostEnv: "VECTIS_LOG_METRICS_HOST", allowedEnv: "VECTIS_LOG_METRICS_ALLOWED_HOSTS", defaultHost: config.LogMetricsHost()},
-		{label: "artifact", hostEnv: "VECTIS_ARTIFACT_METRICS_HOST", allowedEnv: "VECTIS_ARTIFACT_METRICS_ALLOWED_HOSTS", defaultHost: config.ArtifactMetricsHost()},
-		{label: "log-forwarder", hostEnv: "VECTIS_LOG_FORWARDER_METRICS_HOST", allowedEnv: "VECTIS_LOG_FORWARDER_METRICS_ALLOWED_HOSTS", defaultHost: config.LogForwarderMetricsHost()},
-		{label: "secrets", hostEnv: "VECTIS_SECRETS_METRICS_HOST", allowedEnv: "VECTIS_SECRETS_METRICS_ALLOWED_HOSTS", defaultHost: config.SecretsMetricsHost()},
-		{label: "reconciler", hostEnv: "VECTIS_RECONCILER_METRICS_HOST", allowedEnv: "VECTIS_RECONCILER_METRICS_ALLOWED_HOSTS", defaultHost: config.ReconcilerMetricsHost()},
-		{label: "catalog", hostEnv: "VECTIS_CATALOG_METRICS_HOST", allowedEnv: "VECTIS_CATALOG_METRICS_ALLOWED_HOSTS", defaultHost: config.CatalogMetricsHost()},
-		{label: "cell-ingress", hostEnv: "VECTIS_CELL_INGRESS_METRICS_HOST", allowedEnv: "VECTIS_CELL_INGRESS_METRICS_ALLOWED_HOSTS", defaultHost: config.CellIngressMetricsHost()},
+		{
+			label:       "queue",
+			hostEnv:     "VECTIS_QUEUE_METRICS_HOST",
+			allowedEnv:  "VECTIS_QUEUE_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.QueueMetricsHost(),
+		},
+		{
+			label:       "orchestrator",
+			hostEnv:     "VECTIS_ORCHESTRATOR_METRICS_HOST",
+			allowedEnv:  "VECTIS_ORCHESTRATOR_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.OrchestratorMetricsHost(),
+		},
+		{
+			label:       "worker",
+			hostEnv:     "VECTIS_WORKER_METRICS_HOST",
+			allowedEnv:  "VECTIS_WORKER_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.WorkerMetricsHost(),
+		},
+		{
+			label:       "worker-core",
+			hostEnv:     "VECTIS_WORKER_CORE_METRICS_HOST",
+			allowedEnv:  "VECTIS_WORKER_CORE_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.WorkerCoreMetricsHost(),
+		},
+		{
+			label:       "log",
+			hostEnv:     "VECTIS_LOG_METRICS_HOST",
+			allowedEnv:  "VECTIS_LOG_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.LogMetricsHost(),
+		},
+		{
+			label:       "artifact",
+			hostEnv:     "VECTIS_ARTIFACT_METRICS_HOST",
+			allowedEnv:  "VECTIS_ARTIFACT_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.ArtifactMetricsHost(),
+		},
+		{
+			label:       "log-forwarder",
+			hostEnv:     "VECTIS_LOG_FORWARDER_METRICS_HOST",
+			allowedEnv:  "VECTIS_LOG_FORWARDER_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.LogForwarderMetricsHost(),
+		},
+		{
+			label:       "secrets",
+			hostEnv:     "VECTIS_SECRETS_METRICS_HOST",
+			allowedEnv:  "VECTIS_SECRETS_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.SecretsMetricsHost(),
+		},
+		{
+			label:       "reconciler",
+			hostEnv:     "VECTIS_RECONCILER_METRICS_HOST",
+			allowedEnv:  "VECTIS_RECONCILER_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.ReconcilerMetricsHost(),
+		},
+		{
+			label:       "catalog",
+			hostEnv:     "VECTIS_CATALOG_METRICS_HOST",
+			allowedEnv:  "VECTIS_CATALOG_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.CatalogMetricsHost(),
+		},
+		{
+			label:       "cell-ingress",
+			hostEnv:     "VECTIS_CELL_INGRESS_METRICS_HOST",
+			allowedEnv:  "VECTIS_CELL_INGRESS_METRICS_ALLOWED_HOSTS",
+			defaultHost: config.CellIngressMetricsHost(),
+		},
 	}
 }
 
@@ -2602,7 +4178,8 @@ func doctorValidateMetricsBindHost(host string) error {
 		return fmt.Errorf("host must not be empty")
 	}
 
-	if strings.Contains(host, "://") || strings.ContainsAny(host, "/?#@") || strings.ContainsFunc(host, isDoctorHostSpaceOrControl) {
+	if strings.Contains(host, "://") || strings.ContainsAny(host, "/?#@") ||
+		strings.ContainsFunc(host, isDoctorHostSpaceOrControl) {
 		return fmt.Errorf("invalid host %q", host)
 	}
 
@@ -2650,7 +4227,8 @@ func doctorValidateAllowedHost(raw string) error {
 		return fmt.Errorf("wildcard hosts are not allowed")
 	}
 
-	if strings.Contains(value, "://") || strings.ContainsAny(value, "/?#@") || strings.ContainsFunc(value, isDoctorHostSpaceOrControl) {
+	if strings.Contains(value, "://") || strings.ContainsAny(value, "/?#@") ||
+		strings.ContainsFunc(value, isDoctorHostSpaceOrControl) {
 		return fmt.Errorf("invalid host %q", raw)
 	}
 
@@ -2713,26 +4291,71 @@ func doctorTLSFiles() doctorCheck {
 	action := "Check VECTIS_GRPC_TLS_* and VECTIS_METRICS_TLS_* paths"
 
 	checks := []tlsFileCheck{}
-	if !envBoolDefault("VECTIS_GRPC_TLS_INSECURE", true) || anyEnvSet("VECTIS_GRPC_TLS_CA_FILE", "VECTIS_GRPC_TLS_CERT_FILE", "VECTIS_GRPC_TLS_KEY_FILE", "VECTIS_GRPC_TLS_CLIENT_CA_FILE", "VECTIS_GRPC_TLS_CLIENT_CERT_FILE", "VECTIS_GRPC_TLS_CLIENT_KEY_FILE") {
-		checks = append(checks,
-			tlsFileCheck{label: "gRPC CA", path: os.Getenv("VECTIS_GRPC_TLS_CA_FILE"), kind: tlsFileCA, required: !envBoolDefault("VECTIS_GRPC_TLS_INSECURE", true)},
-			tlsFileCheck{label: "gRPC server certificate", path: os.Getenv("VECTIS_GRPC_TLS_CERT_FILE"), kind: tlsFileCert},
+	if !envBoolDefault("VECTIS_GRPC_TLS_INSECURE", true) ||
+		anyEnvSet(
+			"VECTIS_GRPC_TLS_CA_FILE",
+			"VECTIS_GRPC_TLS_CERT_FILE",
+			"VECTIS_GRPC_TLS_KEY_FILE",
+			"VECTIS_GRPC_TLS_CLIENT_CA_FILE",
+			"VECTIS_GRPC_TLS_CLIENT_CERT_FILE",
+			"VECTIS_GRPC_TLS_CLIENT_KEY_FILE",
+		) {
+		checks = append(
+			checks,
+			tlsFileCheck{
+				label:    "gRPC CA",
+				path:     os.Getenv("VECTIS_GRPC_TLS_CA_FILE"),
+				kind:     tlsFileCA,
+				required: !envBoolDefault("VECTIS_GRPC_TLS_INSECURE", true),
+			},
+			tlsFileCheck{
+				label: "gRPC server certificate",
+				path:  os.Getenv("VECTIS_GRPC_TLS_CERT_FILE"),
+				kind:  tlsFileCert,
+			},
 			tlsFileCheck{label: "gRPC server key", path: os.Getenv("VECTIS_GRPC_TLS_KEY_FILE"), kind: tlsFileKey},
 			tlsFileCheck{label: "gRPC client CA", path: os.Getenv("VECTIS_GRPC_TLS_CLIENT_CA_FILE"), kind: tlsFileCA},
-			tlsFileCheck{label: "gRPC client certificate", path: os.Getenv("VECTIS_GRPC_TLS_CLIENT_CERT_FILE"), kind: tlsFileCert},
-			tlsFileCheck{label: "gRPC client key", path: os.Getenv("VECTIS_GRPC_TLS_CLIENT_KEY_FILE"), kind: tlsFileKey},
+			tlsFileCheck{
+				label: "gRPC client certificate",
+				path:  os.Getenv("VECTIS_GRPC_TLS_CLIENT_CERT_FILE"),
+				kind:  tlsFileCert,
+			},
+			tlsFileCheck{
+				label: "gRPC client key",
+				path:  os.Getenv("VECTIS_GRPC_TLS_CLIENT_KEY_FILE"),
+				kind:  tlsFileKey,
+			},
 		)
 	}
 
-	if !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true) || anyEnvSet("VECTIS_METRICS_TLS_CERT_FILE", "VECTIS_METRICS_TLS_KEY_FILE") {
-		checks = append(checks,
-			tlsFileCheck{label: "metrics certificate", path: os.Getenv("VECTIS_METRICS_TLS_CERT_FILE"), kind: tlsFileCert, required: !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true)},
-			tlsFileCheck{label: "metrics key", path: os.Getenv("VECTIS_METRICS_TLS_KEY_FILE"), kind: tlsFileKey, required: !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true)},
+	if !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true) ||
+		anyEnvSet("VECTIS_METRICS_TLS_CERT_FILE", "VECTIS_METRICS_TLS_KEY_FILE") {
+		checks = append(
+			checks,
+			tlsFileCheck{
+				label:    "metrics certificate",
+				path:     os.Getenv("VECTIS_METRICS_TLS_CERT_FILE"),
+				kind:     tlsFileCert,
+				required: !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true),
+			},
+			tlsFileCheck{
+				label:    "metrics key",
+				path:     os.Getenv("VECTIS_METRICS_TLS_KEY_FILE"),
+				kind:     tlsFileKey,
+				required: !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true),
+			},
 		)
 	}
 
 	if len(checks) == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "TLS file validation skipped; TLS is disabled", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "TLS file validation skipped; TLS is disabled",
+			DocLink:  doc,
+		}
 	}
 
 	var problems []string
@@ -2755,27 +4378,62 @@ func doctorTLSFiles() doctorCheck {
 		}
 	}
 
-	if err := validateTLSKeyPair("gRPC server", os.Getenv("VECTIS_GRPC_TLS_CERT_FILE"), os.Getenv("VECTIS_GRPC_TLS_KEY_FILE")); err != nil {
+	if err := validateTLSKeyPair(
+		"gRPC server",
+		os.Getenv("VECTIS_GRPC_TLS_CERT_FILE"),
+		os.Getenv("VECTIS_GRPC_TLS_KEY_FILE"),
+	); err != nil {
 		problems = append(problems, err.Error())
 	}
 
-	if err := validateTLSKeyPair("gRPC client", os.Getenv("VECTIS_GRPC_TLS_CLIENT_CERT_FILE"), os.Getenv("VECTIS_GRPC_TLS_CLIENT_KEY_FILE")); err != nil {
+	if err := validateTLSKeyPair(
+		"gRPC client",
+		os.Getenv("VECTIS_GRPC_TLS_CLIENT_CERT_FILE"),
+		os.Getenv("VECTIS_GRPC_TLS_CLIENT_KEY_FILE"),
+	); err != nil {
 		problems = append(problems, err.Error())
 	}
 
-	if err := validateTLSKeyPair("metrics", os.Getenv("VECTIS_METRICS_TLS_CERT_FILE"), os.Getenv("VECTIS_METRICS_TLS_KEY_FILE")); err != nil {
+	if err := validateTLSKeyPair(
+		"metrics",
+		os.Getenv("VECTIS_METRICS_TLS_CERT_FILE"),
+		os.Getenv("VECTIS_METRICS_TLS_KEY_FILE"),
+	); err != nil {
 		problems = append(problems, err.Error())
 	}
 
 	if len(problems) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: strings.Join(problems, "; "), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorFail,
+			Severity:        severityWarning,
+			Summary:         strings.Join(problems, "; "),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
 	if len(warnings) > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(warnings, "; "), SuggestedAction: action, DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         strings.Join(warnings, "; "),
+			SuggestedAction: action,
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured TLS files are readable and valid", DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  "configured TLS files are readable and valid",
+		DocLink:  doc,
+	}
 }
 
 type tlsFileKind int
@@ -2813,7 +4471,8 @@ func validateTLSFile(check tlsFileCheck) error {
 			return err
 		}
 	case tlsFileKey:
-		if !hasPEMBlockType(b, "PRIVATE KEY") && !hasPEMBlockType(b, "RSA PRIVATE KEY") && !hasPEMBlockType(b, "EC PRIVATE KEY") {
+		if !hasPEMBlockType(b, "PRIVATE KEY") && !hasPEMBlockType(b, "RSA PRIVATE KEY") &&
+			!hasPEMBlockType(b, "EC PRIVATE KEY") {
 			return fmt.Errorf("no PEM private key found")
 		}
 	}
@@ -2911,36 +4570,98 @@ func validateTLSKeyPair(label, certFile, keyFile string) error {
 func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 	if path == "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not configured", label), SuggestedAction: "Configure the deploy path or run vectis-cli health check on the host that owns it", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%s path is not configured", label),
+			SuggestedAction: "Configure the deploy path or run vectis-cli health check on the host that owns it",
+			DocLink:         doc,
+		}
 	}
 
 	statPath, exists, err := existingPathForStat(path)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not usable: %v", label, err), SuggestedAction: "Check directory ownership and parent path", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("%s path is not usable: %v", label, err),
+			SuggestedAction: "Check directory ownership and parent path",
+			DocLink:         doc,
+		}
 	}
 
 	if exists {
 		if err := directoryUsable(path); err != nil {
-			return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not writable: %v", label, err), Evidence: path, SuggestedAction: "Check directory ownership and permissions", DocLink: doc}
+			return doctorCheck{
+				ID:              id,
+				Title:           title,
+				Status:          doctorWarn,
+				Severity:        severityWarning,
+				Summary:         fmt.Sprintf("%s path is not writable: %v", label, err),
+				Evidence:        path,
+				SuggestedAction: "Check directory ownership and permissions",
+				DocLink:         doc,
+			}
 		}
 	}
 
 	stats, err := doctorFilesystemStats(statPath)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err), Evidence: statPath, SuggestedAction: "Run vectis-cli health check on the host that owns the path", DocLink: doc}
+		return doctorCheck{
+			ID:              id,
+			Title:           title,
+			Status:          doctorWarn,
+			Severity:        severityWarning,
+			Summary:         fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err),
+			Evidence:        statPath,
+			SuggestedAction: "Run vectis-cli health check on the host that owns the path",
+			DocLink:         doc,
+		}
 	}
 
 	freeInodes := "unknown"
 	if stats.freeInodesKnown {
 		freeInodes = strconv.FormatUint(stats.freeInodes, 10)
 	}
-	evidence := fmt.Sprintf("path=%s stat_path=%s free_bytes=%d free_percent=%d free_inodes=%s", path, statPath, stats.freeBytes, stats.freePercent, freeInodes)
+	evidence := fmt.Sprintf(
+		"path=%s stat_path=%s free_bytes=%d free_percent=%d free_inodes=%s",
+		path,
+		statPath,
+		stats.freeBytes,
+		stats.freePercent,
+		freeInodes,
+	)
 
 	if stats.freeBytes < doctorDiskWarnFreeBytes || (stats.freeInodesKnown && stats.freeInodes == 0) {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("filesystem pressure: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, SuggestedAction: "Free disk space or move the path to a larger volume", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorWarn,
+			Severity: severityWarning,
+			Summary: fmt.Sprintf(
+				"filesystem pressure: %s free (%d%%)",
+				formatBytes(stats.freeBytes),
+				stats.freePercent,
+			),
+			Evidence:        evidence,
+			SuggestedAction: "Free disk space or move the path to a larger volume",
+			DocLink:         doc,
+		}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("filesystem ok: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, DocLink: doc}
+	return doctorCheck{
+		ID:       id,
+		Title:    title,
+		Status:   doctorOK,
+		Severity: severityWarning,
+		Summary:  fmt.Sprintf("filesystem ok: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent),
+		Evidence: evidence,
+		DocLink:  doc,
+	}
 }
 
 func doctorArtifactFilesystemCheck() doctorCheck {
@@ -2952,10 +4673,23 @@ func doctorArtifactFilesystemCheck() doctorCheck {
 
 	backend := strings.ToLower(strings.TrimSpace(os.Getenv("VECTIS_ARTIFACT_STORAGE_BACKEND")))
 	if backend == "s3" {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "filesystem check skipped; artifact storage backend is s3", Evidence: "storage_backend=s3", DocLink: doc}
+		return doctorCheck{
+			ID:       id,
+			Title:    title,
+			Status:   doctorOK,
+			Severity: severityWarning,
+			Summary:  "filesystem check skipped; artifact storage backend is s3",
+			Evidence: "storage_backend=s3",
+			DocLink:  doc,
+		}
 	}
 
-	return doctorFilesystemPressure(id, title, "artifact storage", envOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", defaultDoctorArtifactStorageDir()))
+	return doctorFilesystemPressure(
+		id,
+		title,
+		"artifact storage",
+		envOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", defaultDoctorArtifactStorageDir()),
+	)
 }
 
 type doctorFSStats struct {
@@ -3143,7 +4877,13 @@ func defaultDoctorQueuePersistenceDir() string {
 		instanceID = fmt.Sprintf("%s-%d", sanitizeDoctorQueuePathComponent(hostname), port)
 	}
 
-	return filepath.Join(platform.DataHome(), "vectis", "queue", sanitizeDoctorQueuePathComponent(pool), sanitizeDoctorQueuePathComponent(instanceID))
+	return filepath.Join(
+		platform.DataHome(),
+		"vectis",
+		"queue",
+		sanitizeDoctorQueuePathComponent(pool),
+		sanitizeDoctorQueuePathComponent(instanceID),
+	)
 }
 
 func sanitizeDoctorQueuePathComponent(value string) string {

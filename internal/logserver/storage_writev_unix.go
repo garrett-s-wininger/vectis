@@ -70,7 +70,12 @@ func (b *platformWriteBatch) writeAll(fd int) error {
 
 func platformWritev(fd int, iovs []syscall.Iovec) (int, error) {
 	// #nosec G103 -- writev requires passing the kernel a pointer to the first iovec.
-	r0, _, errno := syscall.Syscall(syscall.SYS_WRITEV, uintptr(fd), uintptr(unsafe.Pointer(&iovs[0])), uintptr(len(iovs)))
+	r0, _, errno := syscall.Syscall(
+		syscall.SYS_WRITEV,
+		uintptr(fd),
+		uintptr(unsafe.Pointer(&iovs[0])),
+		uintptr(len(iovs)),
+	)
 	if errno != 0 {
 		return int(r0), errno
 	}

@@ -30,7 +30,11 @@ func (m *mockAuthRepo) IsSetupComplete(_ context.Context) (bool, error) { return
 func (m *mockAuthRepo) CompleteInitialSetup(_ context.Context, _, _, _, _ string) (int64, error) {
 	return 0, nil
 }
-func (m *mockAuthRepo) CompleteInitialSetupWithOptions(_ context.Context, _ dal.CompleteInitialSetupOptions) (int64, error) {
+
+func (m *mockAuthRepo) CompleteInitialSetupWithOptions(
+	_ context.Context,
+	_ dal.CompleteInitialSetupOptions,
+) (int64, error) {
 	return 0, nil
 }
 func (m *mockAuthRepo) ResolveAPIToken(_ context.Context, _ string) (int64, string, int64, error) {
@@ -71,10 +75,19 @@ func (m *mockAuthRepo) EnsureAuthProvider(_ context.Context, _, _ string) (*dal.
 func (m *mockAuthRepo) GetExternalIdentity(_ context.Context, _, _ string) (*dal.ExternalIdentityRecord, error) {
 	return nil, nil
 }
-func (m *mockAuthRepo) ListExternalIdentitiesForUser(_ context.Context, _ int64) ([]*dal.ExternalIdentityRecord, error) {
+
+func (m *mockAuthRepo) ListExternalIdentitiesForUser(
+	_ context.Context,
+	_ int64,
+) ([]*dal.ExternalIdentityRecord, error) {
 	return nil, nil
 }
-func (m *mockAuthRepo) LinkExternalIdentity(_ context.Context, _ int64, _, _, _, _ string) (*dal.ExternalIdentityRecord, error) {
+
+func (m *mockAuthRepo) LinkExternalIdentity(
+	_ context.Context,
+	_ int64,
+	_, _, _, _ string,
+) (*dal.ExternalIdentityRecord, error) {
 	return nil, nil
 }
 func (m *mockAuthRepo) DeleteExternalIdentity(_ context.Context, _, _ int64) error {
@@ -95,7 +108,14 @@ func (m *mockAuthRepo) CountEnabledAdmins(_ context.Context) (int, error)       
 func (m *mockAuthRepo) IsUserAdmin(_ context.Context, _ int64) (bool, error)            { return false, nil }
 func (m *mockAuthRepo) CountEnabledRootAdmins(_ context.Context) (int, error)           { return 0, nil }
 func (m *mockAuthRepo) IsUserRootAdmin(_ context.Context, _ int64) (bool, error)        { return false, nil }
-func (m *mockAuthRepo) CreateAPITokenWithScopes(_ context.Context, _ int64, _, _ string, _ *time.Time, _ []*dal.TokenScopeRecord) (int64, error) {
+
+func (m *mockAuthRepo) CreateAPITokenWithScopes(
+	_ context.Context,
+	_ int64,
+	_, _ string,
+	_ *time.Time,
+	_ []*dal.TokenScopeRecord,
+) (int64, error) {
 	return 0, nil
 }
 func (m *mockAuthRepo) GetTokenScopes(_ context.Context, _ int64) ([]*dal.TokenScopeRecord, error) {

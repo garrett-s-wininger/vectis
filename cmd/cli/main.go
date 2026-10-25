@@ -351,7 +351,32 @@ func init() {
 	configureLogFilterFlags(sourcesLogsCmd)
 	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesOverviewCmd, sourcesListCmd, sourcesSchedulesCmd, sourcesOverrideCmd, sourcesClearOverrideCmd, sourcesEnableScheduleCmd, sourcesDisableScheduleCmd, sourcesDeleteScheduleCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesDeleteCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(
+		sourcesOverviewCmd,
+		sourcesListCmd,
+		sourcesSchedulesCmd,
+		sourcesOverrideCmd,
+		sourcesClearOverrideCmd,
+		sourcesEnableScheduleCmd,
+		sourcesDisableScheduleCmd,
+		sourcesDeleteScheduleCmd,
+		sourcesRegisterCmd,
+		sourcesGetCmd,
+		sourcesUpdateCmd,
+		sourcesDeleteCmd,
+		sourcesSyncCmd,
+		sourcesStatusCmd,
+		sourcesBranchesCmd,
+		sourcesTreeCmd,
+		sourcesDefinitionsCmd,
+		sourcesResolveCmd,
+		sourcesJobsCmd,
+		sourcesShowCmd,
+		sourcesWriteCmd,
+		sourcesRunsCmd,
+		sourcesLogsCmd,
+		sourcesTriggerCmd,
+	)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)
@@ -365,9 +390,27 @@ func init() {
 	configureRepairMarkFlags(repairMarkFailedCmd)
 	configureRepairMarkFlags(repairMarkCancelledCmd)
 	configureRepairMarkFlags(repairMarkAbandonedCmd)
-	runRepairCmd.AddCommand(repairMarkSucceededCmd, repairMarkFailedCmd, repairMarkCancelledCmd, repairMarkAbandonedCmd, repairMarkQueuedCmd)
+	runRepairCmd.AddCommand(
+		repairMarkSucceededCmd,
+		repairMarkFailedCmd,
+		repairMarkCancelledCmd,
+		repairMarkAbandonedCmd,
+		repairMarkQueuedCmd,
+	)
 	runArtifactsCmd.AddCommand(runArtifactsListCmd, runArtifactsDownloadCmd)
-	runsCmd.AddCommand(runListCmd, runGetCmd, runDefinitionCmd, runTasksCmd, runArtifactsCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
+	runsCmd.AddCommand(
+		runListCmd,
+		runGetCmd,
+		runDefinitionCmd,
+		runTasksCmd,
+		runArtifactsCmd,
+		runPayloadCmd,
+		runReplayCmd,
+		runCancelCmd,
+		runRepairCmd,
+		forceFailCmd,
+		forceRequeueCmd,
+	)
 	rootCmd.AddCommand(runsCmd)
 
 	cellsCmd.AddCommand(cellsStatusCmd)
@@ -406,10 +449,23 @@ func init() {
 	userExternalIdentityLinkCmd.Flags().String("username", "", "External username claim to store on the link")
 	userExternalIdentityLinkCmd.Flags().String("display-name", "", "External display name claim to store on the link")
 	userExternalIdentityCmd.Run = showCommandHelp
-	userExternalIdentityCmd.AddCommand(userExternalIdentityListCmd, userExternalIdentityLinkCmd, userExternalIdentityUnlinkCmd)
+	userExternalIdentityCmd.AddCommand(
+		userExternalIdentityListCmd,
+		userExternalIdentityLinkCmd,
+		userExternalIdentityUnlinkCmd,
+	)
 	userCmd.GroupID = cliGroupAccess
 	userCmd.Run = showCommandHelp
-	userCmd.AddCommand(userListCmd, userGetCmd, userCreateCmd, userEnableCmd, userDisableCmd, userDeleteCmd, userChangePasswordCmd, userExternalIdentityCmd)
+	userCmd.AddCommand(
+		userListCmd,
+		userGetCmd,
+		userCreateCmd,
+		userEnableCmd,
+		userDisableCmd,
+		userDeleteCmd,
+		userChangePasswordCmd,
+		userExternalIdentityCmd,
+	)
 	rootCmd.AddCommand(userCmd)
 
 	roleBindingCmd.GroupID = cliGroupAccess
@@ -424,19 +480,35 @@ func init() {
 	databaseCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(databaseCmd)
 
-	backupExpectPodmanCmd.Flags().StringVar(&backupExpectPodmanProfile, "profile", podmanProfileSimple, "Podman deployment profile: simple or ha")
-	backupExpectLinuxCmd.Flags().StringVar(&backupExpectLinuxManifestPath, "manifest", backupExpectLinuxManifestPath, "Path to the Linux deploy services TOML manifest")
+	backupExpectPodmanCmd.Flags().
+		StringVar(&backupExpectPodmanProfile, "profile", podmanProfileSimple, "Podman deployment profile: simple or ha")
+	backupExpectLinuxCmd.Flags().
+		StringVar(&backupExpectLinuxManifestPath, "manifest", backupExpectLinuxManifestPath, "Path to the Linux deploy services TOML manifest")
 	backupExpectCmd.AddCommand(backupExpectPodmanCmd, backupExpectLinuxCmd)
 	backupVerifyCmd.Flags().StringVar(&backupVerifyExpectPath, "expect", "", "Expected backup topology JSON file")
-	backupVerifyCmd.Flags().StringArrayVar(&backupVerifyStorageReportPaths, "storage-report", nil, "Storage verification report JSON from vectis-cli storage verify --format json (repeatable)")
-	backupVerifyCmd.Flags().DurationVar(&backupVerifyStorageMaxAge, "storage-max-age", 0, "Maximum accepted storage verification report age (0 disables)")
-	backupRestoreValidationCmd.Flags().StringVar(&backupRestoreValidationExpectPath, "expect", "", "Expected backup topology JSON file")
-	backupRestoreValidationCmd.Flags().StringArrayVar(&backupRestoreValidationStorageReportPaths, "storage-report", nil, "Storage verification report JSON from vectis-cli storage verify --format json (repeatable)")
-	backupRestoreValidationCmd.Flags().DurationVar(&backupRestoreValidationStorageMaxAge, "storage-max-age", 0, "Maximum accepted storage verification report age (0 disables)")
-	backupRestoreValidationCmd.Flags().StringVar(&backupRestoreValidationSmokeRunID, "smoke-run", "", "Run ID from the restored deployment smoke run")
-	backupRestoreValidationCmd.Flags().StringVar(&backupRestoreValidationDeployment, "deployment", "", "Deployment label to include in restore validation output")
-	backupRestoreValidationCmd.Flags().StringVar(&backupRestoreValidationProfile, "profile", "", "Deployment profile label to include in restore validation output")
-	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupExpectCmd, backupVerifyCmd, backupRestoreValidationCmd)
+	backupVerifyCmd.Flags().
+		StringArrayVar(&backupVerifyStorageReportPaths, "storage-report", nil, "Storage verification report JSON from vectis-cli storage verify --format json (repeatable)")
+	backupVerifyCmd.Flags().
+		DurationVar(&backupVerifyStorageMaxAge, "storage-max-age", 0, "Maximum accepted storage verification report age (0 disables)")
+	backupRestoreValidationCmd.Flags().
+		StringVar(&backupRestoreValidationExpectPath, "expect", "", "Expected backup topology JSON file")
+	backupRestoreValidationCmd.Flags().
+		StringArrayVar(&backupRestoreValidationStorageReportPaths, "storage-report", nil, "Storage verification report JSON from vectis-cli storage verify --format json (repeatable)")
+	backupRestoreValidationCmd.Flags().
+		DurationVar(&backupRestoreValidationStorageMaxAge, "storage-max-age", 0, "Maximum accepted storage verification report age (0 disables)")
+	backupRestoreValidationCmd.Flags().
+		StringVar(&backupRestoreValidationSmokeRunID, "smoke-run", "", "Run ID from the restored deployment smoke run")
+	backupRestoreValidationCmd.Flags().
+		StringVar(&backupRestoreValidationDeployment, "deployment", "", "Deployment label to include in restore validation output")
+	backupRestoreValidationCmd.Flags().
+		StringVar(&backupRestoreValidationProfile, "profile", "", "Deployment profile label to include in restore validation output")
+	backupCmd.AddCommand(
+		backupInventoryCmd,
+		backupManifestCmd,
+		backupExpectCmd,
+		backupVerifyCmd,
+		backupRestoreValidationCmd,
+	)
 	rootCmd.AddCommand(backupCmd)
 
 	configureStorageVerifyDirFlag(storageVerifyArtifactCmd, "Artifact storage directory to verify")
@@ -444,7 +516,13 @@ func init() {
 	configureStorageVerifyDirFlag(storageVerifyQueueCmd, "Queue persistence directory to verify")
 	configureStorageVerifyDirFlag(storageVerifyLogForwarderSpoolCmd, "Log-forwarder spool directory to verify")
 	configureStorageVerifyDirFlag(storageVerifyWorkerLogSpoolCmd, "Worker pending log spool directory to verify")
-	storageVerifyCmd.AddCommand(storageVerifyArtifactCmd, storageVerifyLogsCmd, storageVerifyQueueCmd, storageVerifyLogForwarderSpoolCmd, storageVerifyWorkerLogSpoolCmd)
+	storageVerifyCmd.AddCommand(
+		storageVerifyArtifactCmd,
+		storageVerifyLogsCmd,
+		storageVerifyQueueCmd,
+		storageVerifyLogForwarderSpoolCmd,
+		storageVerifyWorkerLogSpoolCmd,
+	)
 	storageCmd.AddCommand(storageVerifyCmd)
 	rootCmd.AddCommand(storageCmd)
 
@@ -454,30 +532,44 @@ func init() {
 	rootCmd.AddCommand(auditCmd)
 
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")
-	deployPodmanCmd.PersistentFlags().StringVar(&podmanProfile, "profile", podmanProfileSimple, "Deployment profile: simple or ha")
-	deployPodmanCmd.PersistentFlags().StringVar(&podmanKubeSpec, "kube-spec", defaultPodmanKubeSpec, "Path to the Podman kube spec template")
-	deployPodmanCmd.PersistentFlags().StringVar(&podmanGrafanaSpec, "grafana-spec", defaultPodmanGrafanaSpec, "Path to generated Grafana ConfigMaps")
+	deployPodmanCmd.PersistentFlags().
+		StringVar(&podmanProfile, "profile", podmanProfileSimple, "Deployment profile: simple or ha")
+	deployPodmanCmd.PersistentFlags().
+		StringVar(&podmanKubeSpec, "kube-spec", defaultPodmanKubeSpec, "Path to the Podman kube spec template")
+	deployPodmanCmd.PersistentFlags().
+		StringVar(&podmanGrafanaSpec, "grafana-spec", defaultPodmanGrafanaSpec, "Path to generated Grafana ConfigMaps")
 	deployPodmanInitCmd.Flags().Bool("rotate", false, "Regenerate deployment secrets")
 	deployPodmanRenderCmd.Flags().Bool("rotate", false, "Regenerate deployment secrets before rendering")
-	deployPodmanRenderCmd.Flags().StringVarP(&podmanRenderOut, "output", "o", "-", "Rendered manifest output path, or '-' for stdout")
+	deployPodmanRenderCmd.Flags().
+		StringVarP(&podmanRenderOut, "output", "o", "-", "Rendered manifest output path, or '-' for stdout")
 	deployPodmanCmd.AddCommand(deployPodmanInitCmd)
 	deployPodmanCmd.AddCommand(deployPodmanRenderCmd)
 	deployPodmanCmd.AddCommand(deployPodmanUpCmd)
 	deployPodmanCmd.AddCommand(deployPodmanDownCmd)
 	deployPodmanCmd.AddCommand(deployPodmanStatusCmd)
 
-	deployLinuxCmd.PersistentFlags().StringVar(&linuxManifestPath, "manifest", linuxManifestPath, "Path to the Linux deploy services TOML manifest")
-	deployLinuxRenderCmd.Flags().StringVarP(&linuxRenderOut, "output", "o", linuxRenderOut, "Directory where rendered Linux artifacts are written")
+	deployLinuxCmd.PersistentFlags().
+		StringVar(&linuxManifestPath, "manifest", linuxManifestPath, "Path to the Linux deploy services TOML manifest")
+	deployLinuxRenderCmd.Flags().
+		StringVarP(&linuxRenderOut, "output", "o", linuxRenderOut, "Directory where rendered Linux artifacts are written")
 	deployLinuxCmd.AddCommand(deployLinuxRenderCmd)
 
-	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesManifestPath, "manifest", kubernetesManifestPath, "Path to the Kubernetes manifest template")
-	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesNamespace, "namespace", kubernetesNamespace, "Kubernetes namespace to render")
-	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesImageRegistry, "image-registry", kubernetesImageRegistry, "Optional image registry prefix for Vectis component images")
-	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesImageTag, "image-tag", kubernetesImageTag, "Image tag for Vectis component images")
-	deployKubernetesRenderCmd.Flags().StringVarP(&kubernetesRenderOut, "output", "o", kubernetesRenderOut, "Rendered manifest output path, or '-' for stdout")
-	deployKubernetesRenderCmd.Flags().StringVar(&kubernetesPostgresPassword, "postgres-password", kubernetesPostgresPassword, "Postgres password embedded in the rendered Secret")
-	deployKubernetesRenderCmd.Flags().StringVar(&kubernetesBootstrapToken, "bootstrap-token", kubernetesBootstrapToken, "API bootstrap token embedded in the rendered Secret")
-	deployKubernetesRenderCmd.Flags().StringVar(&kubernetesEncryptedFSKey, "encryptedfs-key", kubernetesEncryptedFSKey, "EncryptedFS key embedded in the rendered Secret")
+	deployKubernetesCmd.PersistentFlags().
+		StringVar(&kubernetesManifestPath, "manifest", kubernetesManifestPath, "Path to the Kubernetes manifest template")
+	deployKubernetesCmd.PersistentFlags().
+		StringVar(&kubernetesNamespace, "namespace", kubernetesNamespace, "Kubernetes namespace to render")
+	deployKubernetesCmd.PersistentFlags().
+		StringVar(&kubernetesImageRegistry, "image-registry", kubernetesImageRegistry, "Optional image registry prefix for Vectis component images")
+	deployKubernetesCmd.PersistentFlags().
+		StringVar(&kubernetesImageTag, "image-tag", kubernetesImageTag, "Image tag for Vectis component images")
+	deployKubernetesRenderCmd.Flags().
+		StringVarP(&kubernetesRenderOut, "output", "o", kubernetesRenderOut, "Rendered manifest output path, or '-' for stdout")
+	deployKubernetesRenderCmd.Flags().
+		StringVar(&kubernetesPostgresPassword, "postgres-password", kubernetesPostgresPassword, "Postgres password embedded in the rendered Secret")
+	deployKubernetesRenderCmd.Flags().
+		StringVar(&kubernetesBootstrapToken, "bootstrap-token", kubernetesBootstrapToken, "API bootstrap token embedded in the rendered Secret")
+	deployKubernetesRenderCmd.Flags().
+		StringVar(&kubernetesEncryptedFSKey, "encryptedfs-key", kubernetesEncryptedFSKey, "EncryptedFS key embedded in the rendered Secret")
 	deployKubernetesCmd.AddCommand(deployKubernetesRenderCmd)
 
 	deployCmd.AddCommand(deployPodmanCmd)
@@ -492,101 +584,196 @@ func init() {
 	defaultRetention := retentionCleanupDefaultsFromConfig()
 	retentionCleanupCmd.Flags().BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
 	retentionCleanupCmd.Flags().BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
-	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.Policy.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.Policy.JobDefinitions, "Delete unreferenced job definition snapshots older than this duration (0 disables)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.Policy.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Delete audit log rows older than this duration (0 disables)")
-	retentionCleanupCmd.Flags().StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
-	retentionCleanupCmd.Flags().DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.Policy.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
-	retentionCleanupCmd.Flags().StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
-	retentionCleanupCmd.Flags().StringVar(&retentionCleanupEvidenceManifest, "evidence-manifest", defaultRetention.EvidenceManifest, "Optional retention cleanup evidence manifest JSON that names retained evidence paths")
-	retentionCleanupCmd.Flags().StringVar(&retentionBackupManifest, "backup-manifest", "", "Optional backup manifest JSON to verify before cleanup")
-	retentionCleanupCmd.Flags().StringVar(&retentionBackupExpect, "backup-expect", "", "Optional expected topology JSON for backup manifest verification")
-	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 disables)")
-	retentionCleanupCmd.Flags().StringArrayVar(&retentionBackupStorageReports, "backup-storage-report", nil, "Optional storage verification report JSON to verify before cleanup (repeatable)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 disables)")
-	retentionCleanupCmd.Flags().StringVar(&retentionAuditExport, "audit-export", "", "Optional audit export evidence JSON to verify before deleting audit rows")
-	retentionCleanupCmd.Flags().DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted audit export evidence age before cleanup (0 disables)")
-	retentionCleanupCmd.Flags().StringVar(&retentionHoldReview, "hold-review", "", "Optional active hold review evidence JSON to verify before cleanup")
-	retentionCleanupCmd.Flags().DurationVar(&retentionHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted hold review evidence age before cleanup (0 disables)")
-	retentionCleanupCmd.Flags().BoolVar(&retentionRequireBackupManifest, "require-backup-manifest", defaultRetention.RequireBackup, "Require --backup-manifest unless waived by --waiver")
-	retentionCleanupCmd.Flags().BoolVar(&retentionRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Require --audit-export before deleting audit rows unless waived by --waiver")
-	retentionCleanupCmd.Flags().BoolVar(&retentionRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Require --hold-review unless waived by --waiver")
-	retentionCleanupCmd.Flags().StringVar(&retentionWaiver, "waiver", "", "Optional retention waiver JSON for required cleanup gates")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.Policy.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.Policy.JobDefinitions, "Delete unreferenced job definition snapshots older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.Policy.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Delete audit log rows older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.Policy.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionCleanupEvidenceManifest, "evidence-manifest", defaultRetention.EvidenceManifest, "Optional retention cleanup evidence manifest JSON that names retained evidence paths")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionBackupManifest, "backup-manifest", "", "Optional backup manifest JSON to verify before cleanup")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionBackupExpect, "backup-expect", "", "Optional expected topology JSON for backup manifest verification")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().
+		StringArrayVar(&retentionBackupStorageReports, "backup-storage-report", nil, "Optional storage verification report JSON to verify before cleanup (repeatable)")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionAuditExport, "audit-export", "", "Optional audit export evidence JSON to verify before deleting audit rows")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted audit export evidence age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionHoldReview, "hold-review", "", "Optional active hold review evidence JSON to verify before cleanup")
+	retentionCleanupCmd.Flags().
+		DurationVar(&retentionHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted hold review evidence age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().
+		BoolVar(&retentionRequireBackupManifest, "require-backup-manifest", defaultRetention.RequireBackup, "Require --backup-manifest unless waived by --waiver")
+	retentionCleanupCmd.Flags().
+		BoolVar(&retentionRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Require --audit-export before deleting audit rows unless waived by --waiver")
+	retentionCleanupCmd.Flags().
+		BoolVar(&retentionRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Require --hold-review unless waived by --waiver")
+	retentionCleanupCmd.Flags().
+		StringVar(&retentionWaiver, "waiver", "", "Optional retention waiver JSON for required cleanup gates")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
-	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditSince, "audit-since", "", "Start of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
-	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditUntil, "audit-until", "", "End of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
-	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldReason, "reason", "", "Compliance or incident reason for the hold")
+	retentionHoldCreateCmd.Flags().
+		StringVar(&retentionHoldAuditSince, "audit-since", "", "Start of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
+	retentionHoldCreateCmd.Flags().
+		StringVar(&retentionHoldAuditUntil, "audit-until", "", "End of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
+	retentionHoldCreateCmd.Flags().
+		StringVar(&retentionHoldReason, "reason", "", "Compliance or incident reason for the hold")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldOwner, "owner", "", "Accountable owner for the hold")
-	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldExternalRef, "external-ref", "", "Optional ticket, case, or legal matter reference")
-	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldCreatedBy, "created-by", "", "Operator creating the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
-	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldExpiresAt, "expires-at", "", "Optional RFC3339 expiry time for the hold")
-	retentionHoldListCmd.Flags().StringVar(&retentionHoldListScope, "scope", "", "Only list holds for this scope: run or audit_range")
+	retentionHoldCreateCmd.Flags().
+		StringVar(&retentionHoldExternalRef, "external-ref", "", "Optional ticket, case, or legal matter reference")
+	retentionHoldCreateCmd.Flags().
+		StringVar(&retentionHoldCreatedBy, "created-by", "", "Operator creating the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionHoldCreateCmd.Flags().
+		StringVar(&retentionHoldExpiresAt, "expires-at", "", "Optional RFC3339 expiry time for the hold")
+	retentionHoldListCmd.Flags().
+		StringVar(&retentionHoldListScope, "scope", "", "Only list holds for this scope: run or audit_range")
 	retentionHoldListCmd.Flags().StringVar(&retentionHoldListRunID, "run", "", "Only list holds for this run ID")
 	retentionHoldListCmd.Flags().BoolVar(&retentionHoldListAll, "all", false, "Include released and expired holds")
-	retentionHoldReleaseCmd.Flags().StringVar(&retentionHoldReleaseReason, "reason", "", "Reason for releasing the hold")
-	retentionHoldReleaseCmd.Flags().StringVar(&retentionHoldReleasedBy, "released-by", "", "Operator releasing the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
-	retentionHoldReviewCmd.Flags().StringVarP(&retentionHoldReviewOutput, "output", "o", "-", "Hold review evidence JSON output path, or '-' for stdout")
-	retentionHoldReviewCmd.Flags().StringVar(&retentionHoldReviewReviewedBy, "reviewed-by", "", "Operator reviewing active holds (default: VECTIS_OPERATOR, USER, or USERNAME)")
-	retentionHoldReviewCmd.Flags().StringVar(&retentionHoldReviewReason, "reason", "", "Reason for the active hold review")
-	retentionHoldReviewCmd.Flags().StringVar(&retentionHoldReviewExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference")
-	retentionEvidenceManifestCmd.Flags().StringVarP(&retentionEvidenceManifestOutput, "output", "o", "-", "Retention cleanup evidence manifest JSON output path, or '-' for stdout")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceManifestPromote, "promote", "", "Optional stable manifest path to atomically promote after generation")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceManifestGeneratedBy, "generated-by", "", "Operator or automation generating the manifest (default: VECTIS_OPERATOR, USER, or USERNAME)")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceManifestExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference")
-	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceManifestVerify, "verify", false, "Verify referenced evidence and required gates before writing or promoting")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceBackupManifest, "backup-manifest", "", "Backup manifest JSON path to retain for cleanup validation")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceBackupExpect, "backup-expect", "", "Expected topology JSON path for backup manifest verification")
-	retentionEvidenceManifestCmd.Flags().StringArrayVar(&retentionEvidenceBackupStorageReport, "backup-storage-report", nil, "Storage verification report JSON path to retain for cleanup validation (repeatable)")
-	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 omits)")
-	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 omits)")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceAuditExport, "audit-export", "", "Audit export evidence JSON path to retain for cleanup validation")
-	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted audit export evidence age before cleanup (0 omits)")
-	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Audit retention age used by --verify to check audit export coverage (0 disables)")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceHoldReview, "hold-review", "", "Active hold review evidence JSON path to retain for cleanup validation")
-	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted hold review evidence age before cleanup (0 omits)")
-	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceRequireBackup, "require-backup-manifest", defaultRetention.RequireBackup, "Write a manifest gate requiring backup evidence unless waived")
-	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Write a manifest gate requiring audit export evidence before deleting audit rows unless waived")
-	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Write a manifest gate requiring hold review evidence unless waived")
-	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceWaiver, "waiver", "", "Retention waiver JSON path to retain for cleanup validation")
-	retentionEvidenceMetricsCmd.Flags().StringVarP(&retentionEvidenceMetricsOutput, "output", "o", "-", "Prometheus textfile output path, or '-' for stdout")
-	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsCleanup, "scheduled-cleanup", "", "Scheduled retention cleanup workflow JSON receipt")
-	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsBackup, "backup-manifest", "", "Backup manifest JSON evidence")
-	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsRestore, "restore-validation", "", "Backup restore-validation JSON evidence")
-	retentionEvidenceMetricsCmd.Flags().StringArrayVar(&retentionEvidenceMetricsStorage, "storage-report", nil, "Storage verification report JSON evidence (repeatable)")
-	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsAudit, "audit-export", "", "Audit export evidence JSON")
-	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsHoldReview, "hold-review", "", "Active hold review evidence JSON")
-	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsWaiver, "waiver", "", "Retention waiver JSON evidence")
-	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
-	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.Policy.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.Policy.JobDefinitions, "Delete unreferenced job definition snapshots older than this duration (0 disables)")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.Policy.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Delete audit log rows older than this duration and verify generated audit export coverage (0 disables)")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.Policy.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionScheduledAuditExportOutput, "audit-export-output", "", "Retained audit export evidence JSON output path")
-	retentionScheduledCleanupCmd.Flags().IntVar(&retentionScheduledAuditExportLimit, "audit-export-limit", 1000, "Audit export page size for generated evidence")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionScheduledHoldReviewOutput, "hold-review-output", "", "Retained active hold review evidence JSON output path")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionHoldReviewReviewedBy, "reviewed-by", "", "Operator reviewing active holds (default: VECTIS_OPERATOR, USER, or USERNAME)")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionHoldReviewReason, "reason", "", "Reason for the active hold review")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionEvidenceManifestGeneratedBy, "generated-by", "", "Operator or automation generating the cleanup evidence manifest (default: VECTIS_OPERATOR, USER, or USERNAME)")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionEvidenceManifestExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference for generated evidence")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionScheduledEvidenceManifestOutput, "evidence-manifest-output", "", "Retained cleanup evidence manifest JSON output path")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionScheduledEvidenceManifestPromote, "evidence-manifest-promote", "", "Stable cleanup evidence manifest path to atomically promote after verification")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionEvidenceBackupManifest, "backup-manifest", "", "Backup manifest JSON path to retain for cleanup validation")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionEvidenceBackupExpect, "backup-expect", "", "Expected topology JSON path for backup manifest verification")
-	retentionScheduledCleanupCmd.Flags().StringArrayVar(&retentionEvidenceBackupStorageReport, "backup-storage-report", nil, "Storage verification report JSON path to retain for cleanup validation (repeatable)")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionEvidenceBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 omits)")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionEvidenceBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 omits)")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionEvidenceAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted generated audit export evidence age before cleanup (0 omits)")
-	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionEvidenceHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted generated hold review evidence age before cleanup (0 omits)")
-	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionEvidenceRequireBackup, "require-backup-manifest", defaultRetention.RequireBackup, "Require backup evidence unless waived")
-	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionEvidenceRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Require audit export evidence before deleting audit rows unless waived")
-	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionEvidenceRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Require hold review evidence unless waived")
-	retentionScheduledCleanupCmd.Flags().StringVar(&retentionEvidenceWaiver, "waiver", "", "Retention waiver JSON path to retain for cleanup validation")
-	retentionHoldsCmd.AddCommand(retentionHoldCreateCmd, retentionHoldListCmd, retentionHoldReleaseCmd, retentionHoldReviewCmd)
+	retentionHoldReleaseCmd.Flags().
+		StringVar(&retentionHoldReleaseReason, "reason", "", "Reason for releasing the hold")
+	retentionHoldReleaseCmd.Flags().
+		StringVar(&retentionHoldReleasedBy, "released-by", "", "Operator releasing the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionHoldReviewCmd.Flags().
+		StringVarP(&retentionHoldReviewOutput, "output", "o", "-", "Hold review evidence JSON output path, or '-' for stdout")
+	retentionHoldReviewCmd.Flags().
+		StringVar(&retentionHoldReviewReviewedBy, "reviewed-by", "", "Operator reviewing active holds (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionHoldReviewCmd.Flags().
+		StringVar(&retentionHoldReviewReason, "reason", "", "Reason for the active hold review")
+	retentionHoldReviewCmd.Flags().
+		StringVar(&retentionHoldReviewExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference")
+	retentionEvidenceManifestCmd.Flags().
+		StringVarP(&retentionEvidenceManifestOutput, "output", "o", "-", "Retention cleanup evidence manifest JSON output path, or '-' for stdout")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceManifestPromote, "promote", "", "Optional stable manifest path to atomically promote after generation")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceManifestGeneratedBy, "generated-by", "", "Operator or automation generating the manifest (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceManifestExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference")
+	retentionEvidenceManifestCmd.Flags().
+		BoolVar(&retentionEvidenceManifestVerify, "verify", false, "Verify referenced evidence and required gates before writing or promoting")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceBackupManifest, "backup-manifest", "", "Backup manifest JSON path to retain for cleanup validation")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceBackupExpect, "backup-expect", "", "Expected topology JSON path for backup manifest verification")
+	retentionEvidenceManifestCmd.Flags().
+		StringArrayVar(&retentionEvidenceBackupStorageReport, "backup-storage-report", nil, "Storage verification report JSON path to retain for cleanup validation (repeatable)")
+	retentionEvidenceManifestCmd.Flags().
+		DurationVar(&retentionEvidenceBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 omits)")
+	retentionEvidenceManifestCmd.Flags().
+		DurationVar(&retentionEvidenceBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 omits)")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceAuditExport, "audit-export", "", "Audit export evidence JSON path to retain for cleanup validation")
+	retentionEvidenceManifestCmd.Flags().
+		DurationVar(&retentionEvidenceAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted audit export evidence age before cleanup (0 omits)")
+	retentionEvidenceManifestCmd.Flags().
+		DurationVar(&retentionEvidenceAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Audit retention age used by --verify to check audit export coverage (0 disables)")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceHoldReview, "hold-review", "", "Active hold review evidence JSON path to retain for cleanup validation")
+	retentionEvidenceManifestCmd.Flags().
+		DurationVar(&retentionEvidenceHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted hold review evidence age before cleanup (0 omits)")
+	retentionEvidenceManifestCmd.Flags().
+		BoolVar(&retentionEvidenceRequireBackup, "require-backup-manifest", defaultRetention.RequireBackup, "Write a manifest gate requiring backup evidence unless waived")
+	retentionEvidenceManifestCmd.Flags().
+		BoolVar(&retentionEvidenceRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Write a manifest gate requiring audit export evidence before deleting audit rows unless waived")
+	retentionEvidenceManifestCmd.Flags().
+		BoolVar(&retentionEvidenceRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Write a manifest gate requiring hold review evidence unless waived")
+	retentionEvidenceManifestCmd.Flags().
+		StringVar(&retentionEvidenceWaiver, "waiver", "", "Retention waiver JSON path to retain for cleanup validation")
+	retentionEvidenceMetricsCmd.Flags().
+		StringVarP(&retentionEvidenceMetricsOutput, "output", "o", "-", "Prometheus textfile output path, or '-' for stdout")
+	retentionEvidenceMetricsCmd.Flags().
+		StringVar(&retentionEvidenceMetricsCleanup, "scheduled-cleanup", "", "Scheduled retention cleanup workflow JSON receipt")
+	retentionEvidenceMetricsCmd.Flags().
+		StringVar(&retentionEvidenceMetricsBackup, "backup-manifest", "", "Backup manifest JSON evidence")
+	retentionEvidenceMetricsCmd.Flags().
+		StringVar(&retentionEvidenceMetricsRestore, "restore-validation", "", "Backup restore-validation JSON evidence")
+	retentionEvidenceMetricsCmd.Flags().
+		StringArrayVar(&retentionEvidenceMetricsStorage, "storage-report", nil, "Storage verification report JSON evidence (repeatable)")
+	retentionEvidenceMetricsCmd.Flags().
+		StringVar(&retentionEvidenceMetricsAudit, "audit-export", "", "Audit export evidence JSON")
+	retentionEvidenceMetricsCmd.Flags().
+		StringVar(&retentionEvidenceMetricsHoldReview, "hold-review", "", "Active hold review evidence JSON")
+	retentionEvidenceMetricsCmd.Flags().
+		StringVar(&retentionEvidenceMetricsWaiver, "waiver", "", "Retention waiver JSON evidence")
+	retentionScheduledCleanupCmd.Flags().
+		BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
+	retentionScheduledCleanupCmd.Flags().
+		BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.Policy.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.Policy.JobDefinitions, "Delete unreferenced job definition snapshots older than this duration (0 disables)")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.Policy.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Delete audit log rows older than this duration and verify generated audit export coverage (0 disables)")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.Policy.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionScheduledAuditExportOutput, "audit-export-output", "", "Retained audit export evidence JSON output path")
+	retentionScheduledCleanupCmd.Flags().
+		IntVar(&retentionScheduledAuditExportLimit, "audit-export-limit", 1000, "Audit export page size for generated evidence")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionScheduledHoldReviewOutput, "hold-review-output", "", "Retained active hold review evidence JSON output path")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionHoldReviewReviewedBy, "reviewed-by", "", "Operator reviewing active holds (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionHoldReviewReason, "reason", "", "Reason for the active hold review")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionEvidenceManifestGeneratedBy, "generated-by", "", "Operator or automation generating the cleanup evidence manifest (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionEvidenceManifestExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference for generated evidence")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionScheduledEvidenceManifestOutput, "evidence-manifest-output", "", "Retained cleanup evidence manifest JSON output path")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionScheduledEvidenceManifestPromote, "evidence-manifest-promote", "", "Stable cleanup evidence manifest path to atomically promote after verification")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionEvidenceBackupManifest, "backup-manifest", "", "Backup manifest JSON path to retain for cleanup validation")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionEvidenceBackupExpect, "backup-expect", "", "Expected topology JSON path for backup manifest verification")
+	retentionScheduledCleanupCmd.Flags().
+		StringArrayVar(&retentionEvidenceBackupStorageReport, "backup-storage-report", nil, "Storage verification report JSON path to retain for cleanup validation (repeatable)")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionEvidenceBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 omits)")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionEvidenceBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 omits)")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionEvidenceAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted generated audit export evidence age before cleanup (0 omits)")
+	retentionScheduledCleanupCmd.Flags().
+		DurationVar(&retentionEvidenceHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted generated hold review evidence age before cleanup (0 omits)")
+	retentionScheduledCleanupCmd.Flags().
+		BoolVar(&retentionEvidenceRequireBackup, "require-backup-manifest", defaultRetention.RequireBackup, "Require backup evidence unless waived")
+	retentionScheduledCleanupCmd.Flags().
+		BoolVar(&retentionEvidenceRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Require audit export evidence before deleting audit rows unless waived")
+	retentionScheduledCleanupCmd.Flags().
+		BoolVar(&retentionEvidenceRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Require hold review evidence unless waived")
+	retentionScheduledCleanupCmd.Flags().
+		StringVar(&retentionEvidenceWaiver, "waiver", "", "Retention waiver JSON path to retain for cleanup validation")
+	retentionHoldsCmd.AddCommand(
+		retentionHoldCreateCmd,
+		retentionHoldListCmd,
+		retentionHoldReleaseCmd,
+		retentionHoldReviewCmd,
+	)
 	retentionEvidenceCmd.AddCommand(retentionEvidenceManifestCmd, retentionEvidenceMetricsCmd)
 	retentionCmd.AddCommand(retentionCleanupCmd)
 	retentionCmd.AddCommand(retentionEvidenceCmd)

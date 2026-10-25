@@ -92,13 +92,25 @@ func AddConfigFlags(flags *pflag.FlagSet) {
 	flags.String(FlagBindPassword, "", "LDAP service-account bind password; prefer --ldap-bind-password-file")
 	flags.String(FlagBindPasswordFile, "", "File containing the LDAP service-account bind password")
 	flags.String(FlagBaseDN, "", "LDAP base DN used for user search")
-	flags.String(FlagUserFilter, defaultUserFilter, "LDAP user search filter; {username} is replaced with the escaped login username")
-	flags.String(FlagSubjectAttribute, "", "LDAP attribute used as the stable external subject; defaults to the entry DN when empty")
+	flags.String(
+		FlagUserFilter,
+		defaultUserFilter,
+		"LDAP user search filter; {username} is replaced with the escaped login username",
+	)
+	flags.String(
+		FlagSubjectAttribute,
+		"",
+		"LDAP attribute used as the stable external subject; defaults to the entry DN when empty",
+	)
 	flags.String(FlagUsernameAttribute, defaultUsernameAttribute, "LDAP attribute mapped to the Vectis local username")
 	flags.String(FlagDisplayNameAttribute, defaultDisplayNameAttribute, "LDAP attribute used as the display name")
 	flags.Bool(FlagStartTLS, false, "Upgrade ldap:// connections with StartTLS before binding")
 	flags.Duration(FlagTimeout, defaultTimeout, "LDAP dial and authentication timeout")
-	flags.Bool(FlagAutoLinkUsers, true, "Link first-seen LDAP identities to existing local users with matching usernames")
+	flags.Bool(
+		FlagAutoLinkUsers,
+		true,
+		"Link first-seen LDAP identities to existing local users with matching usernames",
+	)
 	flags.Bool(FlagAutoCreateUsers, false, "Create a local Vectis user row on successful LDAP login when none exists")
 }
 

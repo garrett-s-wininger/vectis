@@ -39,7 +39,9 @@ func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.Mo
 func insertDefinitionSnapshotForTest(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
 	t.Helper()
 
-	if err := dal.NewSQLRepositories(db).Jobs().CreateDefinitionSnapshot(context.Background(), jobID, definitionJSON); err != nil {
+	if err := dal.NewSQLRepositories(db).
+		Jobs().
+		CreateDefinitionSnapshot(context.Background(), jobID, definitionJSON); err != nil {
 		t.Fatalf("insert definition snapshot %s: %v", jobID, err)
 	}
 }
@@ -54,7 +56,13 @@ func insertSourceJobForTest(t *testing.T, db *sql.DB, repositoryID, jobID, defin
 	t.Helper()
 
 	repoPath := initAPIGitRepo(t)
-	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/"+jobID+".json", strings.TrimSpace(definitionJSON)+"\n", "add "+jobID)
+	writeAPIFileAndCommit(
+		t,
+		repoPath,
+		".vectis/jobs/"+jobID+".json",
+		strings.TrimSpace(definitionJSON)+"\n",
+		"add "+jobID,
+	)
 	if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
 		RepositoryID: repositoryID,
 		NamespaceID:  1,
@@ -69,7 +77,12 @@ func insertSourceJobForTest(t *testing.T, db *sql.DB, repositoryID, jobID, defin
 	return repoPath
 }
 
-func claimPendingRunExecutionForAPITest(t *testing.T, runs dal.RunsRepository, runID, owner string, leaseUntil time.Time) dal.ExecutionClaimResult {
+func claimPendingRunExecutionForAPITest(
+	t *testing.T,
+	runs dal.RunsRepository,
+	runID, owner string,
+	leaseUntil time.Time,
+) dal.ExecutionClaimResult {
 	t.Helper()
 
 	dispatch, err := runs.GetPendingExecution(context.Background(), runID)
@@ -127,7 +140,8 @@ func waitForNDispatchEvents(t *testing.T, db *sql.DB, runID string, n int) {
 
 	for time.Now().Before(deadline) {
 		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = ?`, runID).Scan(&count); err != nil {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = ?`, runID).
+			Scan(&count); err != nil {
 			t.Fatalf("count dispatch events: %v", err)
 		}
 
@@ -480,7 +494,8 @@ func TestAPIServer_CreateJob_RejectsEmptyTriggers(t *testing.T) {
 	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "job-empty-triggers").Scan(&count); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "job-empty-triggers").
+		Scan(&count); err != nil {
 		t.Fatalf("failed to query db: %v", err)
 	}
 
@@ -608,7 +623,14 @@ func assertAPISCMPollSpecs(t *testing.T, db *sql.DB, jobID string, want []apiSCM
 	var got []apiSCMPollSpec
 	for rows.Next() {
 		var spec apiSCMPollSpec
-		if err := rows.Scan(&spec.Provider, &spec.BaseURL, &spec.Project, &spec.Branch, &spec.Query, &spec.IntervalSeconds); err != nil {
+		if err := rows.Scan(
+			&spec.Provider,
+			&spec.BaseURL,
+			&spec.Project,
+			&spec.Branch,
+			&spec.Query,
+			&spec.IntervalSeconds,
+		); err != nil {
 			t.Fatalf("scan scm poll spec: %v", err)
 		}
 
@@ -700,7 +722,12 @@ func TestAPIServer_GetQueueBacklogIncludesCellBreakdown(t *testing.T) {
 		{CellID: "pdx-b", Count: 1},
 	}
 
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), runs, mocks.StubEphemeralRunStarter{})
+	server := api.NewAPIServerWithRepositories(
+		mocks.NewMockLogger(),
+		mocks.NewMockJobsRepository(),
+		runs,
+		mocks.StubEphemeralRunStarter{},
+	)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/queue/backlog", nil)
 	rec := httptest.NewRecorder()
 	server.GetQueueBacklog(rec, req)
@@ -773,7 +800,12 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 	runs.CountTaskContinuationByCell = []dal.RunCountByCell{{CellID: "sjc-c", Count: 3}}
 	runs.CountTaskFinalizeByCell = []dal.RunCountByCell{{CellID: "sjc-c", Count: 1}}
 
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), runs, mocks.StubEphemeralRunStarter{})
+	server := api.NewAPIServerWithRepositories(
+		mocks.NewMockLogger(),
+		mocks.NewMockJobsRepository(),
+		runs,
+		mocks.StubEphemeralRunStarter{},
+	)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
 	rec := httptest.NewRecorder()
 	server.GetCellsStatus(rec, req)
@@ -812,27 +844,45 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 		t.Fatalf("cells len: got %d, want 3 (%+v)", len(body.Cells), body.Cells)
 	}
 
-	if body.Cells[0].CellID != "iad-a" || !body.Cells[0].Ready || !body.Cells[0].IngressRequired || !body.Cells[0].IngressConfigured || !body.Cells[0].IngressReachable || body.Cells[0].Status != "ready" || body.Cells[0].HTTPStatus != http.StatusOK {
+	if body.Cells[0].CellID != "iad-a" || !body.Cells[0].Ready || !body.Cells[0].IngressRequired ||
+		!body.Cells[0].IngressConfigured ||
+		!body.Cells[0].IngressReachable ||
+		body.Cells[0].Status != "ready" ||
+		body.Cells[0].HTTPStatus != http.StatusOK {
 		t.Fatalf("ready cell: got %+v", body.Cells[0])
 	}
 
-	if len(body.Cells[0].Checks) != 3 || body.Cells[0].Checks[0].ID != "ingress" || body.Cells[0].Checks[0].Status != "pass" {
+	if len(body.Cells[0].Checks) != 3 || body.Cells[0].Checks[0].ID != "ingress" ||
+		body.Cells[0].Checks[0].Status != "pass" {
 		t.Fatalf("ready cell checks: got %+v", body.Cells[0].Checks)
 	}
 
-	if body.Cells[1].CellID != "pdx-b" || body.Cells[1].Ready || !body.Cells[1].IngressRequired || !body.Cells[1].IngressConfigured || body.Cells[1].IngressReachable || body.Cells[1].Status != "unhealthy" || body.Cells[1].HTTPStatus != http.StatusServiceUnavailable {
+	if body.Cells[1].CellID != "pdx-b" || body.Cells[1].Ready || !body.Cells[1].IngressRequired ||
+		!body.Cells[1].IngressConfigured ||
+		body.Cells[1].IngressReachable ||
+		body.Cells[1].Status != "unhealthy" ||
+		body.Cells[1].HTTPStatus != http.StatusServiceUnavailable {
 		t.Fatalf("unhealthy cell: got %+v", body.Cells[1])
 	}
 
-	if len(body.Cells[1].Checks) != 3 || body.Cells[1].Checks[0].ID != "ingress" || body.Cells[1].Checks[0].Status != "fail" {
+	if len(body.Cells[1].Checks) != 3 || body.Cells[1].Checks[0].ID != "ingress" ||
+		body.Cells[1].Checks[0].Status != "fail" {
 		t.Fatalf("unhealthy cell checks: got %+v", body.Cells[1].Checks)
 	}
 
-	if body.Cells[2].CellID != "sjc-c" || body.Cells[2].Ready || !body.Cells[2].IngressRequired || body.Cells[2].IngressConfigured || body.Cells[2].IngressReachable || body.Cells[2].Status != "missing_route" || body.Cells[2].Queued != 4 || body.Cells[2].Stuck != 2 || body.Cells[2].TaskContinuationPending != 3 || body.Cells[2].TaskFinalizationPending != 1 {
+	if body.Cells[2].CellID != "sjc-c" || body.Cells[2].Ready || !body.Cells[2].IngressRequired ||
+		body.Cells[2].IngressConfigured ||
+		body.Cells[2].IngressReachable ||
+		body.Cells[2].Status != "missing_route" ||
+		body.Cells[2].Queued != 4 ||
+		body.Cells[2].Stuck != 2 ||
+		body.Cells[2].TaskContinuationPending != 3 ||
+		body.Cells[2].TaskFinalizationPending != 1 {
 		t.Fatalf("missing route cell: got %+v", body.Cells[2])
 	}
 
-	if len(body.Cells[2].Checks) != 3 || body.Cells[2].Checks[0].Status != "fail" || body.Cells[2].Checks[1].Status != "warn" {
+	if len(body.Cells[2].Checks) != 3 || body.Cells[2].Checks[0].Status != "fail" ||
+		body.Cells[2].Checks[1].Status != "warn" {
 		t.Fatalf("missing route cell checks: got %+v", body.Cells[2].Checks)
 	}
 
@@ -851,11 +901,23 @@ func TestAPIServer_GetCellsStatusIncludesCatalogSourceCounts(t *testing.T) {
 	ctx := context.Background()
 	events := dal.NewSQLRepositories(db).CatalogEvents()
 
-	failed, _, err := events.Record(ctx, "pdx-b", "failed-event", "run.status", []byte(`{"run_id":"run-1","status":"failed"}`))
+	failed, _, err := events.Record(
+		ctx,
+		"pdx-b",
+		"failed-event",
+		"run.status",
+		[]byte(`{"run_id":"run-1","status":"failed"}`),
+	)
 	if err != nil {
 		t.Fatalf("record failed event: %v", err)
 	}
-	if _, _, err := events.Record(ctx, "pdx-b", "pending-event", "execution.status", []byte(`{"execution_id":"execution-1","status":"running"}`)); err != nil {
+	if _, _, err := events.Record(
+		ctx,
+		"pdx-b",
+		"pending-event",
+		"execution.status",
+		[]byte(`{"execution_id":"execution-1","status":"running"}`),
+	); err != nil {
 		t.Fatalf("record pending event: %v", err)
 	}
 	if err := events.MarkFailed(ctx, failed.ID, "apply failed"); err != nil {
@@ -893,11 +955,15 @@ func TestAPIServer_GetCellsStatusIncludesCatalogSourceCounts(t *testing.T) {
 		t.Fatalf("cells len: got %d, want 1 (%+v)", len(body.Cells), body.Cells)
 	}
 
-	if body.Cells[0].CellID != "pdx-b" || body.Cells[0].Ready || body.Cells[0].Status != "missing_route" || body.Cells[0].CatalogPending != 1 || body.Cells[0].CatalogFailed != 1 || body.Cells[0].CatalogTotal != 2 {
+	if body.Cells[0].CellID != "pdx-b" || body.Cells[0].Ready || body.Cells[0].Status != "missing_route" ||
+		body.Cells[0].CatalogPending != 1 ||
+		body.Cells[0].CatalogFailed != 1 ||
+		body.Cells[0].CatalogTotal != 2 {
 		t.Fatalf("unexpected catalog source cell: %+v", body.Cells[0])
 	}
 
-	if len(body.Cells[0].Checks) != 3 || body.Cells[0].Checks[2].ID != "catalog" || body.Cells[0].Checks[2].Status != "fail" {
+	if len(body.Cells[0].Checks) != 3 || body.Cells[0].Checks[2].ID != "catalog" ||
+		body.Cells[0].Checks[2].Status != "fail" {
 		t.Fatalf("unexpected catalog source checks: %+v", body.Cells[0].Checks)
 	}
 }
@@ -910,7 +976,12 @@ func TestAPIServer_GetStuckRunsIncludesCellBreakdown(t *testing.T) {
 		{CellID: "pdx-b", Count: 1},
 	}
 
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), runs, mocks.StubEphemeralRunStarter{})
+	server := api.NewAPIServerWithRepositories(
+		mocks.NewMockLogger(),
+		mocks.NewMockJobsRepository(),
+		runs,
+		mocks.StubEphemeralRunStarter{},
+	)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reconciler/stuck-runs", nil)
 	rec := httptest.NewRecorder()
 	server.GetStuckRuns(rec, req)
@@ -1009,7 +1080,8 @@ func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
 		t.Fatalf("task finalization pending: got %d, want 1", body.TaskFinalizationPending)
 	}
 
-	if len(body.TaskFinalizationCells) != 1 || body.TaskFinalizationCells[0].CellID != "pdx-b" || body.TaskFinalizationCells[0].Pending != 1 {
+	if len(body.TaskFinalizationCells) != 1 || body.TaskFinalizationCells[0].CellID != "pdx-b" ||
+		body.TaskFinalizationCells[0].Pending != 1 {
 		t.Fatalf("task finalization cells: %+v", body.TaskFinalizationCells)
 	}
 }
@@ -1080,7 +1152,8 @@ func TestAPIServer_GetStuckRunsIncludesTaskContinuationPending(t *testing.T) {
 		t.Fatalf("task continuation pending: got %d, want 1", body.TaskContinuationPending)
 	}
 
-	if len(body.TaskContinuationCells) != 1 || body.TaskContinuationCells[0].CellID != "pdx-b" || body.TaskContinuationCells[0].Pending != 1 {
+	if len(body.TaskContinuationCells) != 1 || body.TaskContinuationCells[0].CellID != "pdx-b" ||
+		body.TaskContinuationCells[0].Pending != 1 {
 		t.Fatalf("task continuation cells: %+v", body.TaskContinuationCells)
 	}
 }
@@ -1117,7 +1190,11 @@ func TestAPIServer_TriggerJob_DBUnavailableOnGetRepository(t *testing.T) {
 		t.Fatalf("close db: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-trig-db", strings.NewReader(`{"repository_id":"repo-db-down"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/job-trig-db",
+		strings.NewReader(`{"repository_id":"repo-db-down"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "job-trig-db")
 	rec := httptest.NewRecorder()
@@ -1158,12 +1235,15 @@ func TestAPIServer_PostCellCatalogEvent_RecordAndReplay(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if resp.ID == 0 || resp.SourceCell != "iad-a" || resp.EventKey != "event-1" || resp.EventType != "run.status" || resp.Status != dal.CatalogEventStatusPending || !resp.Created {
+	if resp.ID == 0 || resp.SourceCell != "iad-a" || resp.EventKey != "event-1" || resp.EventType != "run.status" ||
+		resp.Status != dal.CatalogEventStatusPending ||
+		!resp.Created {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 
 	var payload string
-	if err := db.QueryRow("SELECT payload_json FROM cell_catalog_events WHERE id = ?", resp.ID).Scan(&payload); err != nil {
+	if err := db.QueryRow("SELECT payload_json FROM cell_catalog_events WHERE id = ?", resp.ID).
+		Scan(&payload); err != nil {
 		t.Fatalf("query catalog event: %v", err)
 	}
 
@@ -1222,12 +1302,24 @@ func TestAPIServer_GetCatalogStatus(t *testing.T) {
 	ctx := context.Background()
 	events := dal.NewSQLRepositories(db).CatalogEvents()
 
-	first, _, err := events.Record(ctx, "iad-a", "event-1", "run.status", []byte(`{"run_id":"run-1","status":"running"}`))
+	first, _, err := events.Record(
+		ctx,
+		"iad-a",
+		"event-1",
+		"run.status",
+		[]byte(`{"run_id":"run-1","status":"running"}`),
+	)
 	if err != nil {
 		t.Fatalf("record first event: %v", err)
 	}
 
-	second, _, err := events.Record(ctx, "iad-a", "event-2", "execution.status", []byte(`{"execution_id":"execution-1","status":"accepted"}`))
+	second, _, err := events.Record(
+		ctx,
+		"iad-a",
+		"event-2",
+		"execution.status",
+		[]byte(`{"execution_id":"execution-1","status":"accepted"}`),
+	)
 	if err != nil {
 		t.Fatalf("record second event: %v", err)
 	}
@@ -1240,7 +1332,13 @@ func TestAPIServer_GetCatalogStatus(t *testing.T) {
 		t.Fatalf("mark second event failed: %v", err)
 	}
 
-	if _, _, err := events.Record(ctx, "iad-b", "event-3", "run.status", []byte(`{"run_id":"run-2","status":"queued"}`)); err != nil {
+	if _, _, err := events.Record(
+		ctx,
+		"iad-b",
+		"event-3",
+		"run.status",
+		[]byte(`{"run_id":"run-2","status":"queued"}`),
+	); err != nil {
 		t.Fatalf("record third event: %v", err)
 	}
 
@@ -1288,11 +1386,15 @@ func TestAPIServer_GetCatalogStatus(t *testing.T) {
 		t.Fatalf("sources len: got %d want 2 (%+v)", len(resp.Sources), resp.Sources)
 	}
 
-	if resp.Sources[0].SourceCell != "iad-a" || resp.Sources[0].Pending != 0 || resp.Sources[0].Applied != 1 || resp.Sources[0].Failed != 1 || resp.Sources[0].Total != 2 {
+	if resp.Sources[0].SourceCell != "iad-a" || resp.Sources[0].Pending != 0 || resp.Sources[0].Applied != 1 ||
+		resp.Sources[0].Failed != 1 ||
+		resp.Sources[0].Total != 2 {
 		t.Fatalf("unexpected iad source summary: %+v", resp.Sources[0])
 	}
 
-	if resp.Sources[1].SourceCell != "iad-b" || resp.Sources[1].Pending != 1 || resp.Sources[1].Applied != 0 || resp.Sources[1].Failed != 0 || resp.Sources[1].Total != 1 {
+	if resp.Sources[1].SourceCell != "iad-b" || resp.Sources[1].Pending != 1 || resp.Sources[1].Applied != 0 ||
+		resp.Sources[1].Failed != 0 ||
+		resp.Sources[1].Total != 1 {
 		t.Fatalf("unexpected iad-b source summary: %+v", resp.Sources[1])
 	}
 }
@@ -1308,7 +1410,8 @@ func TestAPIServer_GetCronStatusIncludesDueAndClaimedSchedules(t *testing.T) {
 	}
 
 	jobID := "job-cron-status"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-cron-status","root":{"uses":"builtins/script"}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-cron-status","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
 
@@ -1347,7 +1450,15 @@ func TestAPIServer_GetCronStatusIncludesDueAndClaimedSchedules(t *testing.T) {
 	}
 }
 
-func insertCronStatusTestSchedule(t *testing.T, ctx context.Context, db *sql.DB, jobID, cronSpec string, nextRunAt time.Time, claimToken string, claimedUntil time.Time) {
+func insertCronStatusTestSchedule(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	jobID, cronSpec string,
+	nextRunAt time.Time,
+	claimToken string,
+	claimedUntil time.Time,
+) {
 	t.Helper()
 
 	result, err := db.ExecContext(ctx, "INSERT INTO job_triggers (job_id, trigger_type) VALUES (?, ?)", jobID, "cron")
@@ -1360,13 +1471,27 @@ func insertCronStatusTestSchedule(t *testing.T, ctx context.Context, db *sql.DB,
 	}
 
 	if claimToken == "" {
-		if _, err := db.ExecContext(ctx, "INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)", triggerID, cronSpec, nextRunAt.Format(time.RFC3339)); err != nil {
+		if _, err := db.ExecContext(
+			ctx,
+			"INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
+			triggerID,
+			cronSpec,
+			nextRunAt.Format(time.RFC3339),
+		); err != nil {
 			t.Fatalf("insert cron trigger spec: %v", err)
 		}
 		return
 	}
 
-	if _, err := db.ExecContext(ctx, "INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at, claim_token, claimed_until) VALUES (?, ?, ?, ?, ?)", triggerID, cronSpec, nextRunAt.Format(time.RFC3339), claimToken, claimedUntil.Format(time.RFC3339)); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		"INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at, claim_token, claimed_until) VALUES (?, ?, ?, ?, ?)",
+		triggerID,
+		cronSpec,
+		nextRunAt.Format(time.RFC3339),
+		claimToken,
+		claimedUntil.Format(time.RFC3339),
+	); err != nil {
 		t.Fatalf("insert claimed cron trigger spec: %v", err)
 	}
 }
@@ -1533,7 +1658,11 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	jobDef := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/"+jobID,
+		strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
@@ -1575,12 +1704,18 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	if env.ExecutionID == "" || env.SegmentID == "" || env.CellID != dal.DefaultCellID {
-		t.Fatalf("unexpected envelope target: execution=%q segment=%q cell=%q", env.ExecutionID, env.SegmentID, env.CellID)
+		t.Fatalf(
+			"unexpected envelope target: execution=%q segment=%q cell=%q",
+			env.ExecutionID,
+			env.SegmentID,
+			env.CellID,
+		)
 	}
 
 	var dbStatus string
 	var runIndex int
-	err = db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex)
+	err = db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).
+		Scan(&dbStatus, &runIndex)
 	if err != nil {
 		t.Fatalf("expected job_runs row for triggered job: %v", err)
 	}
@@ -1594,7 +1729,8 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	var invocationID, payloadHash string
-	if err := db.QueryRow("SELECT trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", runID).Scan(&invocationID, &payloadHash); err != nil {
+	if err := db.QueryRow("SELECT trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", runID).
+		Scan(&invocationID, &payloadHash); err != nil {
 		t.Fatalf("query run audit linkage: %v", err)
 	}
 
@@ -1607,7 +1743,8 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	var triggerType, requestedCells string
-	if err := db.QueryRow("SELECT trigger_type, requested_cells FROM trigger_invocations WHERE invocation_id = ?", invocationID).Scan(&triggerType, &requestedCells); err != nil {
+	if err := db.QueryRow("SELECT trigger_type, requested_cells FROM trigger_invocations WHERE invocation_id = ?", invocationID).
+		Scan(&triggerType, &requestedCells); err != nil {
 		t.Fatalf("query trigger invocation: %v", err)
 	}
 
@@ -1620,7 +1757,8 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	var executionPayload string
-	if err := db.QueryRow("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).Scan(&executionPayload); err != nil {
+	if err := db.QueryRow("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).
+		Scan(&executionPayload); err != nil {
 		t.Fatalf("query execution payload: %v", err)
 	}
 
@@ -1698,7 +1836,9 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	leaseUntil := time.Now().Add(time.Minute)
-	executionClaim, err := dal.NewSQLRepositories(db).Runs().TryClaimExecution(context.Background(), env.ExecutionID, "worker-api-task-list", leaseUntil)
+	executionClaim, err := dal.NewSQLRepositories(db).
+		Runs().
+		TryClaimExecution(context.Background(), env.ExecutionID, "worker-api-task-list", leaseUntil)
 	if err != nil {
 		t.Fatalf("claim execution for task list: %v", err)
 	}
@@ -1709,18 +1849,20 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 
 	secretCount := 1
 	fileCount := 1
-	if err := dal.NewSQLRepositories(db).Runs().RecordExecutionSecurityEvent(context.Background(), dal.RecordExecutionSecurityEventParams{
-		RunID:         runID,
-		TaskID:        env.TaskID,
-		TaskAttemptID: env.TaskAttemptID,
-		ExecutionID:   env.ExecutionID,
-		EventType:     dal.ExecutionSecurityEventSecretResolution,
-		Outcome:       "success",
-		Reason:        "ok",
-		Provider:      "encryptedfs",
-		SecretCount:   &secretCount,
-		FileCount:     &fileCount,
-	}); err != nil {
+	if err := dal.NewSQLRepositories(db).
+		Runs().
+		RecordExecutionSecurityEvent(context.Background(), dal.RecordExecutionSecurityEventParams{
+			RunID:         runID,
+			TaskID:        env.TaskID,
+			TaskAttemptID: env.TaskAttemptID,
+			ExecutionID:   env.ExecutionID,
+			EventType:     dal.ExecutionSecurityEventSecretResolution,
+			Outcome:       "success",
+			Reason:        "ok",
+			Provider:      "encryptedfs",
+			SecretCount:   &secretCount,
+			FileCount:     &fileCount,
+		}); err != nil {
 		t.Fatalf("record execution security event: %v", err)
 	}
 
@@ -1771,7 +1913,9 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	rootTask := tasksResp.Data[0]
-	if rootTask.TaskID != runID+":root" || rootTask.RunID != runID || rootTask.TaskKey != dal.RootTaskKey || rootTask.Name != dal.RootTaskKey || rootTask.Status != dal.TaskStatusAccepted {
+	if rootTask.TaskID != runID+":root" || rootTask.RunID != runID || rootTask.TaskKey != dal.RootTaskKey ||
+		rootTask.Name != dal.RootTaskKey ||
+		rootTask.Status != dal.TaskStatusAccepted {
 		t.Fatalf("unexpected root task response: %+v", rootTask)
 	}
 
@@ -1780,7 +1924,11 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	rootAttempt := rootTask.Attempts[0]
-	if rootAttempt.AttemptID != runID+":root:attempt:1" || rootAttempt.TaskID != rootTask.TaskID || rootAttempt.RunID != runID || rootAttempt.CellID != dal.DefaultCellID || rootAttempt.Attempt != 1 || rootAttempt.Status != dal.TaskStatusAccepted {
+	if rootAttempt.AttemptID != runID+":root:attempt:1" || rootAttempt.TaskID != rootTask.TaskID ||
+		rootAttempt.RunID != runID ||
+		rootAttempt.CellID != dal.DefaultCellID ||
+		rootAttempt.Attempt != 1 ||
+		rootAttempt.Status != dal.TaskStatusAccepted {
 		t.Fatalf("unexpected root task attempt response: %+v", rootAttempt)
 	}
 
@@ -1788,7 +1936,9 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("unexpected root task execution response: %+v", rootAttempt)
 	}
 
-	if rootAttempt.LeaseOwner == nil || *rootAttempt.LeaseOwner != "worker-api-task-list" || rootAttempt.LeaseUntil == nil || *rootAttempt.LeaseUntil != leaseUntil.Unix() {
+	if rootAttempt.LeaseOwner == nil || *rootAttempt.LeaseOwner != "worker-api-task-list" ||
+		rootAttempt.LeaseUntil == nil ||
+		*rootAttempt.LeaseUntil != leaseUntil.Unix() {
 		t.Fatalf("unexpected root task lease response: %+v", rootAttempt)
 	}
 
@@ -1797,11 +1947,15 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	securityEvent := rootAttempt.SecurityEvents[0]
-	if securityEvent.EventType != dal.ExecutionSecurityEventSecretResolution || securityEvent.Outcome != "success" || securityEvent.Reason != "ok" {
+	if securityEvent.EventType != dal.ExecutionSecurityEventSecretResolution || securityEvent.Outcome != "success" ||
+		securityEvent.Reason != "ok" {
 		t.Fatalf("unexpected root task security event: %+v", securityEvent)
 	}
 
-	if securityEvent.Provider == nil || *securityEvent.Provider != "encryptedfs" || securityEvent.SecretCount == nil || *securityEvent.SecretCount != 1 || securityEvent.FileCount == nil || *securityEvent.FileCount != 1 {
+	if securityEvent.Provider == nil || *securityEvent.Provider != "encryptedfs" || securityEvent.SecretCount == nil ||
+		*securityEvent.SecretCount != 1 ||
+		securityEvent.FileCount == nil ||
+		*securityEvent.FileCount != 1 {
 		t.Fatalf("unexpected root task security event details: %+v", securityEvent)
 	}
 
@@ -1810,7 +1964,12 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	payloadRec := httptest.NewRecorder()
 	server.GetRunExecutionPayload(payloadRec, payloadReq)
 	if payloadRec.Code != http.StatusOK {
-		t.Fatalf("GetRunExecutionPayload: expected status %d, got %d: %s", http.StatusOK, payloadRec.Code, payloadRec.Body.String())
+		t.Fatalf(
+			"GetRunExecutionPayload: expected status %d, got %d: %s",
+			http.StatusOK,
+			payloadRec.Code,
+			payloadRec.Body.String(),
+		)
 	}
 
 	var payloadResp struct {
@@ -1898,7 +2057,8 @@ func TestAPIServer_TriggerJob_DefaultsToOnDemandManualTrigger(t *testing.T) {
 	}
 
 	var invocationID string
-	if err := db.QueryRowContext(ctx, "SELECT trigger_invocation_id FROM job_runs WHERE run_id = ?", resp.RunID).Scan(&invocationID); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT trigger_invocation_id FROM job_runs WHERE run_id = ?", resp.RunID).
+		Scan(&invocationID); err != nil {
 		t.Fatalf("query run invocation: %v", err)
 	}
 
@@ -1954,7 +2114,11 @@ func TestAPIServer_TriggerJob_RejectsManualTriggerKeyOption(t *testing.T) {
 		t.Fatalf("create job with manual trigger: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"trigger_key":"on_demand"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/"+jobID,
+		strings.NewReader(`{"trigger_key":"on_demand"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
@@ -1967,7 +2131,8 @@ func TestAPIServer_TriggerJob_RejectsManualTriggerKeyOption(t *testing.T) {
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).
+		Scan(&runCount); err != nil {
 		t.Fatalf("count runs: %v", err)
 	}
 
@@ -1984,13 +2149,22 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	defV2 := `{"root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo new"}}}`
 	repoPath := insertSourceJobForTest(t, db, repositoryID, jobID, defV1)
 
-	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	triggerReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/"+jobID,
+		strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`),
+	)
 	triggerReq.Header.Set("Content-Type", "application/json")
 	triggerReq.SetPathValue("id", jobID)
 	triggerRec := httptest.NewRecorder()
 	server.TriggerJob(triggerRec, triggerReq)
 	if triggerRec.Code != http.StatusAccepted {
-		t.Fatalf("trigger: expected status %d, got %d: %s", http.StatusAccepted, triggerRec.Code, triggerRec.Body.String())
+		t.Fatalf(
+			"trigger: expected status %d, got %d: %s",
+			http.StatusAccepted,
+			triggerRec.Code,
+			triggerRec.Body.String(),
+		)
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
@@ -2000,7 +2174,8 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	}
 
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Runs().MarkRunFailed(context.Background(), sourceRunID, dal.FailureCodeExecution, "environment failed"); err != nil {
+	if err := repos.Runs().
+		MarkRunFailed(context.Background(), sourceRunID, dal.FailureCodeExecution, "environment failed"); err != nil {
 		t.Fatalf("mark source failed: %v", err)
 	}
 
@@ -2025,7 +2200,8 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 		t.Fatalf("decode replay response: %v", err)
 	}
 
-	if replayResp.JobID != jobID || replayResp.RunID == "" || replayResp.RunID == sourceRunID || replayResp.ReplayOfRunID != sourceRunID {
+	if replayResp.JobID != jobID || replayResp.RunID == "" || replayResp.RunID == sourceRunID ||
+		replayResp.ReplayOfRunID != sourceRunID {
 		t.Fatalf("unexpected replay response: %+v", replayResp)
 	}
 
@@ -2041,7 +2217,8 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 
 	var replayOfRunID, invocationID, payloadHash string
 	var definitionVersion int
-	if err := db.QueryRow("SELECT replay_of_run_id, definition_version, trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", replayResp.RunID).Scan(&replayOfRunID, &definitionVersion, &invocationID, &payloadHash); err != nil {
+	if err := db.QueryRow("SELECT replay_of_run_id, definition_version, trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", replayResp.RunID).
+		Scan(&replayOfRunID, &definitionVersion, &invocationID, &payloadHash); err != nil {
 		t.Fatalf("query replay run audit fields: %v", err)
 	}
 
@@ -2054,7 +2231,8 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	}
 
 	var triggerType string
-	if err := db.QueryRow("SELECT trigger_type FROM trigger_invocations WHERE invocation_id = ?", invocationID).Scan(&triggerType); err != nil {
+	if err := db.QueryRow("SELECT trigger_type FROM trigger_invocations WHERE invocation_id = ?", invocationID).
+		Scan(&triggerType); err != nil {
 		t.Fatalf("query replay trigger invocation: %v", err)
 	}
 
@@ -2103,7 +2281,12 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 	triggerRec := httptest.NewRecorder()
 	server.TriggerJob(triggerRec, triggerReq)
 	if triggerRec.Code != http.StatusAccepted {
-		t.Fatalf("trigger source: expected status %d, got %d: %s", http.StatusAccepted, triggerRec.Code, triggerRec.Body.String())
+		t.Fatalf(
+			"trigger source: expected status %d, got %d: %s",
+			http.StatusAccepted,
+			triggerRec.Code,
+			triggerRec.Body.String(),
+		)
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
@@ -2113,7 +2296,8 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 	}
 
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Runs().MarkRunFailed(context.Background(), sourceRunID, dal.FailureCodeExecution, "source failed"); err != nil {
+	if err := repos.Runs().
+		MarkRunFailed(context.Background(), sourceRunID, dal.FailureCodeExecution, "source failed"); err != nil {
 		t.Fatalf("mark source failed: %v", err)
 	}
 
@@ -2124,7 +2308,12 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 	replayRec := httptest.NewRecorder()
 	server.ReplayRun(replayRec, replayReq)
 	if replayRec.Code != http.StatusAccepted {
-		t.Fatalf("first replay: expected status %d, got %d: %s", http.StatusAccepted, replayRec.Code, replayRec.Body.String())
+		t.Fatalf(
+			"first replay: expected status %d, got %d: %s",
+			http.StatusAccepted,
+			replayRec.Code,
+			replayRec.Body.String(),
+		)
 	}
 
 	var firstResp struct {
@@ -2139,7 +2328,8 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 		t.Fatalf("decode first replay response: %v", err)
 	}
 
-	if firstResp.JobID != jobID || firstResp.RunID == "" || firstResp.RunID == sourceRunID || firstResp.ReplayOfRunID != sourceRunID {
+	if firstResp.JobID != jobID || firstResp.RunID == "" || firstResp.RunID == sourceRunID ||
+		firstResp.ReplayOfRunID != sourceRunID {
 		t.Fatalf("unexpected first replay response: %+v", firstResp)
 	}
 
@@ -2155,7 +2345,12 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 	replayRec2 := httptest.NewRecorder()
 	server.ReplayRun(replayRec2, replayReq2)
 	if replayRec2.Code != http.StatusAccepted {
-		t.Fatalf("recovered replay: expected status %d, got %d: %s", http.StatusAccepted, replayRec2.Code, replayRec2.Body.String())
+		t.Fatalf(
+			"recovered replay: expected status %d, got %d: %s",
+			http.StatusAccepted,
+			replayRec2.Code,
+			replayRec2.Body.String(),
+		)
 	}
 
 	if replayRec.Body.String() != replayRec2.Body.String() {
@@ -2168,7 +2363,8 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 	}
 
 	var replayCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs WHERE replay_of_run_id = ?", sourceRunID).Scan(&replayCount); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs WHERE replay_of_run_id = ?", sourceRunID).
+		Scan(&replayCount); err != nil {
 		t.Fatalf("count replay runs: %v", err)
 	}
 
@@ -2184,13 +2380,22 @@ func TestAPIServer_ReplayRun_RejectsActiveSourceRun(t *testing.T) {
 	definition := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo active"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, definition)
 
-	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	triggerReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/"+jobID,
+		strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`),
+	)
 	triggerReq.Header.Set("Content-Type", "application/json")
 	triggerReq.SetPathValue("id", jobID)
 	triggerRec := httptest.NewRecorder()
 	server.TriggerJob(triggerRec, triggerReq)
 	if triggerRec.Code != http.StatusAccepted {
-		t.Fatalf("trigger: expected status %d, got %d: %s", http.StatusAccepted, triggerRec.Code, triggerRec.Body.String())
+		t.Fatalf(
+			"trigger: expected status %d, got %d: %s",
+			http.StatusAccepted,
+			triggerRec.Code,
+			triggerRec.Body.String(),
+		)
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
@@ -2306,8 +2511,20 @@ func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	repositoryID := "repo-idempotency-scope"
 	repoPath := initAPIGitRepo(t)
-	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-a.json", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"a"}}}`+"\n", "add job-a")
-	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-b.json", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"b"}}}`+"\n", "add job-b")
+	writeAPIFileAndCommit(
+		t,
+		repoPath,
+		".vectis/jobs/job-a.json",
+		`{"root":{"id":"root","uses":"builtins/script","with":{"script":"a"}}}`+"\n",
+		"add job-a",
+	)
+	writeAPIFileAndCommit(
+		t,
+		repoPath,
+		".vectis/jobs/job-b.json",
+		`{"root":{"id":"root","uses":"builtins/script","with":{"script":"b"}}}`+"\n",
+		"add job-b",
+	)
 	if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
 		RepositoryID: repositoryID,
 		NamespaceID:  1,
@@ -2344,7 +2561,11 @@ func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
 func TestAPIServer_TriggerJob_NotFound(t *testing.T) {
 	server, _, queueService, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/nonexistent-job", strings.NewReader(`{"repository_id":"missing-repo"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/nonexistent-job",
+		strings.NewReader(`{"repository_id":"missing-repo"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "nonexistent-job")
 	rec := httptest.NewRecorder()
@@ -2379,7 +2600,11 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/"+jobID,
+		strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
@@ -2405,7 +2630,8 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 		t.Fatalf("list dispatch events: %v", err)
 	}
 
-	if events[0].EventType != dal.DispatchEventAccepted || events[1].EventType != dal.DispatchEventAttempt || events[2].EventType != dal.DispatchEventFailure {
+	if events[0].EventType != dal.DispatchEventAccepted || events[1].EventType != dal.DispatchEventAttempt ||
+		events[2].EventType != dal.DispatchEventFailure {
 		t.Fatalf("unexpected dispatch events after queue error: %+v", events)
 	}
 
@@ -2421,7 +2647,11 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 	jobDef := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/trigger/"+jobID,
+		strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
@@ -2501,7 +2731,11 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs?repository_id=repo-runs-status&since=not-a-date", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/jobs/job-runs-status/runs?repository_id=repo-runs-status&since=not-a-date",
+		nil,
+	)
 	req.SetPathValue("id", "job-runs-status")
 	rec := httptest.NewRecorder()
 	server.GetJobRuns(rec, req)
@@ -2626,7 +2860,11 @@ func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.
 	}
 
 	body, _ := json.Marshal(newDef)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-validation-update?repository_id=repo", bytes.NewReader(body))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/jobs/job-validation-update?repository_id=repo",
+		bytes.NewReader(body),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "job-validation-update")
 	rec := httptest.NewRecorder()
@@ -2658,7 +2896,10 @@ func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.
 		t.Fatalf("expected original definition snapshot to remain, got def=%s", gotDef)
 	}
 
-	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-validation-update", 2); !dal.IsNotFound(err) {
+	if _, err := repos.Jobs().
+		GetDefinitionVersion(context.Background(), "job-validation-update", 2); !dal.IsNotFound(
+		err,
+	) {
 		t.Fatalf("expected invalid update not to persist a second snapshot, got err=%v", err)
 	}
 }
@@ -2718,7 +2959,8 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 	}
 
 	var namespacePath string
-	if err := db.QueryRow("SELECT namespace_path FROM job_runs WHERE run_id = ?", resp.RunID).Scan(&namespacePath); err != nil {
+	if err := db.QueryRow("SELECT namespace_path FROM job_runs WHERE run_id = ?", resp.RunID).
+		Scan(&namespacePath); err != nil {
 		t.Fatalf("failed to query run namespace: %v", err)
 	}
 
@@ -2798,7 +3040,8 @@ func TestAPIServer_RunJob_ExplicitEphemeralNamespace(t *testing.T) {
 	}
 
 	var namespacePath string
-	if err := db.QueryRow("SELECT namespace_path FROM job_runs WHERE run_id = ?", resp.RunID).Scan(&namespacePath); err != nil {
+	if err := db.QueryRow("SELECT namespace_path FROM job_runs WHERE run_id = ?", resp.RunID).
+		Scan(&namespacePath); err != nil {
 		t.Fatalf("failed to query run namespace: %v", err)
 	}
 
@@ -2991,19 +3234,26 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 		t.Fatalf("expected dispatch summary in run response, got %+v", got.DispatchSummary)
 	}
 
-	if got.DispatchSummary[0].Source != dal.DispatchSourceAPI || got.DispatchSummary[0].Accepted != 1 || got.DispatchSummary[0].Attempts != 1 || got.DispatchSummary[0].Successes != 1 || got.DispatchSummary[0].Failures != 0 || got.DispatchSummary[0].LastEventType != dal.DispatchEventSuccess {
+	if got.DispatchSummary[0].Source != dal.DispatchSourceAPI || got.DispatchSummary[0].Accepted != 1 ||
+		got.DispatchSummary[0].Attempts != 1 ||
+		got.DispatchSummary[0].Successes != 1 ||
+		got.DispatchSummary[0].Failures != 0 ||
+		got.DispatchSummary[0].LastEventType != dal.DispatchEventSuccess {
 		t.Fatalf("unexpected dispatch summary: %+v", got.DispatchSummary[0])
 	}
 
-	if got.DispatchEvents[0].Source != dal.DispatchSourceAPI || got.DispatchEvents[0].EventType != dal.DispatchEventAccepted {
+	if got.DispatchEvents[0].Source != dal.DispatchSourceAPI ||
+		got.DispatchEvents[0].EventType != dal.DispatchEventAccepted {
 		t.Fatalf("unexpected first dispatch event: %+v", got.DispatchEvents[0])
 	}
 
-	if got.DispatchEvents[1].Source != dal.DispatchSourceAPI || got.DispatchEvents[1].EventType != dal.DispatchEventAttempt {
+	if got.DispatchEvents[1].Source != dal.DispatchSourceAPI ||
+		got.DispatchEvents[1].EventType != dal.DispatchEventAttempt {
 		t.Fatalf("unexpected second dispatch event: %+v", got.DispatchEvents[1])
 	}
 
-	if got.DispatchEvents[2].Source != dal.DispatchSourceAPI || got.DispatchEvents[2].EventType != dal.DispatchEventSuccess {
+	if got.DispatchEvents[2].Source != dal.DispatchSourceAPI ||
+		got.DispatchEvents[2].EventType != dal.DispatchEventSuccess {
 		t.Fatalf("unexpected third dispatch event: %+v", got.DispatchEvents[2])
 	}
 }
@@ -3100,7 +3350,12 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	ctx := context.Background()
 
-	insertDefinitionSnapshotForTest(t, db, "job-task-finalization-detail", `{"id":"job-task-finalization-detail","root":{"uses":"builtins/script"}}`)
+	insertDefinitionSnapshotForTest(
+		t,
+		db,
+		"job-task-finalization-detail",
+		`{"id":"job-task-finalization-detail","root":{"uses":"builtins/script"}}`,
+	)
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-finalization-detail", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
@@ -3157,7 +3412,8 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 		t.Fatal("missing task_completion in response")
 	}
 
-	if got.TaskCompletion.Total != 1 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 0 || got.TaskCompletion.Incomplete != 0 {
+	if got.TaskCompletion.Total != 1 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 0 ||
+		got.TaskCompletion.Incomplete != 0 {
 		t.Fatalf("task completion summary mismatch: %+v", got.TaskCompletion)
 	}
 }
@@ -3167,7 +3423,12 @@ func TestAPIServer_GetRun_IncludesTaskContinuationNextAction(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	ctx := context.Background()
 
-	insertStoredJobForTest(t, db, "job-task-continuation-detail", `{"id":"job-task-continuation-detail","root":{"uses":"builtins/script"}}`)
+	insertStoredJobForTest(
+		t,
+		db,
+		"job-task-continuation-detail",
+		`{"id":"job-task-continuation-detail","root":{"uses":"builtins/script"}}`,
+	)
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-continuation-detail", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
@@ -3234,7 +3495,8 @@ func TestAPIServer_GetRun_IncludesTaskContinuationNextAction(t *testing.T) {
 		t.Fatal("missing task_completion in response")
 	}
 
-	if got.TaskCompletion.Total != 2 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 0 || got.TaskCompletion.Incomplete != 1 {
+	if got.TaskCompletion.Total != 2 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 0 ||
+		got.TaskCompletion.Incomplete != 1 {
 		t.Fatalf("task completion summary mismatch: %+v", got.TaskCompletion)
 	}
 }
@@ -3244,7 +3506,12 @@ func TestAPIServer_GetRun_IncludesSecurityGateNextAction(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	ctx := context.Background()
 
-	insertStoredJobForTest(t, db, "job-security-gate-detail", `{"id":"job-security-gate-detail","root":{"uses":"builtins/script"}}`)
+	insertStoredJobForTest(
+		t,
+		db,
+		"job-security-gate-detail",
+		`{"id":"job-security-gate-detail","root":{"uses":"builtins/script"}}`,
+	)
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-security-gate-detail", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
@@ -3269,7 +3536,8 @@ func TestAPIServer_GetRun_IncludesSecurityGateNextAction(t *testing.T) {
 		t.Fatalf("record security event: %v", err)
 	}
 
-	if err := repos.Runs().MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "resolve execution secrets: denied"); err != nil {
+	if err := repos.Runs().
+		MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "resolve execution secrets: denied"); err != nil {
 		t.Fatalf("mark run failed: %v", err)
 	}
 
@@ -3305,7 +3573,11 @@ func TestAPIServer_GetRun_IncludesSecurityGateNextAction(t *testing.T) {
 		t.Fatalf("next_action: got %+v, want security_gate_failed", got.NextAction)
 	}
 
-	if got.LatestFailedSecurityEvent == nil || got.LatestFailedSecurityEvent.EventType != dal.ExecutionSecurityEventSecretResolution || got.LatestFailedSecurityEvent.Outcome != "denied" || got.LatestFailedSecurityEvent.Provider == nil || *got.LatestFailedSecurityEvent.Provider != "encryptedfs" {
+	if got.LatestFailedSecurityEvent == nil ||
+		got.LatestFailedSecurityEvent.EventType != dal.ExecutionSecurityEventSecretResolution ||
+		got.LatestFailedSecurityEvent.Outcome != "denied" ||
+		got.LatestFailedSecurityEvent.Provider == nil ||
+		*got.LatestFailedSecurityEvent.Provider != "encryptedfs" {
 		t.Fatalf("latest_failed_security_event: %+v", got.LatestFailedSecurityEvent)
 	}
 }
@@ -3517,7 +3789,8 @@ func TestAPIServer_RunJob_IdempotencyCrashRecoveryReplaysGeneratedJob(t *testing
 	}
 
 	var persistedJobID string
-	if err := db.QueryRow("SELECT job_id FROM job_runs WHERE run_id = ?", firstResp.RunID).Scan(&persistedJobID); err != nil {
+	if err := db.QueryRow("SELECT job_id FROM job_runs WHERE run_id = ?", firstResp.RunID).
+		Scan(&persistedJobID); err != nil {
 		t.Fatalf("query recovered run job id: %v", err)
 	}
 
@@ -3747,7 +4020,8 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 		t.Fatalf("list dispatch events: %v", err)
 	}
 
-	if events[0].EventType != dal.DispatchEventAccepted || events[1].EventType != dal.DispatchEventAttempt || events[2].EventType != dal.DispatchEventFailure {
+	if events[0].EventType != dal.DispatchEventAccepted || events[1].EventType != dal.DispatchEventAttempt ||
+		events[2].EventType != dal.DispatchEventFailure {
 		t.Fatalf("unexpected dispatch events after queue error: %+v", events)
 	}
 
@@ -3782,7 +4056,11 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 	}
 	defer sseResp.Body.Close()
 
-	triggerResp, err := http.Post(httpServer.URL+"/api/v1/jobs/trigger/"+jobID, "application/json", strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	triggerResp, err := http.Post(
+		httpServer.URL+"/api/v1/jobs/trigger/"+jobID,
+		"application/json",
+		strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`),
+	)
 	if err != nil {
 		t.Fatalf("trigger job: %v", err)
 	}
@@ -3844,7 +4122,11 @@ func TestAPIServer_ForceFailRun_Success(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-fail", strings.NewReader(`{"reason":"manual intervention"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/runs/"+runID+"/force-fail",
+		strings.NewReader(`{"reason":"manual intervention"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", runID)
 	rec := httptest.NewRecorder()
@@ -3858,7 +4140,8 @@ func TestAPIServer_ForceFailRun_Success(t *testing.T) {
 	var status string
 	var failureCode string
 	var reason sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_code, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&status, &failureCode, &reason); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_code, failure_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&status, &failureCode, &reason); err != nil {
 		t.Fatalf("query run: %v", err)
 	}
 
@@ -3904,7 +4187,11 @@ func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 		t.Fatalf("MarkRunOrphaned: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/repair/mark-abandoned", strings.NewReader(`{"reason":"worker deleted"}`))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/runs/"+runID+"/repair/mark-abandoned",
+		strings.NewReader(`{"reason":"worker deleted"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", runID)
 	rec := httptest.NewRecorder()
@@ -3917,7 +4204,8 @@ func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 
 	var status string
 	var reason sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&status, &reason); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&status, &reason); err != nil {
 		t.Fatalf("query run: %v", err)
 	}
 

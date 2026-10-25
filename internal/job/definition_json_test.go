@@ -82,7 +82,10 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 				t.Fatalf("DecodeDefinitionJSON: %v", err)
 			}
 
-			if err := validation.ValidateJob(&decoded, validation.Options{RequireJobID: true, Resolver: resolver}); err != nil {
+			if err := validation.ValidateJob(
+				&decoded,
+				validation.Options{RequireJobID: true, Resolver: resolver},
+			); err != nil {
 				t.Fatalf("ValidateJob: %v", err)
 			}
 		})
@@ -113,7 +116,10 @@ func exampleValidationResolver(t *testing.T) action.Resolver {
 		t.Fatalf("NewLocalManifestSource extensions: %v", err)
 	}
 
-	resolver, err := job.NewActionResolver(actionregistry.NewCompositeResolver(builtins.NewRegistry(), source, extensionSource), nil)
+	resolver, err := job.NewActionResolver(
+		actionregistry.NewCompositeResolver(builtins.NewRegistry(), source, extensionSource),
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("NewActionResolver: %v", err)
 	}

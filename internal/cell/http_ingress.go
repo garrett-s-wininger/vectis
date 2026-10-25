@@ -47,7 +47,12 @@ func NewHTTPExecutionIngress(endpoint string, client HTTPDoer, logger interfaces
 	return NewHTTPExecutionIngressWithOptions(endpoint, client, logger, HTTPExecutionIngressOptions{})
 }
 
-func NewHTTPExecutionIngressWithOptions(endpoint string, client HTTPDoer, logger interfaces.Logger, opts HTTPExecutionIngressOptions) HTTPExecutionIngress {
+func NewHTTPExecutionIngressWithOptions(
+	endpoint string,
+	client HTTPDoer,
+	logger interfaces.Logger,
+	opts HTTPExecutionIngressOptions,
+) HTTPExecutionIngress {
 	endpoint = strings.TrimSpace(endpoint)
 
 	return HTTPExecutionIngress{

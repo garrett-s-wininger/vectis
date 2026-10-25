@@ -67,7 +67,12 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	defer unregister()
 
 	core := fakeCoreFunc(func(ctx context.Context, req ExecuteTaskRequest) error {
-		if got, want := req.Session.CheckoutCacheRemoteURLs(), []string{"https://mirror.invalid/vectis.git"}; !reflect.DeepEqual(got, want) {
+		if got, want := req.Session.CheckoutCacheRemoteURLs(), []string{
+			"https://mirror.invalid/vectis.git",
+		}; !reflect.DeepEqual(
+			got,
+			want,
+		) {
 			t.Fatalf("checkout cache remote urls = %+v, want %+v", got, want)
 		}
 
@@ -349,7 +354,8 @@ func TestServiceCancelTaskForwardsToCore(t *testing.T) {
 		t.Fatal("CancelTask response is nil")
 	}
 
-	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" || core.cancel.Reason != "durable request" {
+	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" ||
+		core.cancel.Reason != "durable request" {
 		t.Fatalf("cancel request = %#v", core.cancel)
 	}
 }
@@ -373,7 +379,9 @@ func TestServiceExecuteTaskRejectsMismatchedWorkloadIdentity(t *testing.T) {
 		Session: &api.WorkerCoreTaskSession{
 			SessionId: proto.String("execution-1"),
 			WorkloadIdentity: &api.WorkerCoreWorkloadIdentity{
-				SpiffeId:    proto.String("spiffe://vectis.local/cell/local/job/job-worker-core/run/other-run/execution/execution-1"),
+				SpiffeId: proto.String(
+					"spiffe://vectis.local/cell/local/job/job-worker-core/run/other-run/execution/execution-1",
+				),
 				JobId:       proto.String(jobID),
 				RunId:       proto.String("other-run"),
 				ExecutionId: proto.String("execution-1"),
@@ -460,7 +468,10 @@ func TestServiceWarmCheckoutCache(t *testing.T) {
 		t.Fatalf("WarmCheckoutCache: %v", err)
 	}
 
-	if !reflect.DeepEqual(core.req.RemoteURLs, []string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"}) {
+	if !reflect.DeepEqual(
+		core.req.RemoteURLs,
+		[]string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"},
+	) {
 		t.Fatalf("warm request = %+v", core.req)
 	}
 
@@ -497,7 +508,10 @@ func (c *recordingWarmCore) ExecuteTask(context.Context, ExecuteTaskRequest) err
 	return nil
 }
 
-func (c *recordingWarmCore) WarmCheckoutCache(_ context.Context, req WarmCheckoutCacheRequest) (WarmCheckoutCacheResult, error) {
+func (c *recordingWarmCore) WarmCheckoutCache(
+	_ context.Context,
+	req WarmCheckoutCacheRequest,
+) (WarmCheckoutCacheResult, error) {
 	c.req = req
 	return c.result, nil
 }
@@ -583,7 +597,10 @@ func (s *closeRecvLogStream) CloseAndRecv() error {
 	return nil
 }
 
-func (p *recordingShellArtifactPublisher) PublishArtifact(_ context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+func (p *recordingShellArtifactPublisher) PublishArtifact(
+	_ context.Context,
+	req action.ArtifactPublishRequest,
+) (action.ArtifactPublishResult, error) {
 	data, err := io.ReadAll(req.Reader)
 	if err != nil {
 		return action.ArtifactPublishResult{}, err

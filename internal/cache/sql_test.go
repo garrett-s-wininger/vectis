@@ -100,7 +100,13 @@ func TestSQLService_Sessions(t *testing.T) {
 	cache := NewSQLService(db, "sqlite3")
 	ctx := context.Background()
 
-	res, err := db.ExecContext(ctx, `INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`, "admin", "hash", true)
+	res, err := db.ExecContext(
+		ctx,
+		`INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`,
+		"admin",
+		"hash",
+		true,
+	)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
@@ -159,7 +165,13 @@ func TestSQLService_SessionExpiry(t *testing.T) {
 	cache := newSQLServiceWithClock(db, "sqlite3", clock)
 	ctx := context.Background()
 
-	res, err := db.ExecContext(ctx, `INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`, "admin", "hash", true)
+	res, err := db.ExecContext(
+		ctx,
+		`INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`,
+		"admin",
+		"hash",
+		true,
+	)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
@@ -189,7 +201,13 @@ func TestSQLService_SessionIdleExpiry(t *testing.T) {
 	cache := newSQLServiceWithClock(db, "sqlite3", clock)
 	ctx := context.Background()
 
-	res, err := db.ExecContext(ctx, `INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`, "admin", "hash", true)
+	res, err := db.ExecContext(
+		ctx,
+		`INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`,
+		"admin",
+		"hash",
+		true,
+	)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}

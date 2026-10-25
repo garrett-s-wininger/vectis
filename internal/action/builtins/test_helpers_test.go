@@ -72,11 +72,14 @@ var _ api.LogService_StreamLogsClient = (*mockLogStream)(nil)
 
 func createTestState(logStream api.LogService_StreamLogsClient) *action.ExecutionState {
 	return &action.ExecutionState{
-		JobID:      "test-job",
-		Workspace:  "/tmp/vectis-test-workspace",
-		ProcessEnv: action.SanitizedProcessEnv("/tmp/vectis-test-workspace", []string{"PATH=/usr/bin", "VECTIS_DATABASE_DSN=secret"}),
-		Logger:     interfaces.NewLogger("test"),
-		LogStream:  logStream,
+		JobID:     "test-job",
+		Workspace: "/tmp/vectis-test-workspace",
+		ProcessEnv: action.SanitizedProcessEnv(
+			"/tmp/vectis-test-workspace",
+			[]string{"PATH=/usr/bin", "VECTIS_DATABASE_DSN=secret"},
+		),
+		Logger:    interfaces.NewLogger("test"),
+		LogStream: logStream,
 	}
 }
 

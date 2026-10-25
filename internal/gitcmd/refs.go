@@ -89,7 +89,7 @@ func resolveGitDirRef(gitDir, commonDir, ref string, seen map[string]struct{}) (
 	if !safeRefName(ref) {
 		return "", false, fmt.Errorf("unsafe git ref %q", ref)
 	}
-	
+
 	if _, ok := seen[ref]; ok {
 		return "", false, fmt.Errorf("cyclic git symbolic ref %q", ref)
 	}
@@ -214,7 +214,7 @@ func safeRefName(ref string) bool {
 	if strings.ContainsAny(ref, "\x00\r\n\\") {
 		return false
 	}
-	
+
 	clean := path.Clean(ref)
 	return clean == ref && !path.IsAbs(ref) && !strings.HasPrefix(clean, "../") && clean != ".."
 }

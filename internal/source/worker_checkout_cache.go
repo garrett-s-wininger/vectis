@@ -102,13 +102,17 @@ func WithWorkerCheckoutCacheCloneRecorder(recorder WorkerCheckoutCacheCloneRecor
 	}
 }
 
-func WithWorkerCheckoutCacheDemandHydrationRecorder(recorder WorkerCheckoutCacheDemandHydrationRecorder) WorkerCheckoutCacheOption {
+func WithWorkerCheckoutCacheDemandHydrationRecorder(
+	recorder WorkerCheckoutCacheDemandHydrationRecorder,
+) WorkerCheckoutCacheOption {
 	return func(c *WorkerCheckoutCache) {
 		c.demandHydrationRecorder = recorder
 	}
 }
 
-func WithWorkerCheckoutCacheGenerationEvictionRecorder(recorder WorkerCheckoutCacheGenerationEvictionRecorder) WorkerCheckoutCacheOption {
+func WithWorkerCheckoutCacheGenerationEvictionRecorder(
+	recorder WorkerCheckoutCacheGenerationEvictionRecorder,
+) WorkerCheckoutCacheOption {
 	return func(c *WorkerCheckoutCache) {
 		c.generationEvictionRecorder = recorder
 	}
@@ -120,11 +124,19 @@ func WithWorkerCheckoutCacheSelfHealRecorder(recorder WorkerCheckoutCacheSelfHea
 	}
 }
 
-func NewWorkerCheckoutCache(root string, persistentRemoteURLs []string, options ...WorkerCheckoutCacheOption) (*WorkerCheckoutCache, error) {
+func NewWorkerCheckoutCache(
+	root string,
+	persistentRemoteURLs []string,
+	options ...WorkerCheckoutCacheOption,
+) (*WorkerCheckoutCache, error) {
 	return NewWorkerCheckoutCacheWithRemotes(root, workerCheckoutCacheRemotesFromURLs(persistentRemoteURLs), options...)
 }
 
-func NewWorkerCheckoutCacheWithRemotes(root string, persistentRemotes []WorkerCheckoutCacheRemote, options ...WorkerCheckoutCacheOption) (*WorkerCheckoutCache, error) {
+func NewWorkerCheckoutCacheWithRemotes(
+	root string,
+	persistentRemotes []WorkerCheckoutCacheRemote,
+	options ...WorkerCheckoutCacheOption,
+) (*WorkerCheckoutCache, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, fmt.Errorf("%w: worker checkout cache root is required", ErrInvalidReference)
@@ -225,7 +237,10 @@ func workerCheckoutCacheRemotesFromURLs(remoteURLs []string) []WorkerCheckoutCac
 	return out
 }
 
-func normalizeWorkerCheckoutCacheFallbackRemoteURLs(primaryRemoteURL string, fallbackRemoteURLs []string) ([]string, error) {
+func normalizeWorkerCheckoutCacheFallbackRemoteURLs(
+	primaryRemoteURL string,
+	fallbackRemoteURLs []string,
+) ([]string, error) {
 	if len(fallbackRemoteURLs) == 0 {
 		return nil, nil
 	}
@@ -287,11 +302,21 @@ func mergeWorkerCheckoutCacheBaseAndExtraRefspecs(base, extra []string) []string
 	return merged
 }
 
-func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger) (bool, error) {
+func (c *WorkerCheckoutCache) Checkout(
+	ctx context.Context,
+	remoteURL, workspace string,
+	logger interfaces.Logger,
+) (bool, error) {
 	return c.checkout(ctx, remoteURL, workspace, logger, false, nil)
 }
 
-func (c *WorkerCheckoutCache) checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger, allowBorrowedObjects bool, retainLease func(*workerCheckoutGenerationLease) error) (bool, error) {
+func (c *WorkerCheckoutCache) checkout(
+	ctx context.Context,
+	remoteURL, workspace string,
+	logger interfaces.Logger,
+	allowBorrowedObjects bool,
+	retainLease func(*workerCheckoutGenerationLease) error,
+) (bool, error) {
 	if c == nil {
 		return false, nil
 	}
@@ -335,7 +360,13 @@ func (c *WorkerCheckoutCache) checkout(ctx context.Context, remoteURL, workspace
 			logger.Info("Cloning repository from worker checkout cache: %s", normalizedRemoteURL)
 		}
 
-		mode, reason, borrowedObjects, err := cloneWorkerCheckoutCacheWorkspaceForLease(ctx, workspace, mirrorPath, c.hardlinkProbe, allowBorrowedObjects)
+		mode, reason, borrowedObjects, err := cloneWorkerCheckoutCacheWorkspaceForLease(
+			ctx,
+			workspace,
+			mirrorPath,
+			c.hardlinkProbe,
+			allowBorrowedObjects,
+		)
 		if err != nil {
 			if attempt == 0 && workerCheckoutCacheErrorLooksCorrupt(err) {
 				if lease != nil {
@@ -345,11 +376,19 @@ func (c *WorkerCheckoutCache) checkout(ctx context.Context, remoteURL, workspace
 				_ = cleanupWorkerCheckoutCachePartialClone(workspace)
 				if healErr := c.retireCurrentMirrorGeneration(ctx, normalizedRemoteURL, mirrorPath); healErr == nil {
 					if _, _, warmErr := c.WarmRemote(ctx, normalizedRemoteURL, logger); warmErr == nil {
-						c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationCheckout, observability.CheckoutCacheSelfHealOutcomeSuccess)
+						c.recordSelfHeal(
+							ctx,
+							observability.CheckoutCacheSelfHealOperationCheckout,
+							observability.CheckoutCacheSelfHealOutcomeSuccess,
+						)
 						continue
 					}
 				}
-				c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationCheckout, observability.CheckoutCacheSelfHealOutcomeFailed)
+				c.recordSelfHeal(
+					ctx,
+					observability.CheckoutCacheSelfHealOperationCheckout,
+					observability.CheckoutCacheSelfHealOutcomeFailed,
+				)
 			}
 
 			return true, fmt.Errorf("clone from worker checkout cache: %w", err)
@@ -375,7 +414,11 @@ func (c *WorkerCheckoutCache) checkout(ctx context.Context, remoteURL, workspace
 	return true, fmt.Errorf("clone from worker checkout cache: retry exhausted")
 }
 
-func (s *WorkerCheckoutCacheScope) Checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger) (bool, error) {
+func (s *WorkerCheckoutCacheScope) Checkout(
+	ctx context.Context,
+	remoteURL, workspace string,
+	logger interfaces.Logger,
+) (bool, error) {
 	if s == nil || s.cache == nil {
 		return false, nil
 	}
@@ -383,7 +426,12 @@ func (s *WorkerCheckoutCacheScope) Checkout(ctx context.Context, remoteURL, work
 	return s.cache.checkout(ctx, remoteURL, workspace, logger, true, s.retainLease)
 }
 
-func (s *WorkerCheckoutCacheScope) FetchRefspecs(ctx context.Context, remoteURL, workspace string, refspecs []string, logger interfaces.Logger) (bool, error) {
+func (s *WorkerCheckoutCacheScope) FetchRefspecs(
+	ctx context.Context,
+	remoteURL, workspace string,
+	refspecs []string,
+	logger interfaces.Logger,
+) (bool, error) {
 	if s == nil || s.cache == nil {
 		return false, nil
 	}
@@ -430,7 +478,12 @@ func (s *WorkerCheckoutCacheScope) retainLease(lease *workerCheckoutGenerationLe
 	return nil
 }
 
-func (c *WorkerCheckoutCache) FetchRefspecs(ctx context.Context, remoteURL, workspace string, refspecs []string, logger interfaces.Logger) (bool, error) {
+func (c *WorkerCheckoutCache) FetchRefspecs(
+	ctx context.Context,
+	remoteURL, workspace string,
+	refspecs []string,
+	logger interfaces.Logger,
+) (bool, error) {
 	if c == nil {
 		return false, nil
 	}
@@ -454,7 +507,10 @@ func (c *WorkerCheckoutCache) FetchRefspecs(ctx context.Context, remoteURL, work
 	}
 
 	if logger != nil {
-		logger.Info("Refreshing worker checkout cache mirror before fetching auxiliary refs: %s", persistentRemote.RemoteURL)
+		logger.Info(
+			"Refreshing worker checkout cache mirror before fetching auxiliary refs: %s",
+			persistentRemote.RemoteURL,
+		)
 	}
 	mirrorRefspecs, err := workerCheckoutCacheMirrorHydrationRefspecs(refspecs)
 	if err != nil {
@@ -469,22 +525,53 @@ func (c *WorkerCheckoutCache) FetchRefspecs(ctx context.Context, remoteURL, work
 	}
 
 	if warmErr != nil && logger != nil {
-		logger.Warn("Worker checkout cache mirror refresh failed before auxiliary ref fetch for %s: %v", persistentRemote.RemoteURL, warmErr)
+		logger.Warn(
+			"Worker checkout cache mirror refresh failed before auxiliary ref fetch for %s: %v",
+			persistentRemote.RemoteURL,
+			warmErr,
+		)
 	}
 
-	if err := fetchWorkerCheckoutCacheWorkspaceRefspecs(ctx, workspace, workerCheckoutCacheRemoteName, refspecs); err != nil {
+	if err := fetchWorkerCheckoutCacheWorkspaceRefspecs(
+		ctx,
+		workspace,
+		workerCheckoutCacheRemoteName,
+		refspecs,
+	); err != nil {
 		if workerCheckoutCacheErrorLooksCorrupt(err) {
 			if mirrorPath, currentErr := c.currentMirrorPath(persistentRemote.RemoteURL); currentErr == nil {
-				if retireErr := c.retireCurrentMirrorGeneration(ctx, persistentRemote.RemoteURL, mirrorPath); retireErr == nil {
-					if _, _, _, rewarmErr := c.warmRemoteStatus(ctx, persistentRemote.RemoteURL, logger, mirrorRefspecs); rewarmErr == nil {
-						if retryErr := fetchWorkerCheckoutCacheWorkspaceRefspecs(ctx, workspace, workerCheckoutCacheRemoteName, refspecs); retryErr == nil {
-							c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationFetchRefspec, observability.CheckoutCacheSelfHealOutcomeSuccess)
+				if retireErr := c.retireCurrentMirrorGeneration(
+					ctx,
+					persistentRemote.RemoteURL,
+					mirrorPath,
+				); retireErr == nil {
+					if _, _, _, rewarmErr := c.warmRemoteStatus(
+						ctx,
+						persistentRemote.RemoteURL,
+						logger,
+						mirrorRefspecs,
+					); rewarmErr == nil {
+						if retryErr := fetchWorkerCheckoutCacheWorkspaceRefspecs(
+							ctx,
+							workspace,
+							workerCheckoutCacheRemoteName,
+							refspecs,
+						); retryErr == nil {
+							c.recordSelfHeal(
+								ctx,
+								observability.CheckoutCacheSelfHealOperationFetchRefspec,
+								observability.CheckoutCacheSelfHealOutcomeSuccess,
+							)
 							return true, nil
 						}
 					}
 				}
 			}
-			c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationFetchRefspec, observability.CheckoutCacheSelfHealOutcomeFailed)
+			c.recordSelfHeal(
+				ctx,
+				observability.CheckoutCacheSelfHealOperationFetchRefspec,
+				observability.CheckoutCacheSelfHealOutcomeFailed,
+			)
 		}
 
 		if warmErr != nil {
@@ -535,20 +622,60 @@ func cloneWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, mirrorPat
 	return cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx, workspace, mirrorPath, runWorkerCacheGit)
 }
 
-func cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner) (string, string, error) {
-	return cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx, workspace, mirrorPath, run, workerCheckoutCacheHardlinksAvailable)
+func cloneWorkerCheckoutCacheWorkspaceWithRunner(
+	ctx context.Context,
+	workspace, mirrorPath string,
+	run workerCheckoutCacheGitRunner,
+) (string, string, error) {
+	return cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(
+		ctx,
+		workspace,
+		mirrorPath,
+		run,
+		workerCheckoutCacheHardlinksAvailable,
+	)
 }
 
-func cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner, canHardlink workerCheckoutCacheHardlinkProbe) (string, string, error) {
-	mode, reason, _, err := cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(ctx, workspace, mirrorPath, run, canHardlink, false)
+func cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(
+	ctx context.Context,
+	workspace, mirrorPath string,
+	run workerCheckoutCacheGitRunner,
+	canHardlink workerCheckoutCacheHardlinkProbe,
+) (string, string, error) {
+	mode, reason, _, err := cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(
+		ctx,
+		workspace,
+		mirrorPath,
+		run,
+		canHardlink,
+		false,
+	)
 	return mode, reason, err
 }
 
-func cloneWorkerCheckoutCacheWorkspaceForLease(ctx context.Context, workspace, mirrorPath string, canHardlink workerCheckoutCacheHardlinkProbe, allowBorrowedObjects bool) (string, string, bool, error) {
-	return cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(ctx, workspace, mirrorPath, runWorkerCacheGit, canHardlink, allowBorrowedObjects)
+func cloneWorkerCheckoutCacheWorkspaceForLease(
+	ctx context.Context,
+	workspace, mirrorPath string,
+	canHardlink workerCheckoutCacheHardlinkProbe,
+	allowBorrowedObjects bool,
+) (string, string, bool, error) {
+	return cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(
+		ctx,
+		workspace,
+		mirrorPath,
+		runWorkerCacheGit,
+		canHardlink,
+		allowBorrowedObjects,
+	)
 }
 
-func cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner, canHardlink workerCheckoutCacheHardlinkProbe, allowBorrowedObjects bool) (string, string, bool, error) {
+func cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(
+	ctx context.Context,
+	workspace, mirrorPath string,
+	run workerCheckoutCacheGitRunner,
+	canHardlink workerCheckoutCacheHardlinkProbe,
+	allowBorrowedObjects bool,
+) (string, string, bool, error) {
 	if run == nil {
 		return "", "", false, fmt.Errorf("%w: worker checkout cache git runner is required", ErrInvalidReference)
 	}
@@ -596,7 +723,10 @@ func workerCheckoutCacheNoHardlinkCloneArgs(allowBorrowedObjects bool) ([]string
 func workerCheckoutCacheHardlinksAvailable(mirrorPath, workspace string) bool {
 	sourcePath := filepath.Join(mirrorPath, "HEAD")
 	for i := range 100 {
-		targetPath := filepath.Join(workspace, fmt.Sprintf(".vectis-checkout-cache-hardlink-probe-%d-%d", os.Getpid(), i))
+		targetPath := filepath.Join(
+			workspace,
+			fmt.Sprintf(".vectis-checkout-cache-hardlink-probe-%d-%d", os.Getpid(), i),
+		)
 		err := os.Link(sourcePath, targetPath)
 		if err == nil {
 			_ = os.Remove(targetPath)
@@ -686,16 +816,29 @@ func cleanupWorkerCheckoutCachePartialClone(workspace string) error {
 	return nil
 }
 
-func (c *WorkerCheckoutCache) WarmRemote(ctx context.Context, remoteURL string, logger interfaces.Logger) (bool, string, error) {
+func (c *WorkerCheckoutCache) WarmRemote(
+	ctx context.Context,
+	remoteURL string,
+	logger interfaces.Logger,
+) (bool, string, error) {
 	handled, normalizedRemoteURL, _, err := c.WarmRemoteStatus(ctx, remoteURL, logger)
 	return handled, normalizedRemoteURL, err
 }
 
-func (c *WorkerCheckoutCache) WarmRemoteStatus(ctx context.Context, remoteURL string, logger interfaces.Logger) (bool, string, bool, error) {
+func (c *WorkerCheckoutCache) WarmRemoteStatus(
+	ctx context.Context,
+	remoteURL string,
+	logger interfaces.Logger,
+) (bool, string, bool, error) {
 	return c.warmRemoteStatus(ctx, remoteURL, logger, nil)
 }
 
-func (c *WorkerCheckoutCache) warmRemoteStatus(ctx context.Context, remoteURL string, logger interfaces.Logger, extraWarmRefspecs []string) (bool, string, bool, error) {
+func (c *WorkerCheckoutCache) warmRemoteStatus(
+	ctx context.Context,
+	remoteURL string,
+	logger interfaces.Logger,
+	extraWarmRefspecs []string,
+) (bool, string, bool, error) {
 	if c == nil {
 		return false, "", false, nil
 	}
@@ -705,7 +848,10 @@ func (c *WorkerCheckoutCache) warmRemoteStatus(ctx context.Context, remoteURL st
 		return handled, "", false, err
 	}
 	remoteURL = persistentRemote.RemoteURL
-	persistentRemote.WarmRefspecs = mergeWorkerCheckoutCacheBaseAndExtraRefspecs(persistentRemote.WarmRefspecs, extraWarmRefspecs)
+	persistentRemote.WarmRefspecs = mergeWorkerCheckoutCacheBaseAndExtraRefspecs(
+		persistentRemote.WarmRefspecs,
+		extraWarmRefspecs,
+	)
 
 	repoPath := c.repositoryPath(remoteURL)
 	lock, err := acquireManagedGitWriterLock(ctx, repoPath)
@@ -736,7 +882,12 @@ func (c *WorkerCheckoutCache) lookupPersistentRemote(remoteURL string) (bool, Wo
 	return true, persistentRemote, nil
 }
 
-func (c *WorkerCheckoutCache) ensureMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, repoPath string, logger interfaces.Logger) (bool, error) {
+func (c *WorkerCheckoutCache) ensureMirror(
+	ctx context.Context,
+	remote WorkerCheckoutCacheRemote,
+	repoPath string,
+	logger interfaces.Logger,
+) (bool, error) {
 	currentPath, err := c.currentMirrorPath(remote.RemoteURL)
 	switch {
 	case err == nil:
@@ -765,7 +916,11 @@ func (c *WorkerCheckoutCache) ensureMirror(ctx context.Context, remote WorkerChe
 	return changed, c.cleanupOldGenerations(ctx, repoPath)
 }
 
-func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote WorkerCheckoutCacheRemote, repoPath, currentPath string) (string, bool, error) {
+func (c *WorkerCheckoutCache) buildMirrorGeneration(
+	ctx context.Context,
+	remote WorkerCheckoutCacheRemote,
+	repoPath, currentPath string,
+) (string, bool, error) {
 	credentialEnv, credentialCleanup, err := managedGitCredentialEnvironment(remote.Credentials)
 	if err != nil {
 		return "", false, fmt.Errorf("worker checkout cache credentials: %w", err)
@@ -817,13 +972,21 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote 
 			}
 		}
 
-		_ = fetchWorkerCheckoutCacheFallbackMirrors(ctx, tmp, credentialEnv, remote.FallbackRemoteURLs, remote.WarmRefspecs)
+		_ = fetchWorkerCheckoutCacheFallbackMirrors(
+			ctx,
+			tmp,
+			credentialEnv,
+			remote.FallbackRemoteURLs,
+			remote.WarmRefspecs,
+		)
 	} else {
 		if resolved, err := filepath.EvalSymlinks(currentPath); err == nil {
 			currentPath = resolved
 		}
 
-		if err := runWorkerCacheGitNoDir(ctx, managedGitCommandArgs("clone", "--mirror", "--local", "--", currentPath, tmp)...); err != nil {
+		if err := runWorkerCacheGitNoDir(
+			ctx,
+			managedGitCommandArgs("clone", "--mirror", "--local", "--", currentPath, tmp)...); err != nil {
 			_ = os.RemoveAll(tmp)
 			return "", false, fmt.Errorf("clone worker checkout cache generation: %w", err)
 		}
@@ -866,7 +1029,11 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote 
 	return generationPath, true, nil
 }
 
-func workerCheckoutCacheMirrorsHaveSameRefs(ctx context.Context, left, right string, warmRefspecs []string) (bool, error) {
+func workerCheckoutCacheMirrorsHaveSameRefs(
+	ctx context.Context,
+	left, right string,
+	warmRefspecs []string,
+) (bool, error) {
 	leftRefs, err := workerCheckoutCacheMirrorRefSnapshot(ctx, left, warmRefspecs)
 	if err != nil {
 		return false, fmt.Errorf("snapshot current worker checkout cache mirror refs: %w", err)
@@ -880,8 +1047,17 @@ func workerCheckoutCacheMirrorsHaveSameRefs(ctx context.Context, left, right str
 	return bytes.Equal(leftRefs, rightRefs), nil
 }
 
-func workerCheckoutCacheRemoteRefsMatchCurrent(ctx context.Context, currentPath string, env []string, remote WorkerCheckoutCacheRemote) (bool, error) {
-	currentRefs, err := workerCheckoutCacheMirrorRefsSnapshot(ctx, currentPath, workerCheckoutCacheDestinationRefPatterns(remote.WarmRefspecs))
+func workerCheckoutCacheRemoteRefsMatchCurrent(
+	ctx context.Context,
+	currentPath string,
+	env []string,
+	remote WorkerCheckoutCacheRemote,
+) (bool, error) {
+	currentRefs, err := workerCheckoutCacheMirrorRefsSnapshot(
+		ctx,
+		currentPath,
+		workerCheckoutCacheDestinationRefPatterns(remote.WarmRefspecs),
+	)
 	if err != nil {
 		return false, fmt.Errorf("snapshot current worker checkout cache advertised refs: %w", err)
 	}
@@ -897,7 +1073,11 @@ func workerCheckoutCacheRemoteRefsMatchCurrent(ctx context.Context, currentPath 
 	return bytes.Equal(currentRefs, remoteRefs), nil
 }
 
-func workerCheckoutCacheMirrorRefSnapshot(ctx context.Context, mirrorPath string, warmRefspecs []string) ([]byte, error) {
+func workerCheckoutCacheMirrorRefSnapshot(
+	ctx context.Context,
+	mirrorPath string,
+	warmRefspecs []string,
+) ([]byte, error) {
 	var snapshot bytes.Buffer
 	head, err := os.ReadFile(filepath.Join(mirrorPath, "HEAD"))
 	if err != nil {
@@ -908,7 +1088,11 @@ func workerCheckoutCacheMirrorRefSnapshot(ctx context.Context, mirrorPath string
 	snapshot.Write(bytes.TrimSpace(head))
 	snapshot.WriteByte('\n')
 
-	refs, err := workerCheckoutCacheMirrorRefsSnapshot(ctx, mirrorPath, workerCheckoutCacheDestinationRefPatterns(warmRefspecs))
+	refs, err := workerCheckoutCacheMirrorRefsSnapshot(
+		ctx,
+		mirrorPath,
+		workerCheckoutCacheDestinationRefPatterns(warmRefspecs),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -918,7 +1102,12 @@ func workerCheckoutCacheMirrorRefSnapshot(ctx context.Context, mirrorPath string
 }
 
 func workerCheckoutCacheMirrorRefsSnapshot(ctx context.Context, mirrorPath string, patterns []string) ([]byte, error) {
-	args := workerCacheMirrorGitArgs(mirrorPath, "for-each-ref", "--sort=refname", "--format=%(refname)%00%(objectname)")
+	args := workerCacheMirrorGitArgs(
+		mirrorPath,
+		"for-each-ref",
+		"--sort=refname",
+		"--format=%(refname)%00%(objectname)",
+	)
 	args = append(args, patterns...)
 	refs, err := runWorkerCacheGitNoDirOutput(ctx, args...)
 	if err != nil {
@@ -928,7 +1117,11 @@ func workerCheckoutCacheMirrorRefsSnapshot(ctx context.Context, mirrorPath strin
 	return refs, nil
 }
 
-func workerCheckoutCacheAdvertisedRefSnapshot(ctx context.Context, env []string, remote WorkerCheckoutCacheRemote) ([]byte, bool, error) {
+func workerCheckoutCacheAdvertisedRefSnapshot(
+	ctx context.Context,
+	env []string,
+	remote WorkerCheckoutCacheRemote,
+) ([]byte, bool, error) {
 	warmRefspecs := workerCheckoutCacheWarmRefspecs(remote.WarmRefspecs)
 	refs, err := workerCheckoutCacheLsRemoteRefs(ctx, env, remote.RemoteURL, warmRefspecs)
 	if err != nil {
@@ -949,7 +1142,12 @@ func workerCheckoutCacheAdvertisedRefSnapshot(ctx context.Context, env []string,
 	return workerCheckoutCacheFormatRefSnapshot(refs), true, nil
 }
 
-func workerCheckoutCacheLsRemoteRefs(ctx context.Context, env []string, remoteURL string, warmRefspecs []string) (map[string]string, error) {
+func workerCheckoutCacheLsRemoteRefs(
+	ctx context.Context,
+	env []string,
+	remoteURL string,
+	warmRefspecs []string,
+) (map[string]string, error) {
 	args := managedGitCommandArgs("ls-remote", "--refs", "--", remoteURL)
 	args = append(args, workerCheckoutCacheSourceRefPatterns(warmRefspecs)...)
 	out, err := runWorkerCacheGitCommandOutputWithEnv(ctx, "", env, args...)
@@ -1106,7 +1304,12 @@ func mapWorkerCheckoutCacheRefspecSource(sourceRef, sourcePattern, destinationPa
 	return destinationPattern[:destinationWildcard] + matched + destinationPattern[destinationWildcard+1:], true
 }
 
-func initializeWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, env []string, tmp string) (string, error) {
+func initializeWorkerCheckoutCacheMirror(
+	ctx context.Context,
+	remote WorkerCheckoutCacheRemote,
+	env []string,
+	tmp string,
+) (string, error) {
 	if len(remote.WarmRefspecs) == 0 {
 		return cloneWorkerCheckoutCacheMirror(ctx, remote, env, tmp)
 	}
@@ -1127,12 +1330,22 @@ func initializeWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheck
 		fetchedFrom = remote.RemoteURL
 	}
 
-	fallbackErr := fetchWorkerCheckoutCacheFallbackMirrors(ctx, tmp, env, remote.FallbackRemoteURLs, remote.WarmRefspecs)
+	fallbackErr := fetchWorkerCheckoutCacheFallbackMirrors(
+		ctx,
+		tmp,
+		env,
+		remote.FallbackRemoteURLs,
+		remote.WarmRefspecs,
+	)
 	if primaryErr != nil {
 		if fallbackErr == nil && len(remote.FallbackRemoteURLs) > 0 {
 			fetchedFrom = remote.FallbackRemoteURLs[0]
 		} else if fallbackErr != nil {
-			return "", fmt.Errorf("initialize worker checkout cache mirror: origin: %v; fallbacks: %w", primaryErr, fallbackErr)
+			return "", fmt.Errorf(
+				"initialize worker checkout cache mirror: origin: %v; fallbacks: %w",
+				primaryErr,
+				fallbackErr,
+			)
 		} else {
 			return "", fmt.Errorf("initialize worker checkout cache mirror: %w", primaryErr)
 		}
@@ -1147,11 +1360,19 @@ func initializeWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheck
 	return fetchedFrom, nil
 }
 
-func cloneWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, env []string, tmp string) (string, error) {
+func cloneWorkerCheckoutCacheMirror(
+	ctx context.Context,
+	remote WorkerCheckoutCacheRemote,
+	env []string,
+	tmp string,
+) (string, error) {
 	remoteURLs := append([]string{remote.RemoteURL}, remote.FallbackRemoteURLs...)
 	var errs []string
 	for _, remoteURL := range remoteURLs {
-		if err := runWorkerCacheGitNoDirWithEnv(ctx, env, managedGitCommandArgs("clone", "--mirror", "--", remoteURL, tmp)...); err != nil {
+		if err := runWorkerCacheGitNoDirWithEnv(
+			ctx,
+			env,
+			managedGitCommandArgs("clone", "--mirror", "--", remoteURL, tmp)...); err != nil {
 			_ = os.RemoveAll(tmp)
 			errs = append(errs, fmt.Sprintf("%s: %v", remoteURL, err))
 			continue
@@ -1168,7 +1389,9 @@ func cloneWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheckoutCa
 }
 
 func addWorkerCheckoutCacheMirrorOrigin(ctx context.Context, mirrorPath, remoteURL string) error {
-	if err := runWorkerCacheGitNoDir(ctx, workerCacheMirrorGitArgs(mirrorPath, "remote", "add", "origin", remoteURL)...); err != nil {
+	if err := runWorkerCacheGitNoDir(
+		ctx,
+		workerCacheMirrorGitArgs(mirrorPath, "remote", "add", "origin", remoteURL)...); err != nil {
 		return fmt.Errorf("add worker checkout cache generation origin: %w", err)
 	}
 
@@ -1176,15 +1399,27 @@ func addWorkerCheckoutCacheMirrorOrigin(ctx context.Context, mirrorPath, remoteU
 }
 
 func setWorkerCheckoutCacheMirrorOrigin(ctx context.Context, mirrorPath, remoteURL string) error {
-	if err := runWorkerCacheGitNoDir(ctx, workerCacheMirrorGitArgs(mirrorPath, "remote", "set-url", "origin", remoteURL)...); err != nil {
+	if err := runWorkerCacheGitNoDir(
+		ctx,
+		workerCacheMirrorGitArgs(mirrorPath, "remote", "set-url", "origin", remoteURL)...); err != nil {
 		return fmt.Errorf("set worker checkout cache generation origin: %w", err)
 	}
 
 	return nil
 }
 
-func configureWorkerCheckoutCacheMirrorHead(ctx context.Context, mirrorPath string, env []string, remoteURL string, warmRefspecs []string) error {
-	out, err := runWorkerCacheGitCommandOutputWithEnv(ctx, "", env, managedGitCommandArgs("ls-remote", "--symref", "--", remoteURL, "HEAD")...)
+func configureWorkerCheckoutCacheMirrorHead(
+	ctx context.Context,
+	mirrorPath string,
+	env []string,
+	remoteURL string,
+	warmRefspecs []string,
+) error {
+	out, err := runWorkerCacheGitCommandOutputWithEnv(
+		ctx,
+		"",
+		env,
+		managedGitCommandArgs("ls-remote", "--symref", "--", remoteURL, "HEAD")...)
 	if err != nil {
 		return nil
 	}
@@ -1199,7 +1434,9 @@ func configureWorkerCheckoutCacheMirrorHead(ctx context.Context, mirrorPath stri
 		return nil
 	}
 
-	if err := runWorkerCacheGitNoDir(ctx, workerCacheMirrorGitArgs(mirrorPath, "symbolic-ref", "HEAD", destinations[0])...); err != nil {
+	if err := runWorkerCacheGitNoDir(
+		ctx,
+		workerCacheMirrorGitArgs(mirrorPath, "symbolic-ref", "HEAD", destinations[0])...); err != nil {
 		return fmt.Errorf("set worker checkout cache generation HEAD: %w", err)
 	}
 
@@ -1222,9 +1459,20 @@ func parseWorkerCheckoutCacheRemoteHead(out []byte) string {
 	return ""
 }
 
-func refreshWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, env []string, remote WorkerCheckoutCacheRemote) error {
+func refreshWorkerCheckoutCacheMirror(
+	ctx context.Context,
+	mirrorPath string,
+	env []string,
+	remote WorkerCheckoutCacheRemote,
+) error {
 	primaryErr := fetchWorkerCheckoutCacheMirror(ctx, mirrorPath, env, "origin", true, remote.WarmRefspecs)
-	fallbackErr := fetchWorkerCheckoutCacheFallbackMirrors(ctx, mirrorPath, env, remote.FallbackRemoteURLs, remote.WarmRefspecs)
+	fallbackErr := fetchWorkerCheckoutCacheFallbackMirrors(
+		ctx,
+		mirrorPath,
+		env,
+		remote.FallbackRemoteURLs,
+		remote.WarmRefspecs,
+	)
 	if primaryErr == nil {
 		return nil
 	}
@@ -1239,7 +1487,13 @@ func refreshWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, en
 	return fmt.Errorf("refresh worker checkout cache mirror: %w", primaryErr)
 }
 
-func fetchWorkerCheckoutCacheFallbackMirrors(ctx context.Context, mirrorPath string, env []string, fallbackRemoteURLs []string, warmRefspecs []string) error {
+func fetchWorkerCheckoutCacheFallbackMirrors(
+	ctx context.Context,
+	mirrorPath string,
+	env []string,
+	fallbackRemoteURLs []string,
+	warmRefspecs []string,
+) error {
 	var errs []string
 	for _, remoteURL := range fallbackRemoteURLs {
 		if err := fetchWorkerCheckoutCacheMirror(ctx, mirrorPath, env, remoteURL, false, warmRefspecs); err != nil {
@@ -1254,7 +1508,14 @@ func fetchWorkerCheckoutCacheFallbackMirrors(ctx context.Context, mirrorPath str
 	return nil
 }
 
-func fetchWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, env []string, remote string, prune bool, warmRefspecs []string) error {
+func fetchWorkerCheckoutCacheMirror(
+	ctx context.Context,
+	mirrorPath string,
+	env []string,
+	remote string,
+	prune bool,
+	warmRefspecs []string,
+) error {
 	args := workerCacheMirrorGitArgs(mirrorPath, "fetch")
 	if prune {
 		args = append(args, "--prune")
@@ -1274,10 +1535,14 @@ func configureWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string) 
 
 func configureWorkerCheckoutCacheWorkspace(workspace, originURL, cacheRemoteURL string) error {
 	settings := gitcmd.NoAutoMaintenanceSettings()
-	settings = append(settings,
+	settings = append(
+		settings,
 		[2]string{"remote.origin.url", originURL},
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".url", cacheRemoteURL},
-		[2]string{"remote." + workerCheckoutCacheRemoteName + ".fetch", "+refs/heads/*:refs/remotes/" + workerCheckoutCacheRemoteName + "/*"},
+		[2]string{
+			"remote." + workerCheckoutCacheRemoteName + ".fetch",
+			"+refs/heads/*:refs/remotes/" + workerCheckoutCacheRemoteName + "/*",
+		},
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".tagOpt", "--no-tags"},
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".skipDefaultUpdate", "true"},
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".skipFetchAll", "true"},
@@ -1390,7 +1655,10 @@ func (c *WorkerCheckoutCache) currentMirrorPathForRepo(repoPath, legacyPath stri
 	return "", os.ErrNotExist
 }
 
-func (c *WorkerCheckoutCache) acquireCurrentMirrorLease(ctx context.Context, remoteURL string) (string, *workerCheckoutGenerationLease, error) {
+func (c *WorkerCheckoutCache) acquireCurrentMirrorLease(
+	ctx context.Context,
+	remoteURL string,
+) (string, *workerCheckoutGenerationLease, error) {
 	repoPath := c.repositoryPath(remoteURL)
 	lock, err := c.acquireLeaseLock(ctx, repoPath)
 	if err != nil {
@@ -1472,7 +1740,10 @@ func (c *WorkerCheckoutCache) newGenerationPath(generationsPath string) string {
 		}
 	}
 
-	return filepath.Join(generationsPath, fmt.Sprintf("%s%020d-%d-fallback.git", workerCheckoutGenerationPrefix, time.Now().UnixNano(), os.Getpid()))
+	return filepath.Join(
+		generationsPath,
+		fmt.Sprintf("%s%020d-%d-fallback.git", workerCheckoutGenerationPrefix, time.Now().UnixNano(), os.Getpid()),
+	)
 }
 
 func (c *WorkerCheckoutCache) flipCurrentGeneration(repoPath, generationPath string) error {
@@ -1620,7 +1891,13 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 	return cleanupEmptyWorkerCheckoutLeaseDirs(repoPath)
 }
 
-func (c *WorkerCheckoutCache) cleanupGenerationsOverBudget(ctx context.Context, repoPath string, generationPaths []string, currentPath string, now time.Time) error {
+func (c *WorkerCheckoutCache) cleanupGenerationsOverBudget(
+	ctx context.Context,
+	repoPath string,
+	generationPaths []string,
+	currentPath string,
+	now time.Time,
+) error {
 	type generationBudgetEntry struct {
 		path  string
 		bytes int64
@@ -1690,7 +1967,11 @@ func (c *WorkerCheckoutCache) acquireLeaseLock(ctx context.Context, repoPath str
 	return acquireManagedGitWriterLock(ctx, filepath.Join(repoPath, "leases"))
 }
 
-func workerCheckoutCacheStats(ctx context.Context, root string, leaseTTL time.Duration) (WorkerCheckoutCacheStats, error) {
+func workerCheckoutCacheStats(
+	ctx context.Context,
+	root string,
+	leaseTTL time.Duration,
+) (WorkerCheckoutCacheStats, error) {
 	var stats WorkerCheckoutCacheStats
 	mirrorsPath := filepath.Join(root, "mirrors")
 	entries, err := os.ReadDir(mirrorsPath)
@@ -1735,7 +2016,11 @@ func workerCheckoutCacheStats(ctx context.Context, root string, leaseTTL time.Du
 	return stats, nil
 }
 
-func workerCheckoutCacheRepositoryStats(ctx context.Context, repoPath string, leaseTTL time.Duration) (WorkerCheckoutCacheStats, error) {
+func workerCheckoutCacheRepositoryStats(
+	ctx context.Context,
+	repoPath string,
+	leaseTTL time.Duration,
+) (WorkerCheckoutCacheStats, error) {
 	var stats WorkerCheckoutCacheStats
 	generationPaths, err := workerCheckoutGenerationPaths(repoPath)
 	if err != nil {
@@ -1756,7 +2041,11 @@ func workerCheckoutCacheRepositoryStats(ctx context.Context, repoPath string, le
 	return stats, nil
 }
 
-func addWorkerCheckoutCacheGenerationStats(ctx context.Context, generationPath string, stats *WorkerCheckoutCacheStats) error {
+func addWorkerCheckoutCacheGenerationStats(
+	ctx context.Context,
+	generationPath string,
+	stats *WorkerCheckoutCacheStats,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -1938,7 +2227,8 @@ func cleanupStaleWorkerCheckoutReceivingGenerations(generationsPath string, ttl 
 }
 
 func isWorkerCheckoutReceivingGenerationName(name string) bool {
-	return strings.HasPrefix(name, workerCheckoutGenerationPrefix) && strings.HasSuffix(name, ".git"+workerCheckoutReceivingSuffix)
+	return strings.HasPrefix(name, workerCheckoutGenerationPrefix) &&
+		strings.HasSuffix(name, ".git"+workerCheckoutReceivingSuffix)
 }
 
 func currentGenerationPath(repoPath string) (string, error) {
@@ -1968,8 +2258,17 @@ func isWorkerCheckoutGenerationPath(repoPath, generationPath string) bool {
 	return strings.HasPrefix(filepath.Base(generationPath), workerCheckoutGenerationPrefix)
 }
 
-func workerCheckoutGenerationHasLeases(repoPath, generationPath string, leaseTTL time.Duration, now time.Time) (bool, error) {
-	leases, err := workerCheckoutFreshLeaseCount(filepath.Join(repoPath, "leases", filepath.Base(generationPath)), leaseTTL, now, true)
+func workerCheckoutGenerationHasLeases(
+	repoPath, generationPath string,
+	leaseTTL time.Duration,
+	now time.Time,
+) (bool, error) {
+	leases, err := workerCheckoutFreshLeaseCount(
+		filepath.Join(repoPath, "leases", filepath.Base(generationPath)),
+		leaseTTL,
+		now,
+		true,
+	)
 	return leases > 0, err
 }
 
@@ -1999,7 +2298,12 @@ func cleanupStaleWorkerCheckoutLeases(repoPath string, leaseTTL time.Duration, n
 	return nil
 }
 
-func workerCheckoutFreshLeaseCount(leaseDir string, leaseTTL time.Duration, now time.Time, removeStale bool) (int64, error) {
+func workerCheckoutFreshLeaseCount(
+	leaseDir string,
+	leaseTTL time.Duration,
+	now time.Time,
+	removeStale bool,
+) (int64, error) {
 	entries, err := os.ReadDir(leaseDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -2189,7 +2493,12 @@ func runWorkerCacheGitCommandWithEnv(ctx context.Context, dir string, env []stri
 	return err
 }
 
-func runWorkerCacheGitCommandOutputWithEnv(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
+func runWorkerCacheGitCommandOutputWithEnv(
+	ctx context.Context,
+	dir string,
+	env []string,
+	args ...string,
+) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if strings.TrimSpace(dir) != "" {
 		cmd.Dir = dir

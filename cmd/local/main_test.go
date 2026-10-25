@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -10,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -60,8 +63,14 @@ func TestBuildLocalTopology_DefaultCell(t *testing.T) {
 		t.Fatalf("cell DB: got %q", cell.CellDB)
 	}
 
-	if cell.QueuePort != config.QueuePort() || cell.SecretsPort != config.SecretsPort() || cell.CellIngressPort != config.CellIngressPort() {
-		t.Fatalf("default ports: queue=%d secrets=%d ingress=%d", cell.QueuePort, cell.SecretsPort, cell.CellIngressPort)
+	if cell.QueuePort != config.QueuePort() || cell.SecretsPort != config.SecretsPort() ||
+		cell.CellIngressPort != config.CellIngressPort() {
+		t.Fatalf(
+			"default ports: queue=%d secrets=%d ingress=%d",
+			cell.QueuePort,
+			cell.SecretsPort,
+			cell.CellIngressPort,
+		)
 	}
 }
 
@@ -274,6 +283,66 @@ func TestLocalBrowserTLSOffUsesHTTP(t *testing.T) {
 	}
 }
 
+func TestLocalPlainHTTPAuthAllowsInsecureCookies(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("auth_enabled", true)
+
+	env := localPlainHTTPAuthEnv(false)
+	if !slices.Contains(env, "VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true") {
+		t.Fatalf("plain HTTP auth env = %v", env)
+	}
+
+	if got := localPlainHTTPAuthEnv(true); got != nil {
+		t.Fatalf("HTTPS auth env = %v, want none", got)
+	}
+
+	viper.Set("auth_enabled", false)
+	if got := localPlainHTTPAuthEnv(false); got != nil {
+		t.Fatalf("auth disabled env = %v, want none", got)
+	}
+}
+
+func TestLocalAPIExitedShortCircuitsSetupPoll(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("exited-process detection uses a Unix process")
+	}
+
+	command := exec.Command("true")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = command.Wait() })
+
+	deadline := time.Now().Add(2 * time.Second)
+	for pidAlive(command.Process.Pid) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if pidAlive(command.Process.Pid) {
+		t.Fatal("exited process still looks alive")
+	}
+
+	trackedMu.Lock()
+	previous := tracked
+	tracked = []trackedCmd{{cmd: command, binary: "vectis-api"}}
+	trackedMu.Unlock()
+	t.Cleanup(func() {
+		trackedMu.Lock()
+		tracked = previous
+		trackedMu.Unlock()
+	})
+
+	started := time.Now()
+	_, err := waitForSetupStatus(t.Context(), &http.Client{Timeout: time.Second}, "http://127.0.0.1:1")
+	if err == nil || !strings.Contains(err.Error(), "exited before it accepted setup") {
+		t.Fatalf("waitForSetupStatus error = %v", err)
+	}
+
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("setup poll took %s after the API exited", elapsed)
+	}
+}
+
 func TestLocalSPIFFEBuildsEnvAndCombinedClientCA(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("local SPIFFE registration config uses Unix socket server API addresses")
@@ -345,7 +414,10 @@ func TestLocalSPIFFEBuildsEnvAndCombinedClientCA(t *testing.T) {
 		}
 	}
 
-	if !hasEnv(cfg.Env, "VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS=unix:uid:501,unix:gid:20,unix:path:/usr/local/bin/vectis-worker") {
+	if !hasEnv(
+		cfg.Env,
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS=unix:uid:501,unix:gid:20,unix:path:/usr/local/bin/vectis-worker",
+	) {
 		t.Fatalf("registration selectors env mismatch: %v", cfg.Env)
 	}
 }
@@ -387,7 +459,8 @@ func TestEmbeddedLocalSPIFFEConfigDefaults(t *testing.T) {
 		t.Fatalf("runtime dir = %q", cfg.RuntimeDir)
 	}
 
-	if cfg.ServerSocket != filepath.Join(cfg.RuntimeDir, "registration.sock") || cfg.AgentSocket != filepath.Join(cfg.RuntimeDir, "workload.sock") {
+	if cfg.ServerSocket != filepath.Join(cfg.RuntimeDir, "registration.sock") ||
+		cfg.AgentSocket != filepath.Join(cfg.RuntimeDir, "workload.sock") {
 		t.Fatalf("sockets = %q %q", cfg.ServerSocket, cfg.AgentSocket)
 	}
 }
@@ -442,7 +515,10 @@ func TestEmbeddedLocalSPIFFEConfigSkipsPlaintextGRPC(t *testing.T) {
 
 func TestStartEmbeddedLocalSPIFFEStartsAuthority(t *testing.T) {
 	resetLocalTestConfig(t)
-	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-spiffe-*") //nolint:usetesting // Keep embedded SPIFFE runtime sockets under a short temp root.
+	dir, err := os.MkdirTemp(
+		shortTempRoot(),
+		"vectis-spiffe-*",
+	) //nolint:usetesting // Keep embedded SPIFFE runtime sockets under a short temp root.
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
@@ -583,6 +659,42 @@ func TestAPIEnvConfigAsCodeRepositories(t *testing.T) {
 
 	if repos[1].RepositoryID != "relative" || repos[1].CheckoutPath != relativeRepo {
 		t.Fatalf("relative source repository mismatch: %+v", repos[1])
+	}
+}
+
+func TestAPIEnvRegistersDefaultSourceRepository(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_LOCAL_SOURCE_REPOSITORIES", "")
+	viper.Set("host", "127.0.0.1")
+
+	env, err := apiEnv()
+	if err != nil {
+		t.Fatalf("apiEnv: %v", err)
+	}
+
+	if !hasEnv(env, "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true") {
+		t.Fatalf("api env missing source sync startup: %v", env)
+	}
+
+	raw, ok := envValue(env, "VECTIS_SOURCE_REPOSITORIES")
+	if !ok {
+		t.Fatalf("api env missing source repositories: %v", env)
+	}
+
+	var repos []config.SourceRepositoryDeclaration
+	if err := json.Unmarshal([]byte(raw), &repos); err != nil {
+		t.Fatalf("decode source repositories: %v", err)
+	}
+
+	if len(repos) != 1 ||
+		repos[0].RepositoryID != "vectis-local" ||
+		repos[0].Namespace != "/" ||
+		repos[0].SourceKind != "local_checkout" ||
+		repos[0].CheckoutMode != "managed" ||
+		repos[0].AuthoringMode != "local_commit" ||
+		repos[0].DefaultRef != "main" ||
+		repos[0].CheckoutPath != "" {
+		t.Fatalf("default source repository = %+v", repos)
 	}
 }
 
@@ -885,12 +997,22 @@ func TestLocalServices_SimpleProfileHealthPortsUseEnvOverrides(t *testing.T) {
 
 func TestLocalDiscoveryRegistryEnv(t *testing.T) {
 	resetLocalTestConfig(t)
-	if got := localDiscoveryRegistryEnv(localProfileSimple); !reflect.DeepEqual(got, []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:8082"}) {
+	if got := localDiscoveryRegistryEnv(
+		localProfileSimple,
+	); !reflect.DeepEqual(
+		got,
+		[]string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:8082"},
+	) {
 		t.Fatalf("default simple discovery env = %v", got)
 	}
 
 	t.Setenv("VECTIS_REGISTRY_PORT", "18082")
-	if got := localDiscoveryRegistryEnv(localProfileSimple); !reflect.DeepEqual(got, []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:18082"}) {
+	if got := localDiscoveryRegistryEnv(
+		localProfileSimple,
+	); !reflect.DeepEqual(
+		got,
+		[]string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:18082"},
+	) {
 		t.Fatalf("overridden simple discovery env = %v", got)
 	}
 }
@@ -1015,7 +1137,11 @@ func TestValidateUIDevAssetsDirRequiresPackageJSON(t *testing.T) {
 
 func TestValidateUIDevAssetsDirAcceptsUIPackage(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"dev":"vite"}}`), 0o600); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "package.json"),
+		[]byte(`{"scripts":{"dev":"vite"}}`),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
 

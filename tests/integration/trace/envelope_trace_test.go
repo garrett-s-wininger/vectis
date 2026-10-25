@@ -57,7 +57,8 @@ func TestEnvelopeTrace_QueueRoundTrip_ToWorkerContext(t *testing.T) {
 
 	client := api.NewQueueServiceClient(conn)
 
-	parentCtx, parentSpan := observability.Tracer("vectis-test-envelope-trace").Start(context.Background(), "api.trigger")
+	parentCtx, parentSpan := observability.Tracer("vectis-test-envelope-trace").
+		Start(context.Background(), "api.trigger")
 	parentSC := parentSpan.SpanContext()
 	if !parentSC.IsValid() {
 		t.Fatal("expected valid parent span context")

@@ -128,7 +128,16 @@ type macroWorkerQueue interface {
 type macroChoreography interface {
 	LoadRun(context.Context, *apipb.JobRequest) error
 	ClaimAndStartExecution(context.Context, string, string, string, time.Time) (dal.ExecutionClaimResult, error)
-	CompleteExecution(context.Context, string, string, string, string, string, string, string) (dal.ExecutionFinalizationResult, error)
+	CompleteExecution(
+		context.Context,
+		string,
+		string,
+		string,
+		string,
+		string,
+		string,
+		string,
+	) (dal.ExecutionFinalizationResult, error)
 	DBBacked() bool
 }
 
@@ -140,7 +149,11 @@ func (c macroSQLChoreography) LoadRun(context.Context, *apipb.JobRequest) error 
 	return nil
 }
 
-func (c macroSQLChoreography) ClaimAndStartExecution(ctx context.Context, runID, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (c macroSQLChoreography) ClaimAndStartExecution(
+	ctx context.Context,
+	runID, executionID, owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	claim, err := c.runs.TryClaimExecution(ctx, executionID, owner, leaseUntil)
 	if err != nil || !claim.Claimed {
 		return claim, err
@@ -156,8 +169,19 @@ func (c macroSQLChoreography) ClaimAndStartExecution(ctx context.Context, runID,
 	return claim, nil
 }
 
-func (c macroSQLChoreography) CompleteExecution(ctx context.Context, runID, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
-	return c.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
+func (c macroSQLChoreography) CompleteExecution(
+	ctx context.Context,
+	runID, executionID, owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
+	return c.runs.CompleteExecutionAndFinalizeRunByClaim(
+		ctx,
+		executionID,
+		owner,
+		claimToken,
+		status,
+		failureCode,
+		reason,
+	)
 }
 
 func (c macroSQLChoreography) DBBacked() bool {
@@ -178,11 +202,18 @@ func (c macroInProcessOrchestratorChoreography) LoadRun(ctx context.Context, req
 	return err
 }
 
-func (c macroInProcessOrchestratorChoreography) ClaimAndStartExecution(ctx context.Context, runID, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (c macroInProcessOrchestratorChoreography) ClaimAndStartExecution(
+	ctx context.Context,
+	runID, executionID, owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	return c.service.ClaimExecution(ctx, runID, executionID, owner, leaseUntil)
 }
 
-func (c macroInProcessOrchestratorChoreography) CompleteExecution(ctx context.Context, runID, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (c macroInProcessOrchestratorChoreography) CompleteExecution(
+	ctx context.Context,
+	runID, executionID, owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	return c.service.CompleteExecutionByClaim(ctx, runID, executionID, owner, claimToken, status, failureCode, reason)
 }
 
@@ -228,13 +259,21 @@ func (c *macroGRPCOrchestratorChoreography) LoadRun(ctx context.Context, req *ap
 	return err
 }
 
-func (c *macroGRPCOrchestratorChoreography) ClaimAndStartExecution(ctx context.Context, runID, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
-	resp, err := c.executionStreamRoundTrip(ctx, owner, &apipb.ExecutionStreamRequest{Claim: &apipb.ClaimExecutionRequest{
-		RunId:              macroString(runID),
-		ExecutionId:        macroString(executionID),
-		Owner:              macroString(owner),
-		LeaseUntilUnixNano: macroInt64(leaseUntil.UnixNano()),
-	}})
+func (c *macroGRPCOrchestratorChoreography) ClaimAndStartExecution(
+	ctx context.Context,
+	runID, executionID, owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
+	resp, err := c.executionStreamRoundTrip(
+		ctx,
+		owner,
+		&apipb.ExecutionStreamRequest{Claim: &apipb.ClaimExecutionRequest{
+			RunId:              macroString(runID),
+			ExecutionId:        macroString(executionID),
+			Owner:              macroString(owner),
+			LeaseUntilUnixNano: macroInt64(leaseUntil.UnixNano()),
+		}},
+	)
 	if err != nil {
 		return dal.ExecutionClaimResult{}, err
 	}
@@ -252,23 +291,32 @@ func (c *macroGRPCOrchestratorChoreography) ClaimAndStartExecution(ctx context.C
 	}, nil
 }
 
-func (c *macroGRPCOrchestratorChoreography) CompleteExecution(ctx context.Context, runID, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
-	resp, err := c.executionStreamRoundTrip(ctx, owner, &apipb.ExecutionStreamRequest{Complete: &apipb.CompleteExecutionRequest{
-		RunId:       macroString(runID),
-		ExecutionId: macroString(executionID),
-		Owner:       macroString(owner),
-		ClaimToken:  macroString(claimToken),
-		Status:      macroString(status),
-		FailureCode: macroString(failureCode),
-		Reason:      macroString(reason),
-	}})
+func (c *macroGRPCOrchestratorChoreography) CompleteExecution(
+	ctx context.Context,
+	runID, executionID, owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
+	resp, err := c.executionStreamRoundTrip(
+		ctx,
+		owner,
+		&apipb.ExecutionStreamRequest{Complete: &apipb.CompleteExecutionRequest{
+			RunId:       macroString(runID),
+			ExecutionId: macroString(executionID),
+			Owner:       macroString(owner),
+			ClaimToken:  macroString(claimToken),
+			Status:      macroString(status),
+			FailureCode: macroString(failureCode),
+			Reason:      macroString(reason),
+		}},
+	)
 	if err != nil {
 		return dal.ExecutionFinalizationResult{}, err
 	}
 
 	result := resp.GetComplete()
 	if result == nil {
-		return dal.ExecutionFinalizationResult{}, fmt.Errorf("orchestrator execution stream returned no complete response")
+		return dal.ExecutionFinalizationResult{}, fmt.Errorf(
+			"orchestrator execution stream returned no complete response",
+		)
 	}
 
 	return dal.ExecutionFinalizationResult{
@@ -285,7 +333,11 @@ func (c *macroGRPCOrchestratorChoreography) DBBacked() bool {
 	return false
 }
 
-func (c *macroGRPCOrchestratorChoreography) executionStreamRoundTrip(ctx context.Context, owner string, req *apipb.ExecutionStreamRequest) (*apipb.ExecutionStreamResponse, error) {
+func (c *macroGRPCOrchestratorChoreography) executionStreamRoundTrip(
+	ctx context.Context,
+	owner string,
+	req *apipb.ExecutionStreamRequest,
+) (*apipb.ExecutionStreamResponse, error) {
 	executionStream := c.executionStreamForOwner(owner)
 
 	executionStream.mu.Lock()
@@ -327,7 +379,10 @@ func (c *macroGRPCOrchestratorChoreography) executionStreamForOwner(owner string
 	return stream
 }
 
-func (c *macroGRPCOrchestratorChoreography) executionStreamClientLocked(ctx context.Context, executionStream *macroGRPCExecutionStream) (apipb.OrchestratorService_ExecutionStreamClient, error) {
+func (c *macroGRPCOrchestratorChoreography) executionStreamClientLocked(
+	ctx context.Context,
+	executionStream *macroGRPCExecutionStream,
+) (apipb.OrchestratorService_ExecutionStreamClient, error) {
 	if executionStream.stream != nil {
 		return executionStream.stream, nil
 	}
@@ -445,7 +500,11 @@ func macroBenchmarkEnvNonNegativeInt64(b *testing.B, name string, defaultValue i
 }
 
 func macroBenchmarkContinuationInlineJobMaxBytes(b *testing.B) int64 {
-	return macroBenchmarkEnvNonNegativeInt64(b, envMacroContinuationInlineJobMaxBytes, defaultMacroContinuationInlineJobMaxBytes)
+	return macroBenchmarkEnvNonNegativeInt64(
+		b,
+		envMacroContinuationInlineJobMaxBytes,
+		defaultMacroContinuationInlineJobMaxBytes,
+	)
 }
 
 func macroBenchmarkEnvBool(b *testing.B, name string, defaultValue bool) bool {
@@ -591,7 +650,11 @@ func macroPgxDSNWithPlanCacheMode(dsn string) (string, error) {
 	switch planCacheMode {
 	case "auto", "force_custom_plan", "force_generic_plan":
 	default:
-		return "", fmt.Errorf("%s must be one of auto, force_custom_plan, or force_generic_plan (got %q)", envVectisDatabasePgxPlanCacheMode, planCacheMode)
+		return "", fmt.Errorf(
+			"%s must be one of auto, force_custom_plan, or force_generic_plan (got %q)",
+			envVectisDatabasePgxPlanCacheMode,
+			planCacheMode,
+		)
 	}
 
 	return macroPgxDSNWithParam(dsn, "plan_cache_mode", planCacheMode), nil
@@ -643,7 +706,8 @@ func TestMacroPgxDSNWithPlanCacheModeURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse resulting dsn: %v", err)
 	}
-	if query := parsed.Query(); query.Get("plan_cache_mode") != "force_generic_plan" || query.Get("sslmode") != "disable" {
+	if query := parsed.Query(); query.Get("plan_cache_mode") != "force_generic_plan" ||
+		query.Get("sslmode") != "disable" {
 		t.Fatalf("query = %v, want plan_cache_mode=force_generic_plan and sslmode=disable", query)
 	}
 }
@@ -651,7 +715,9 @@ func TestMacroPgxDSNWithPlanCacheModeURL(t *testing.T) {
 func TestMacroPgxDSNWithPlanCacheModePreservesExplicitDSN(t *testing.T) {
 	t.Setenv(envVectisDatabasePgxPlanCacheMode, "force_generic_plan")
 
-	got, err := macroPgxDSNWithPlanCacheMode("postgres://user:pass@127.0.0.1:5432/vectis?sslmode=disable&plan_cache_mode=force_custom_plan")
+	got, err := macroPgxDSNWithPlanCacheMode(
+		"postgres://user:pass@127.0.0.1:5432/vectis?sslmode=disable&plan_cache_mode=force_custom_plan",
+	)
 	if err != nil {
 		t.Fatalf("macroPgxDSNWithPlanCacheMode: %v", err)
 	}
@@ -668,7 +734,9 @@ func TestMacroPgxDSNWithPlanCacheModePreservesExplicitDSN(t *testing.T) {
 func TestMacroPgxDSNWithPlanCacheModeInvalid(t *testing.T) {
 	t.Setenv(envVectisDatabasePgxPlanCacheMode, "sometimes")
 
-	if _, err := macroPgxDSNWithPlanCacheMode("postgres://user:pass@127.0.0.1:5432/vectis?sslmode=disable"); err == nil {
+	if _, err := macroPgxDSNWithPlanCacheMode(
+		"postgres://user:pass@127.0.0.1:5432/vectis?sslmode=disable",
+	); err == nil {
 		t.Fatal("macroPgxDSNWithPlanCacheMode succeeded with invalid mode")
 	}
 }
@@ -701,12 +769,24 @@ func resetMacroDBStats(b *testing.B, env macroBenchEnv) bool {
 	defer cancel()
 
 	if _, err := env.db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
-		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable create_extension=%q", b.Name(), b.N, err)
+		emitMacroPGStatLine(
+			b,
+			"# pg_stat_statements benchmark=%s iterations=%d unavailable create_extension=%q",
+			b.Name(),
+			b.N,
+			err,
+		)
 		return false
 	}
 
 	if _, err := env.db.ExecContext(ctx, "SELECT pg_stat_statements_reset()"); err != nil {
-		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable reset=%q", b.Name(), b.N, err)
+		emitMacroPGStatLine(
+			b,
+			"# pg_stat_statements benchmark=%s iterations=%d unavailable reset=%q",
+			b.Name(),
+			b.N,
+			err,
+		)
 		return false
 	}
 
@@ -725,7 +805,13 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 	defer cancel()
 	conn, err := macroPGStatsConn(ctx, env.db)
 	if err != nil {
-		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable conn=%q", b.Name(), b.N, err)
+		emitMacroPGStatLine(
+			b,
+			"# pg_stat_statements benchmark=%s iterations=%d unavailable conn=%q",
+			b.Name(),
+			b.N,
+			err,
+		)
 		return
 	}
 	defer conn.Close()
@@ -759,7 +845,13 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 	`, macroPGStatStatementsTopLimit)
 
 	if err != nil {
-		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable query=%q", b.Name(), b.N, err)
+		emitMacroPGStatLine(
+			b,
+			"# pg_stat_statements benchmark=%s iterations=%d unavailable query=%q",
+			b.Name(),
+			b.N,
+			err,
+		)
 		return
 	}
 	defer rows.Close()
@@ -802,7 +894,13 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 			&walFPI,
 			&walBytes,
 		); err != nil {
-			emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable scan=%q", b.Name(), b.N, err)
+			emitMacroPGStatLine(
+				b,
+				"# pg_stat_statements benchmark=%s iterations=%d unavailable scan=%q",
+				b.Name(),
+				b.N,
+				err,
+			)
 			return
 		}
 
@@ -834,7 +932,13 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 	}
 
 	if err := rows.Err(); err != nil {
-		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable rows=%q", b.Name(), b.N, err)
+		emitMacroPGStatLine(
+			b,
+			"# pg_stat_statements benchmark=%s iterations=%d unavailable rows=%q",
+			b.Name(),
+			b.N,
+			err,
+		)
 	}
 }
 
@@ -889,7 +993,14 @@ func writeMacroPGStatsSnapshot(b *testing.B, env macroBenchEnv, phase string) {
 	}
 	defer file.Close()
 
-	_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s sampled_at=%s\n", sanitizeMacroTSVField(b.Name()), b.N, sanitizeMacroTSVField(phase), time.Now().UTC().Format(time.RFC3339Nano))
+	_, _ = fmt.Fprintf(
+		file,
+		"# benchmark=%s iterations=%d phase=%s sampled_at=%s\n",
+		sanitizeMacroTSVField(b.Name()),
+		b.N,
+		sanitizeMacroTSVField(phase),
+		time.Now().UTC().Format(time.RFC3339Nano),
+	)
 	for _, section := range macroPGStatsSnapshotSections() {
 		writeMacroPGStatsSnapshotSection(ctx, conn, file, b.Name(), b.N, phase, section.name, section.query)
 	}
@@ -908,27 +1019,63 @@ func macroPGStatsSnapshotSections() []macroPGStatsSnapshotSection {
 		{name: "pg_stat_checkpointer", query: "SELECT * FROM pg_stat_checkpointer"},
 		{name: "pg_stat_database", query: "SELECT * FROM pg_stat_database WHERE datname = current_database()"},
 		{name: "pg_stat_user_tables", query: "SELECT * FROM pg_stat_user_tables ORDER BY schemaname, relname"},
-		{name: "pg_stat_user_indexes", query: "SELECT * FROM pg_stat_user_indexes ORDER BY schemaname, relname, indexrelname"},
+		{
+			name:  "pg_stat_user_indexes",
+			query: "SELECT * FROM pg_stat_user_indexes ORDER BY schemaname, relname, indexrelname",
+		},
 		{name: "pg_statio_user_tables", query: "SELECT * FROM pg_statio_user_tables ORDER BY schemaname, relname"},
-		{name: "pg_statio_user_indexes", query: "SELECT * FROM pg_statio_user_indexes ORDER BY schemaname, relname, indexrelname"},
+		{
+			name:  "pg_statio_user_indexes",
+			query: "SELECT * FROM pg_statio_user_indexes ORDER BY schemaname, relname, indexrelname",
+		},
 	}
 }
 
-func writeMacroPGStatsSnapshotSection(ctx context.Context, conn *sql.Conn, file *os.File, benchmark string, iterations int, phase, name, query string) {
+func writeMacroPGStatsSnapshotSection(
+	ctx context.Context,
+	conn *sql.Conn,
+	file *os.File,
+	benchmark string,
+	iterations int,
+	phase, name, query string,
+) {
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
-		_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s unavailable=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+		_, _ = fmt.Fprintf(
+			file,
+			"# benchmark=%s iterations=%d phase=%s section=%s unavailable=%q\n",
+			sanitizeMacroTSVField(benchmark),
+			iterations,
+			sanitizeMacroTSVField(phase),
+			sanitizeMacroTSVField(name),
+			sanitizeMacroTSVField(err.Error()),
+		)
 		return
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s unavailable=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+		_, _ = fmt.Fprintf(
+			file,
+			"# benchmark=%s iterations=%d phase=%s section=%s unavailable=%q\n",
+			sanitizeMacroTSVField(benchmark),
+			iterations,
+			sanitizeMacroTSVField(phase),
+			sanitizeMacroTSVField(name),
+			sanitizeMacroTSVField(err.Error()),
+		)
 		return
 	}
 
-	_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name))
+	_, _ = fmt.Fprintf(
+		file,
+		"# benchmark=%s iterations=%d phase=%s section=%s\n",
+		sanitizeMacroTSVField(benchmark),
+		iterations,
+		sanitizeMacroTSVField(phase),
+		sanitizeMacroTSVField(name),
+	)
 	_, _ = fmt.Fprintln(file, strings.Join(sanitizeMacroTSVFields(columns), "\t"))
 	for rows.Next() {
 		values := make([]any, len(columns))
@@ -938,7 +1085,15 @@ func writeMacroPGStatsSnapshotSection(ctx context.Context, conn *sql.Conn, file 
 		}
 
 		if err := rows.Scan(scan...); err != nil {
-			_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s scan_error=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+			_, _ = fmt.Fprintf(
+				file,
+				"# benchmark=%s iterations=%d phase=%s section=%s scan_error=%q\n",
+				sanitizeMacroTSVField(benchmark),
+				iterations,
+				sanitizeMacroTSVField(phase),
+				sanitizeMacroTSVField(name),
+				sanitizeMacroTSVField(err.Error()),
+			)
 			return
 		}
 
@@ -950,7 +1105,15 @@ func writeMacroPGStatsSnapshotSection(ctx context.Context, conn *sql.Conn, file 
 	}
 
 	if err := rows.Err(); err != nil {
-		_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s rows_error=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+		_, _ = fmt.Fprintf(
+			file,
+			"# benchmark=%s iterations=%d phase=%s section=%s rows_error=%q\n",
+			sanitizeMacroTSVField(benchmark),
+			iterations,
+			sanitizeMacroTSVField(phase),
+			sanitizeMacroTSVField(name),
+			sanitizeMacroTSVField(err.Error()),
+		)
 	}
 }
 
@@ -1054,14 +1217,22 @@ func BenchmarkMacro_ResultActionAPIQueueWorker_TriggerToTerminal(b *testing.B) {
 }
 
 func BenchmarkMacro_OrchestratorResultActionAPIQueueWorker_TriggerToTerminal(b *testing.B) {
-	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, resultMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(
+		b,
+		resultMacroJob(),
+		newMacroInProcessOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_OrchestratorGRPCResultActionAPIQueueWorker_TriggerToTerminal(b *testing.B) {
 	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, resultMacroJob(), newMacroGRPCOrchestratorBenchEnv)
 }
 
-func benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b *testing.B, macroJob macroJobSpec, newEnv macroBenchEnvFactory) {
+func benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(
+	b *testing.B,
+	macroJob macroJobSpec,
+	newEnv macroBenchEnvFactory,
+) {
 	b.Helper()
 
 	ctx := context.Background()
@@ -1122,11 +1293,21 @@ func BenchmarkMacro_OrchestratorGRPCConcurrentNoop_TriggerToTerminal(b *testing.
 }
 
 func BenchmarkMacro_OrchestratorGRPCConcurrentNoop_TriggerToTerminalWithAPIStatusReads(b *testing.B) {
-	runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(b, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv, macroStatusReadAPI)
+	runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(
+		b,
+		noopMacroJob(),
+		newMacroGRPCOrchestratorBenchEnv,
+		macroStatusReadAPI,
+	)
 }
 
 func BenchmarkMacro_OrchestratorGRPCConcurrentNoop_TriggerToTerminalWithHotOwnerStatusReads(b *testing.B) {
-	runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(b, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv, macroStatusReadHotOwnerProbe)
+	runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(
+		b,
+		noopMacroJob(),
+		newMacroGRPCOrchestratorBenchEnv,
+		macroStatusReadHotOwnerProbe,
+	)
 }
 
 func BenchmarkMacro_ResultActionConcurrent_TriggerToTerminal(b *testing.B) {
@@ -1134,7 +1315,11 @@ func BenchmarkMacro_ResultActionConcurrent_TriggerToTerminal(b *testing.B) {
 }
 
 func BenchmarkMacro_OrchestratorResultActionConcurrent_TriggerToTerminal(b *testing.B) {
-	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, resultMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(
+		b,
+		resultMacroJob(),
+		newMacroInProcessOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_OrchestratorGRPCResultActionConcurrent_TriggerToTerminal(b *testing.B) {
@@ -1142,17 +1327,29 @@ func BenchmarkMacro_OrchestratorGRPCResultActionConcurrent_TriggerToTerminal(b *
 }
 
 func BenchmarkMacro_OrchestratorGRPCConcurrentE2ECanonicalLocal_TriggerToTerminal(b *testing.B) {
-	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, e2eCanonicalLocalMacroJob(b), newMacroGRPCOrchestratorBenchEnv)
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(
+		b,
+		e2eCanonicalLocalMacroJob(b),
+		newMacroGRPCOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_OrchestratorGRPCConcurrentE2ECanonicalDistributed_TriggerToTerminal(b *testing.B) {
-	runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b, e2eCanonicalDistributedMacroJob(b), newMacroGRPCOrchestratorBenchEnv)
+	runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(
+		b,
+		e2eCanonicalDistributedMacroJob(b),
+		newMacroGRPCOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_OrchestratorConcurrentShallowFanoutResult_TriggerToTerminal(b *testing.B) {
 	for _, width := range macroBenchmarkFanoutWidths(b) {
 		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
-			runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b, shallowFanoutResultMacroJob(b, width), newMacroInProcessOrchestratorBenchEnv)
+			runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(
+				b,
+				shallowFanoutResultMacroJob(b, width),
+				newMacroInProcessOrchestratorBenchEnv,
+			)
 		})
 	}
 }
@@ -1160,12 +1357,20 @@ func BenchmarkMacro_OrchestratorConcurrentShallowFanoutResult_TriggerToTerminal(
 func BenchmarkMacro_OrchestratorGRPCConcurrentShallowFanoutResult_TriggerToTerminal(b *testing.B) {
 	for _, width := range macroBenchmarkFanoutWidths(b) {
 		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
-			runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b, shallowFanoutResultMacroJob(b, width), newMacroGRPCOrchestratorBenchEnv)
+			runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(
+				b,
+				shallowFanoutResultMacroJob(b, width),
+				newMacroGRPCOrchestratorBenchEnv,
+			)
 		})
 	}
 }
 
-func runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, macroJob macroJobSpec, newEnv macroBenchEnvFactory) {
+func runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(
+	b *testing.B,
+	macroJob macroJobSpec,
+	newEnv macroBenchEnvFactory,
+) {
 	b.Helper()
 
 	triggerClients := macroBenchmarkTriggerClients(b)
@@ -1191,7 +1396,15 @@ func runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, mac
 	}()
 
 	workStart := time.Now()
-	_, triggerDuration := triggerMacroBurst(b, ctx, env.handler, macroJob.id, triggerClients, totalRuns, triggerRegistry.add)
+	_, triggerDuration := triggerMacroBurst(
+		b,
+		ctx,
+		env.handler,
+		macroJob.id,
+		triggerClients,
+		totalRuns,
+		triggerRegistry.add,
+	)
 	triggerDone := time.Now()
 	results := collectMacroWorkerResults(b, resultCh, totalRuns)
 	terminalDone := time.Now()
@@ -1247,7 +1460,11 @@ func runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, mac
 	b.ReportMetric(float64(totalRuns), "total_runs")
 }
 
-func runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, macroJob macroJobSpec, newEnv macroBenchEnvFactory) {
+func runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(
+	b *testing.B,
+	macroJob macroJobSpec,
+	newEnv macroBenchEnvFactory,
+) {
 	b.Helper()
 
 	triggerClients := macroBenchmarkTriggerClients(b)
@@ -1279,7 +1496,15 @@ func runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, ma
 	}()
 
 	workStart := time.Now()
-	_, triggerDuration := triggerMacroBurst(b, ctx, env.handler, macroJob.id, triggerClients, totalRuns, triggerRegistry.add)
+	_, triggerDuration := triggerMacroBurst(
+		b,
+		ctx,
+		env.handler,
+		macroJob.id,
+		triggerClients,
+		totalRuns,
+		triggerRegistry.add,
+	)
 	triggerDone := time.Now()
 	terminalResults := collectMacroDistributedTerminalResults(b, terminalCh, totalRuns)
 	taskResults := collectMacroDistributedTaskResults(b, taskCh, totalTasks)
@@ -1394,12 +1619,20 @@ func runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(
 	}()
 
 	workStart := time.Now()
-	_, triggerDuration := triggerMacroBurst(b, ctx, env.handler, macroJob.id, triggerClients, totalRuns, func(info macroTriggerInfo) {
-		triggerRegistry.add(info)
-		for i := 0; i < statusReadsPerRun; i++ {
-			statusReadJobs <- macroStatusReadJob{runID: info.runID}
-		}
-	})
+	_, triggerDuration := triggerMacroBurst(
+		b,
+		ctx,
+		env.handler,
+		macroJob.id,
+		triggerClients,
+		totalRuns,
+		func(info macroTriggerInfo) {
+			triggerRegistry.add(info)
+			for i := 0; i < statusReadsPerRun; i++ {
+				statusReadJobs <- macroStatusReadJob{runID: info.runID}
+			}
+		},
+	)
 	closeStatusJobs()
 	triggerDone := time.Now()
 	results := collectMacroWorkerResults(b, resultCh, totalRuns)
@@ -1647,7 +1880,13 @@ func benchmarkMacroDBEnsurePlannedFanoutTasksBatchWithEnv(b *testing.B, width in
 
 	createdTasks := 0
 	for i := 0; i < b.N; i++ {
-		result, err := job.EnsureJobTaskExecutionsWithActions(ctx, env.runs, jobs[i], dal.DefaultCellID, env.actionResolver)
+		result, err := job.EnsureJobTaskExecutionsWithActions(
+			ctx,
+			env.runs,
+			jobs[i],
+			dal.DefaultCellID,
+			env.actionResolver,
+		)
 		if err != nil {
 			b.Fatalf("ensure planned fanout tasks for run %s: %v", jobs[i].GetRunId(), err)
 		}
@@ -1887,7 +2126,15 @@ func benchmarkMacroDBCompleteExecutionAndFinalizeRootWithEnv(b *testing.B, newEn
 	start := time.Now()
 
 	for i := 0; i < b.N; i++ {
-		result, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, claimed[i].executionID, claimed[i].owner, claimed[i].claimToken, dal.ExecutionStatusSucceeded, "", "")
+		result, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(
+			ctx,
+			claimed[i].executionID,
+			claimed[i].owner,
+			claimed[i].claimToken,
+			dal.ExecutionStatusSucceeded,
+			"",
+			"",
+		)
 		if err != nil {
 			b.Fatalf("complete root execution %s: %v", claimed[i].executionID, err)
 		}
@@ -1934,12 +2181,27 @@ func benchmarkMacroDBCompleteExecutionAndActivateFanoutWithEnv(b *testing.B, wid
 
 	activatedTasks := 0
 	for i := 0; i < b.N; i++ {
-		result, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, claimed[i].executionID, claimed[i].owner, claimed[i].claimToken, dal.ExecutionStatusSucceeded, "", "")
+		result, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(
+			ctx,
+			claimed[i].executionID,
+			claimed[i].owner,
+			claimed[i].claimToken,
+			dal.ExecutionStatusSucceeded,
+			"",
+			"",
+		)
 		if err != nil {
 			b.Fatalf("complete fanout root execution %s: %v", claimed[i].executionID, err)
 		}
-		if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != width || len(result.Children) != width {
-			b.Fatalf("fanout root result: outcome=%q activated=%d children=%d width=%d", result.Outcome, result.Activated, len(result.Children), width)
+		if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != width ||
+			len(result.Children) != width {
+			b.Fatalf(
+				"fanout root result: outcome=%q activated=%d children=%d width=%d",
+				result.Outcome,
+				result.Activated,
+				len(result.Children),
+				width,
+			)
 		}
 		activatedTasks += result.Activated
 	}
@@ -1974,11 +2236,21 @@ func BenchmarkMacro_WorkerClaimAckComplete(b *testing.B) {
 }
 
 func BenchmarkMacro_OrchestratorWorkerClaimAckComplete(b *testing.B) {
-	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, macroBenchmarkWorkers(b), noopMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(
+		b,
+		macroBenchmarkWorkers(b),
+		noopMacroJob(),
+		newMacroInProcessOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_OrchestratorGRPCWorkerClaimAckComplete(b *testing.B) {
-	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, macroBenchmarkWorkers(b), noopMacroJob(), newMacroGRPCOrchestratorBenchEnv)
+	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(
+		b,
+		macroBenchmarkWorkers(b),
+		noopMacroJob(),
+		newMacroGRPCOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_ResultActionWorkerClaimAckComplete(b *testing.B) {
@@ -1986,11 +2258,21 @@ func BenchmarkMacro_ResultActionWorkerClaimAckComplete(b *testing.B) {
 }
 
 func BenchmarkMacro_OrchestratorResultActionWorkerClaimAckComplete(b *testing.B) {
-	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, macroBenchmarkWorkers(b), resultMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(
+		b,
+		macroBenchmarkWorkers(b),
+		resultMacroJob(),
+		newMacroInProcessOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_OrchestratorGRPCResultActionWorkerClaimAckComplete(b *testing.B) {
-	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, macroBenchmarkWorkers(b), resultMacroJob(), newMacroGRPCOrchestratorBenchEnv)
+	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(
+		b,
+		macroBenchmarkWorkers(b),
+		resultMacroJob(),
+		newMacroGRPCOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_WorkerClaimAckFinalize(b *testing.B) {
@@ -1998,11 +2280,19 @@ func BenchmarkMacro_WorkerClaimAckFinalize(b *testing.B) {
 }
 
 func BenchmarkMacro_OrchestratorWorkerClaimAckFinalize(b *testing.B) {
-	runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(b, macroBenchmarkWorkers(b), newMacroInProcessOrchestratorBenchEnv)
+	runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(
+		b,
+		macroBenchmarkWorkers(b),
+		newMacroInProcessOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_OrchestratorGRPCWorkerClaimAckFinalize(b *testing.B) {
-	runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(b, macroBenchmarkWorkers(b), newMacroGRPCOrchestratorBenchEnv)
+	runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(
+		b,
+		macroBenchmarkWorkers(b),
+		newMacroGRPCOrchestratorBenchEnv,
+	)
 }
 
 func BenchmarkMacro_WorkerScale_ClaimAckComplete(b *testing.B) {
@@ -2016,7 +2306,12 @@ func BenchmarkMacro_WorkerScale_ClaimAckComplete(b *testing.B) {
 func BenchmarkMacro_OrchestratorWorkerScale_ClaimAckComplete(b *testing.B) {
 	for _, workers := range macroBenchmarkWorkerCounts(b) {
 		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
-			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, workers, noopMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(
+				b,
+				workers,
+				noopMacroJob(),
+				newMacroInProcessOrchestratorBenchEnv,
+			)
 		})
 	}
 }
@@ -2024,7 +2319,12 @@ func BenchmarkMacro_OrchestratorWorkerScale_ClaimAckComplete(b *testing.B) {
 func BenchmarkMacro_OrchestratorGRPCWorkerScale_ClaimAckComplete(b *testing.B) {
 	for _, workers := range macroBenchmarkWorkerCounts(b) {
 		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
-			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, workers, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv)
+			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(
+				b,
+				workers,
+				noopMacroJob(),
+				newMacroGRPCOrchestratorBenchEnv,
+			)
 		})
 	}
 }
@@ -2104,7 +2404,12 @@ type macroJobSpec struct {
 }
 
 func noopMacroJob() macroJobSpec {
-	return macroJobSpec{id: "macro-noop", uses: "builtins/script", with: map[string]string{"script": "true"}, command: "true"}
+	return macroJobSpec{
+		id:      "macro-noop",
+		uses:    "builtins/script",
+		with:    map[string]string{"script": "true"},
+		command: "true",
+	}
 }
 
 func resultMacroJob() macroJobSpec {
@@ -2310,7 +2615,10 @@ type macroArtifactPublisher struct {
 	bytes     atomic.Int64
 }
 
-func (p *macroArtifactPublisher) PublishArtifact(_ context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+func (p *macroArtifactPublisher) PublishArtifact(
+	_ context.Context,
+	req action.ArtifactPublishRequest,
+) (action.ArtifactPublishResult, error) {
 	if req.Reader == nil {
 		return action.ArtifactPublishResult{}, fmt.Errorf("artifact reader is required")
 	}
@@ -2512,10 +2820,19 @@ func runMacroAPITriggerToQueuedBenchmarkWithJob(b *testing.B, macroJob macroJobS
 			b.Fatalf("ack queued delivery %s: %v", deliveryID, err)
 		}
 
-		acceptedToQueueSamples = append(acceptedToQueueSamples, max(queueAcceptedAt.Sub(info.httpAcceptedAt).Nanoseconds(), 0))
-		triggerToQueueSamples = append(triggerToQueueSamples, max(queueAcceptedAt.Sub(info.triggerStart).Nanoseconds(), 0))
+		acceptedToQueueSamples = append(
+			acceptedToQueueSamples,
+			max(queueAcceptedAt.Sub(info.httpAcceptedAt).Nanoseconds(), 0),
+		)
+		triggerToQueueSamples = append(
+			triggerToQueueSamples,
+			max(queueAcceptedAt.Sub(info.triggerStart).Nanoseconds(), 0),
+		)
 		queueToDequeuedSamples = append(queueToDequeuedSamples, max(dequeuedAt.Sub(queueAcceptedAt).Nanoseconds(), 0))
-		triggerRequestSamples = append(triggerRequestSamples, max(info.httpAcceptedAt.Sub(info.triggerStart).Nanoseconds(), 0))
+		triggerRequestSamples = append(
+			triggerRequestSamples,
+			max(info.httpAcceptedAt.Sub(info.triggerStart).Nanoseconds(), 0),
+		)
 	}
 
 	elapsed := time.Since(start)
@@ -2665,7 +2982,11 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b *testing.B, workerCoun
 	runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(b, workerCount, newMacroBenchEnv)
 }
 
-func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(b *testing.B, workerCount int, newEnv macroBenchEnvFactory) {
+func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(
+	b *testing.B,
+	workerCount int,
+	newEnv macroBenchEnvFactory,
+) {
 	b.Helper()
 
 	ctx := context.Background()
@@ -2733,7 +3054,14 @@ func preseedMacroQueuedRunMeasured(
 
 	req := macroJobRequest(b, job, runID)
 	attachStarted := time.Now()
-	if _, err := cell.AttachPendingExecutionEnvelopeWithActions(ctx, env.runs, req, runID, time.Now().UnixNano(), env.actionResolver); err != nil {
+	if _, err := cell.AttachPendingExecutionEnvelopeWithActions(
+		ctx,
+		env.runs,
+		req,
+		runID,
+		time.Now().UnixNano(),
+		env.actionResolver,
+	); err != nil {
 		b.Fatalf("attach execution envelope for queued run %s: %v", runID, err)
 	}
 
@@ -2767,7 +3095,13 @@ type macroDBClaimedExecution struct {
 	claimToken  string
 }
 
-func createMacroDBBenchmarkRun(b *testing.B, ctx context.Context, env macroBenchEnv, jobID string, runIndex int) string {
+func createMacroDBBenchmarkRun(
+	b *testing.B,
+	ctx context.Context,
+	env macroBenchEnv,
+	jobID string,
+	runIndex int,
+) string {
 	b.Helper()
 
 	runID, _, err := env.runs.CreateRun(ctx, jobID, &runIndex, 1)
@@ -2793,7 +3127,13 @@ func seedMacroRunHotStateOwner(b *testing.B, ctx context.Context, runs dal.RunsR
 	}
 }
 
-func prepareMacroDBClaimedRootExecution(b *testing.B, ctx context.Context, env macroBenchEnv, jobID string, runIndex int) macroDBClaimedExecution {
+func prepareMacroDBClaimedRootExecution(
+	b *testing.B,
+	ctx context.Context,
+	env macroBenchEnv,
+	jobID string,
+	runIndex int,
+) macroDBClaimedExecution {
 	b.Helper()
 
 	runID := createMacroDBBenchmarkRun(b, ctx, env, jobID, runIndex)
@@ -2820,7 +3160,12 @@ func prepareMacroDBClaimedRootExecution(b *testing.B, ctx context.Context, env m
 	}
 }
 
-func ensureMacroBenchmarkPlannedChild(ctx context.Context, runs dal.RunsRepository, runID string, child int) (dal.TaskExecutionRecord, bool, error) {
+func ensureMacroBenchmarkPlannedChild(
+	ctx context.Context,
+	runs dal.RunsRepository,
+	runID string,
+	child int,
+) (dal.TaskExecutionRecord, bool, error) {
 	taskKey := fmt.Sprintf("child-%05d", child)
 	return runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
 		RunID:        runID,
@@ -3048,7 +3393,11 @@ func startMacroClaimAckFinalizeWorkers(
 
 				jobReq, err := env.queue.TryDequeue(ctx, &apipb.DequeueRequest{})
 				if err != nil {
-					sendMacroClaimAckFinalizeResult(ctx, resultCh, macroClaimAckFinalizeResult{err: fmt.Errorf("try dequeue: %w", err)})
+					sendMacroClaimAckFinalizeResult(
+						ctx,
+						resultCh,
+						macroClaimAckFinalizeResult{err: fmt.Errorf("try dequeue: %w", err)},
+					)
 					return
 				}
 
@@ -3152,7 +3501,13 @@ func finishDequeuedMacroClaimAck(
 
 	queueAcceptedAt := macroQueueAcceptedAt(jobReq, dequeuedAt)
 	claimStarted := time.Now()
-	executionClaim, err := env.choreo.ClaimAndStartExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	executionClaim, err := env.choreo.ClaimAndStartExecution(
+		ctx,
+		runID,
+		executionEnvelope.ExecutionID,
+		workerID,
+		time.Now().Add(dal.DefaultLeaseTTL),
+	)
 	claimedAt := time.Now()
 	dbTimings.choreographyClaimAndStart = claimedAt.Sub(claimStarted).Nanoseconds()
 	if env.choreo.DBBacked() {
@@ -3208,14 +3563,24 @@ func finishDequeuedMacroClaimAckFinalize(
 	}
 
 	claimStarted := time.Now()
-	executionClaim, err := env.choreo.ClaimAndStartExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	executionClaim, err := env.choreo.ClaimAndStartExecution(
+		ctx,
+		runID,
+		executionEnvelope.ExecutionID,
+		workerID,
+		time.Now().Add(dal.DefaultLeaseTTL),
+	)
 	claimedAt := time.Now()
 	dbTimings.choreographyClaimAndStart = claimedAt.Sub(claimStarted).Nanoseconds()
 	if env.choreo.DBBacked() {
 		dbTimings.tryClaimExecution = dbTimings.choreographyClaimAndStart
 	}
 	if err != nil {
-		return macroClaimAckFinalizeTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf(
+			"try claim execution %s: %w",
+			executionEnvelope.ExecutionID,
+			err,
+		)
 	}
 	if !executionClaim.Claimed {
 		return macroClaimAckFinalizeTimings{}, fmt.Errorf("execution %s was not claimed", executionEnvelope.ExecutionID)
@@ -3233,17 +3598,34 @@ func finishDequeuedMacroClaimAckFinalize(
 	ackedAt := time.Now()
 
 	finalizeStarted := time.Now()
-	finalized, err := env.choreo.CompleteExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalized, err := env.choreo.CompleteExecution(
+		ctx,
+		runID,
+		executionEnvelope.ExecutionID,
+		workerID,
+		executionClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	finalizedAt := time.Now()
 	dbTimings.choreographyFinalize = finalizedAt.Sub(finalizeStarted).Nanoseconds()
 	if env.choreo.DBBacked() {
 		dbTimings.finalizeExecution = dbTimings.choreographyFinalize
 	}
 	if err != nil {
-		return macroClaimAckFinalizeTimings{}, fmt.Errorf("finalize execution %s: %w", executionEnvelope.ExecutionID, err)
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf(
+			"finalize execution %s: %w",
+			executionEnvelope.ExecutionID,
+			err,
+		)
 	}
 	if finalized.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
-		return macroClaimAckFinalizeTimings{}, fmt.Errorf("finalize execution %s outcome %q", executionEnvelope.ExecutionID, finalized.Outcome)
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf(
+			"finalize execution %s outcome %q",
+			executionEnvelope.ExecutionID,
+			finalized.Outcome,
+		)
 	}
 
 	return macroClaimAckFinalizeTimings{
@@ -3315,7 +3697,11 @@ func sendMacroClaimAckResult(ctx context.Context, ch chan<- macroClaimAckResult,
 	}
 }
 
-func sendMacroClaimAckFinalizeResult(ctx context.Context, ch chan<- macroClaimAckFinalizeResult, result macroClaimAckFinalizeResult) {
+func sendMacroClaimAckFinalizeResult(
+	ctx context.Context,
+	ch chan<- macroClaimAckFinalizeResult,
+	result macroClaimAckFinalizeResult,
+) {
 	select {
 	case ch <- result:
 	case <-ctx.Done():
@@ -3382,7 +3768,10 @@ func reportMacroRunTimingMetrics(b *testing.B, results []macroRunTimings) {
 	for _, timings := range results {
 		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
 		claimedToTerminalSamples = append(claimedToTerminalSamples, timings.claimedToTerminal)
-		dequeuedToTerminalSamples = append(dequeuedToTerminalSamples, timings.dequeuedToClaimed+timings.claimedToTerminal)
+		dequeuedToTerminalSamples = append(
+			dequeuedToTerminalSamples,
+			timings.dequeuedToClaimed+timings.claimedToTerminal,
+		)
 		logFlushSamples = append(logFlushSamples, timings.logFlush)
 		dbTimingSamples = append(dbTimingSamples, timings.db)
 	}
@@ -3571,7 +3960,11 @@ func triggerMacroBurst(
 	return infos, duration
 }
 
-func triggerMacroJob(ctx context.Context, handler http.Handler, jobID, idempotencyKey string) (macroTriggerInfo, error) {
+func triggerMacroJob(
+	ctx context.Context,
+	handler http.Handler,
+	jobID, idempotencyKey string,
+) (macroTriggerInfo, error) {
 	triggerStart := time.Now()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil).WithContext(ctx)
@@ -3735,7 +4128,11 @@ func startMacroDistributedWorkers(
 
 				jobReq, err := env.queue.TryDequeue(ctx, &apipb.DequeueRequest{})
 				if err != nil {
-					sendMacroDistributedTaskResult(ctx, taskCh, macroDistributedTaskResult{err: fmt.Errorf("try dequeue: %w", err)})
+					sendMacroDistributedTaskResult(
+						ctx,
+						taskCh,
+						macroDistributedTaskResult{err: fmt.Errorf("try dequeue: %w", err)},
+					)
 					return
 				}
 
@@ -3758,25 +4155,45 @@ func startMacroDistributedWorkers(
 					return
 				}
 
-				execution, err := finishDequeuedMacroExecution(ctx, env, jobReq, info, dequeuedAt, workerID, noopLogClient{})
+				execution, err := finishDequeuedMacroExecution(
+					ctx,
+					env,
+					jobReq,
+					info,
+					dequeuedAt,
+					workerID,
+					noopLogClient{},
+				)
 				execution.timings.db.choreographyLoadRun += dbTimings.choreographyLoadRun
 				if err != nil {
-					sendMacroDistributedTaskResult(ctx, taskCh, macroDistributedTaskResult{execution: execution, err: err})
+					sendMacroDistributedTaskResult(
+						ctx,
+						taskCh,
+						macroDistributedTaskResult{execution: execution, err: err},
+					)
 					return
 				}
 
-				if execution.outcome == dal.ExecutionFinalizationOutcomeContinued || execution.outcome == dal.ExecutionFinalizationOutcomeWaiting {
+				if execution.outcome == dal.ExecutionFinalizationOutcomeContinued ||
+					execution.outcome == dal.ExecutionFinalizationOutcomeWaiting {
 					enqueued, err := enqueueMacroContinuationExecutions(ctx, env, jobReq, execution)
 					execution.childEnqueue = enqueued
 					if err != nil {
-						sendMacroDistributedTaskResult(ctx, taskCh, macroDistributedTaskResult{execution: execution, err: err})
+						sendMacroDistributedTaskResult(
+							ctx,
+							taskCh,
+							macroDistributedTaskResult{execution: execution, err: err},
+						)
 						return
 					}
 
 					if execution.outcome == dal.ExecutionFinalizationOutcomeContinued && enqueued == 0 {
 						sendMacroDistributedTaskResult(ctx, taskCh, macroDistributedTaskResult{
 							execution: execution,
-							err:       fmt.Errorf("continued execution %s without dispatchable children", execution.taskKey),
+							err: fmt.Errorf(
+								"continued execution %s without dispatchable children",
+								execution.taskKey,
+							),
 						})
 
 						return
@@ -3787,7 +4204,11 @@ func startMacroDistributedWorkers(
 
 				switch execution.outcome {
 				case dal.ExecutionFinalizationOutcomeRunSucceeded:
-					sendMacroDistributedTerminalResult(ctx, terminalCh, macroDistributedTerminalResult{timings: execution.timings})
+					sendMacroDistributedTerminalResult(
+						ctx,
+						terminalCh,
+						macroDistributedTerminalResult{timings: execution.timings},
+					)
 				case dal.ExecutionFinalizationOutcomeRunFailed:
 					sendMacroDistributedTerminalResult(ctx, terminalCh, macroDistributedTerminalResult{
 						timings: execution.timings,
@@ -3799,7 +4220,11 @@ func startMacroDistributedWorkers(
 				default:
 					sendMacroDistributedTaskResult(ctx, taskCh, macroDistributedTaskResult{
 						execution: execution,
-						err:       fmt.Errorf("unsupported execution outcome %q for task %s", execution.outcome, execution.taskKey),
+						err: fmt.Errorf(
+							"unsupported execution outcome %q for task %s",
+							execution.outcome,
+							execution.taskKey,
+						),
 					})
 
 					return
@@ -3854,7 +4279,12 @@ func startMacroStatusReaders(
 	return wg.Wait
 }
 
-func runMacroStatusRead(ctx context.Context, env macroBenchEnv, mode macroStatusReadMode, runID string) (bool, bool, error) {
+func runMacroStatusRead(
+	ctx context.Context,
+	env macroBenchEnv,
+	mode macroStatusReadMode,
+	runID string,
+) (bool, bool, error) {
 	switch mode {
 	case macroStatusReadAPI:
 		return false, false, runMacroAPIStatusRead(ctx, env, runID)
@@ -3952,7 +4382,12 @@ func enqueueMacroContinuationExecutions(
 		}
 
 		dispatch := macroExecutionDispatchRecordFromTaskExecution(jobDef, source, child)
-		if _, err := cell.AttachExecutionEnvelopeWithActions(req, dispatch, time.Now().UnixNano(), env.actionResolver); err != nil {
+		if _, err := cell.AttachExecutionEnvelopeWithActions(
+			req,
+			dispatch,
+			time.Now().UnixNano(),
+			env.actionResolver,
+		); err != nil {
 			return enqueued, fmt.Errorf("attach child execution envelope %s: %w", child.ExecutionID, err)
 		}
 
@@ -4053,7 +4488,11 @@ func macroFindChildNodeByID(node *apipb.Node, taskKey string) *apipb.Node {
 	return nil
 }
 
-func macroExecutionDispatchRecordFromTaskExecution(j *apipb.Job, source *cell.ExecutionEnvelope, rec dal.TaskExecutionRecord) dal.ExecutionDispatchRecord {
+func macroExecutionDispatchRecordFromTaskExecution(
+	j *apipb.Job,
+	source *cell.ExecutionEnvelope,
+	rec dal.TaskExecutionRecord,
+) dal.ExecutionDispatchRecord {
 	return dal.ExecutionDispatchRecord{
 		RunID:             rec.RunID,
 		JobID:             j.GetId(),
@@ -4271,14 +4710,22 @@ func sendMacroWorkerResult(ctx context.Context, ch chan<- macroWorkerResult, res
 	}
 }
 
-func sendMacroDistributedTaskResult(ctx context.Context, ch chan<- macroDistributedTaskResult, result macroDistributedTaskResult) {
+func sendMacroDistributedTaskResult(
+	ctx context.Context,
+	ch chan<- macroDistributedTaskResult,
+	result macroDistributedTaskResult,
+) {
 	select {
 	case ch <- result:
 	case <-ctx.Done():
 	}
 }
 
-func sendMacroDistributedTerminalResult(ctx context.Context, ch chan<- macroDistributedTerminalResult, result macroDistributedTerminalResult) {
+func sendMacroDistributedTerminalResult(
+	ctx context.Context,
+	ch chan<- macroDistributedTerminalResult,
+	result macroDistributedTerminalResult,
+) {
 	select {
 	case ch <- result:
 	case <-ctx.Done():
@@ -4315,7 +4762,11 @@ func runMacroTriggerToTerminal(
 	return timings
 }
 
-func loadDequeuedMacroRunBeforeClaim(ctx context.Context, env macroBenchEnv, jobReq *apipb.JobRequest) (macroDBTimings, error) {
+func loadDequeuedMacroRunBeforeClaim(
+	ctx context.Context,
+	env macroBenchEnv,
+	jobReq *apipb.JobRequest,
+) (macroDBTimings, error) {
 	shouldLoad, err := shouldLoadDequeuedMacroRunBeforeClaim(env, jobReq)
 	if err != nil || !shouldLoad {
 		return macroDBTimings{}, err
@@ -4362,7 +4813,12 @@ func loadDequeuedMacroRun(ctx context.Context, env macroBenchEnv, jobReq *apipb.
 	return macroDBTimings{choreographyLoadRun: time.Since(started).Nanoseconds()}, nil
 }
 
-func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID, taskKey string, leaseUntil time.Time) error {
+func publishMacroHotStateOwner(
+	ctx context.Context,
+	env macroBenchEnv,
+	runID, taskKey string,
+	leaseUntil time.Time,
+) error {
 	if env.choreo.DBBacked() || taskKey != dal.RootTaskKey {
 		return nil
 	}
@@ -4419,7 +4875,13 @@ func finishDequeuedMacroExecution(
 	}
 
 	claimStarted := time.Now()
-	executionClaim, err := env.choreo.ClaimAndStartExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	executionClaim, err := env.choreo.ClaimAndStartExecution(
+		ctx,
+		runID,
+		executionEnvelope.ExecutionID,
+		workerID,
+		time.Now().Add(dal.DefaultLeaseTTL),
+	)
 	claimedAt := time.Now()
 	dbTimings.choreographyClaimAndStart += claimedAt.Sub(claimStarted).Nanoseconds()
 	if env.choreo.DBBacked() {
@@ -4429,12 +4891,22 @@ func finishDequeuedMacroExecution(
 	if err != nil && macroOrchestratorNotFound(err) && !env.choreo.DBBacked() {
 		loadTimings, loadErr := loadDequeuedMacroRun(ctx, env, jobReq)
 		if loadErr != nil {
-			return macroExecutionResult{}, fmt.Errorf("recover choreography for missing execution %s: %w", executionEnvelope.ExecutionID, loadErr)
+			return macroExecutionResult{}, fmt.Errorf(
+				"recover choreography for missing execution %s: %w",
+				executionEnvelope.ExecutionID,
+				loadErr,
+			)
 		}
 		dbTimings.choreographyLoadRun += loadTimings.choreographyLoadRun
 
 		claimStarted = time.Now()
-		executionClaim, err = env.choreo.ClaimAndStartExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+		executionClaim, err = env.choreo.ClaimAndStartExecution(
+			ctx,
+			runID,
+			executionEnvelope.ExecutionID,
+			workerID,
+			time.Now().Add(dal.DefaultLeaseTTL),
+		)
 		claimedAt = time.Now()
 		dbTimings.choreographyClaimAndStart += claimedAt.Sub(claimStarted).Nanoseconds()
 	}
@@ -4449,7 +4921,13 @@ func finishDequeuedMacroExecution(
 
 	if !env.choreo.DBBacked() {
 		ownerStarted := time.Now()
-		if err := publishMacroHotStateOwner(ctx, env, runID, executionEnvelope.TaskKey, time.Now().Add(dal.DefaultLeaseTTL)); err != nil {
+		if err := publishMacroHotStateOwner(
+			ctx,
+			env,
+			runID,
+			executionEnvelope.TaskKey,
+			time.Now().Add(dal.DefaultLeaseTTL),
+		); err != nil {
 			return macroExecutionResult{}, fmt.Errorf("publish hot-state owner for run %s: %w", runID, err)
 		}
 
@@ -4467,7 +4945,11 @@ func finishDequeuedMacroExecution(
 	if env.choreo.DBBacked() {
 		markStartedAt := time.Now()
 		if err := env.runs.MarkExecutionStarted(ctx, executionEnvelope.ExecutionID); err != nil {
-			return macroExecutionResult{}, fmt.Errorf("mark execution started %s: %w", executionEnvelope.ExecutionID, err)
+			return macroExecutionResult{}, fmt.Errorf(
+				"mark execution started %s: %w",
+				executionEnvelope.ExecutionID,
+				err,
+			)
 		}
 
 		dbTimings.markExecutionStarted = time.Since(markStartedAt).Nanoseconds()
@@ -4479,13 +4961,38 @@ func finishDequeuedMacroExecution(
 		ActionLocks:       actionregistry.CloneActionLocks(env.actionLocks),
 	}
 
-	if err := exec.ExecuteTaskWithOptions(ctx, queuedJob, executionEnvelope.TaskKey, logSink, env.log, execOptions); err != nil {
-		_, _ = env.choreo.CompleteExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, err.Error())
+	if err := exec.ExecuteTaskWithOptions(
+		ctx,
+		queuedJob,
+		executionEnvelope.TaskKey,
+		logSink,
+		env.log,
+		execOptions,
+	); err != nil {
+		_, _ = env.choreo.CompleteExecution(
+			ctx,
+			runID,
+			executionEnvelope.ExecutionID,
+			workerID,
+			executionClaim.ClaimToken,
+			dal.ExecutionStatusFailed,
+			dal.FailureCodeExecution,
+			err.Error(),
+		)
 		return macroExecutionResult{}, fmt.Errorf("execute task %s: %w", queuedJob.GetId(), err)
 	}
 
 	finalizeStarted := time.Now()
-	finalized, err := env.choreo.CompleteExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalized, err := env.choreo.CompleteExecution(
+		ctx,
+		runID,
+		executionEnvelope.ExecutionID,
+		workerID,
+		executionClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	terminalAt := time.Now()
 	dbTimings.choreographyFinalize = terminalAt.Sub(finalizeStarted).Nanoseconds()
 	if env.choreo.DBBacked() {
@@ -4597,7 +5104,12 @@ func applyMacroQueuedJobIdentity(payloadHash string, fullJob *apipb.Job, current
 		return nil
 	}
 	if jobID := strings.TrimSpace(currentJob.GetId()); jobID != "" && fullJob.GetId() != jobID {
-		return fmt.Errorf("execution payload %s job_id=%q does not match queued job_id=%q", payloadHash, fullJob.GetId(), jobID)
+		return fmt.Errorf(
+			"execution payload %s job_id=%q does not match queued job_id=%q",
+			payloadHash,
+			fullJob.GetId(),
+			jobID,
+		)
 	}
 	if runID := strings.TrimSpace(currentJob.GetRunId()); runID != "" {
 		fullJob.RunId = &runID
@@ -4733,7 +5245,11 @@ func (s *storeLogStream) CloseSend() error {
 	return nil
 }
 
-func waitForDequeuedJob(b *testing.B, ctx context.Context, queueService macroWorkerQueue) (*apipb.JobRequest, time.Time) {
+func waitForDequeuedJob(
+	b *testing.B,
+	ctx context.Context,
+	queueService macroWorkerQueue,
+) (*apipb.JobRequest, time.Time) {
 	b.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)

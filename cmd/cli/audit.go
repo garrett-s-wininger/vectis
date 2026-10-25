@@ -130,9 +130,12 @@ func configureAuditListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&auditListEventType, "event-type", "", "Only include this audit event type")
 	cmd.Flags().Int64Var(&auditListActorID, "actor-id", 0, "Only include events performed by this local user ID")
 	cmd.Flags().Int64Var(&auditListTargetID, "target-id", 0, "Only include events for this local target ID")
-	cmd.Flags().StringVar(&auditListCorrelationID, "correlation-id", "", "Only include events with this request correlation ID")
-	cmd.Flags().StringVar(&auditListSince, "since", "", "Only include events at or after this RFC3339 timestamp or YYYY-MM-DD date")
-	cmd.Flags().StringVar(&auditListUntil, "until", "", "Only include events at or before this RFC3339 timestamp or YYYY-MM-DD date")
+	cmd.Flags().
+		StringVar(&auditListCorrelationID, "correlation-id", "", "Only include events with this request correlation ID")
+	cmd.Flags().
+		StringVar(&auditListSince, "since", "", "Only include events at or after this RFC3339 timestamp or YYYY-MM-DD date")
+	cmd.Flags().
+		StringVar(&auditListUntil, "until", "", "Only include events at or before this RFC3339 timestamp or YYYY-MM-DD date")
 	cmd.Flags().StringVar(&auditListCursor, "cursor", "", "Continue listing after a previous audit event cursor")
 	cmd.Flags().IntVar(&auditListLimit, "limit", 100, "Maximum events to return (1-1000)")
 }
@@ -141,9 +144,12 @@ func configureAuditExportFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&auditExportEventType, "event-type", "", "Only include this audit event type")
 	cmd.Flags().Int64Var(&auditExportActorID, "actor-id", 0, "Only include events performed by this local user ID")
 	cmd.Flags().Int64Var(&auditExportTargetID, "target-id", 0, "Only include events for this local target ID")
-	cmd.Flags().StringVar(&auditExportCorrelationID, "correlation-id", "", "Only include events with this request correlation ID")
-	cmd.Flags().StringVar(&auditExportSince, "since", "", "Only include events at or after this RFC3339 timestamp or YYYY-MM-DD date")
-	cmd.Flags().StringVar(&auditExportUntil, "until", "", "Only include events at or before this RFC3339 timestamp or YYYY-MM-DD date")
+	cmd.Flags().
+		StringVar(&auditExportCorrelationID, "correlation-id", "", "Only include events with this request correlation ID")
+	cmd.Flags().
+		StringVar(&auditExportSince, "since", "", "Only include events at or after this RFC3339 timestamp or YYYY-MM-DD date")
+	cmd.Flags().
+		StringVar(&auditExportUntil, "until", "", "Only include events at or before this RFC3339 timestamp or YYYY-MM-DD date")
 	cmd.Flags().IntVar(&auditExportLimit, "limit", 1000, "Maximum events to return (1-1000)")
 	cmd.Flags().StringVarP(&auditExportOutputPath, "output", "o", "-", "Export JSON output path, or '-' for stdout")
 }
@@ -276,7 +282,12 @@ func fetchAllAuditEvents(opts auditListOptions) (auditEventListResult, int, erro
 	}
 }
 
-func buildAuditExportEvidence(result auditEventListResult, opts auditListOptions, generatedAt time.Time, pageCount int) (auditExportEvidence, error) {
+func buildAuditExportEvidence(
+	result auditEventListResult,
+	opts auditListOptions,
+	generatedAt time.Time,
+	pageCount int,
+) (auditExportEvidence, error) {
 	eventsSHA256, err := auditEventsSHA256(result.Events)
 	if err != nil {
 		return auditExportEvidence{}, err

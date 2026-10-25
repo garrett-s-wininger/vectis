@@ -11,7 +11,10 @@ import (
 )
 
 type LocalMessageStore interface {
-	RecordLocalMessage(ctx context.Context, create dal.ReactionLocalMessageCreate) (dal.ReactionLocalMessageRecord, error)
+	RecordLocalMessage(
+		ctx context.Context,
+		create dal.ReactionLocalMessageCreate,
+	) (dal.ReactionLocalMessageRecord, error)
 }
 
 type LocalNotifyAction struct {
@@ -34,7 +37,10 @@ func (a *LocalNotifyAction) ExecuteInvocation(ctx context.Context, req ActionReq
 	return err
 }
 
-func (a *LocalNotifyAction) Execute(ctx context.Context, req LocalNotifyActionRequest) (dal.ReactionLocalMessageRecord, error) {
+func (a *LocalNotifyAction) Execute(
+	ctx context.Context,
+	req LocalNotifyActionRequest,
+) (dal.ReactionLocalMessageRecord, error) {
 	if a == nil || a.Store == nil {
 		return dal.ReactionLocalMessageRecord{}, fmt.Errorf("local notify reaction action requires a store")
 	}

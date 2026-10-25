@@ -178,11 +178,23 @@ func TestGitCheckoutReadNote(t *testing.T) {
 		t.Fatalf("note content: got %q, want %q", got, want)
 	}
 
-	if _, err := checkout.ReadNote(context.Background(), ReadNoteOptions{Ref: "HEAD", NotesRef: "refs/heads/main"}); !errors.Is(err, ErrInvalidReference) {
+	if _, err := checkout.ReadNote(
+		context.Background(),
+		ReadNoteOptions{Ref: "HEAD", NotesRef: "refs/heads/main"},
+	); !errors.Is(
+		err,
+		ErrInvalidReference,
+	) {
 		t.Fatalf("expected invalid notes ref, got %v", err)
 	}
 
-	if _, err := checkout.ReadNote(context.Background(), ReadNoteOptions{Ref: "HEAD", NotesRef: "refs/notes/missing"}); !errors.Is(err, ErrNotFound) {
+	if _, err := checkout.ReadNote(
+		context.Background(),
+		ReadNoteOptions{Ref: "HEAD", NotesRef: "refs/notes/missing"},
+	); !errors.Is(
+		err,
+		ErrNotFound,
+	) {
 		t.Fatalf("expected missing note, got %v", err)
 	}
 }
@@ -270,7 +282,10 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 		t.Fatalf("CommitFile: %v", err)
 	}
 
-	if commit.RequestedRef != branch || commit.ParentCommit != parent || commit.Commit == "" || commit.Commit == parent || commit.Path != ".vectis/jobs/build.json" || commit.BlobSHA == "" {
+	if commit.RequestedRef != branch || commit.ParentCommit != parent || commit.Commit == "" ||
+		commit.Commit == parent ||
+		commit.Path != ".vectis/jobs/build.json" ||
+		commit.BlobSHA == "" {
 		t.Fatalf("commit response mismatch: %+v parent=%s", commit, parent)
 	}
 
@@ -319,7 +334,13 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 
 func TestGitCheckoutDeleteFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	repo := initGitRepo(t)
-	writeAndCommit(t, repo, ".vectis/jobs/build.json", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, "add build")
+	writeAndCommit(
+		t,
+		repo,
+		".vectis/jobs/build.json",
+		`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`,
+		"add build",
+	)
 	branch := gitOutput(t, repo, "branch", "--show-current")
 	parent := gitOutput(t, repo, "rev-parse", "HEAD")
 
@@ -335,7 +356,10 @@ func TestGitCheckoutDeleteFileUpdatesBranchWithoutCheckout(t *testing.T) {
 		t.Fatalf("DeleteFile: %v", err)
 	}
 
-	if deleted.RequestedRef != branch || deleted.ParentCommit != parent || deleted.Commit == "" || deleted.Commit == parent || deleted.Path != ".vectis/jobs/build.json" || deleted.BlobSHA != "" {
+	if deleted.RequestedRef != branch || deleted.ParentCommit != parent || deleted.Commit == "" ||
+		deleted.Commit == parent ||
+		deleted.Path != ".vectis/jobs/build.json" ||
+		deleted.BlobSHA != "" {
 		t.Fatalf("delete response mismatch: %+v parent=%s", deleted, parent)
 	}
 
@@ -419,7 +443,13 @@ func TestGitCheckoutListBranches(t *testing.T) {
 		t.Fatalf("expected limited branches to be truncated: %+v", listing)
 	}
 
-	if _, err := checkout.ListBranches(context.Background(), ListBranchesOptions{Prefix: "feature/*"}); !errors.Is(err, ErrInvalidReference) {
+	if _, err := checkout.ListBranches(
+		context.Background(),
+		ListBranchesOptions{Prefix: "feature/*"},
+	); !errors.Is(
+		err,
+		ErrInvalidReference,
+	) {
 		t.Fatalf("expected invalid prefix, got %v", err)
 	}
 }
@@ -451,7 +481,9 @@ func TestGitCheckoutListTree(t *testing.T) {
 		t.Fatalf(".vectis listing mismatch: %+v", listing)
 	}
 
-	if got := listing.Entries[0]; got.Path != ".vectis/jobs" || got.Name != "jobs" || got.Type != "tree" || got.Mode != "040000" || got.ObjectSHA == "" {
+	if got := listing.Entries[0]; got.Path != ".vectis/jobs" || got.Name != "jobs" || got.Type != "tree" ||
+		got.Mode != "040000" ||
+		got.ObjectSHA == "" {
 		t.Fatalf(".vectis tree entry mismatch: %+v", got)
 	}
 
@@ -470,11 +502,17 @@ func TestGitCheckoutListTree(t *testing.T) {
 		entries[entry.Path] = entry
 	}
 
-	if build := entries[".vectis/jobs/build.json"]; build.Name != "build.json" || build.Type != "blob" || build.Mode != "100644" || build.ObjectSHA == "" || build.SizeBytes == 0 {
+	if build := entries[".vectis/jobs/build.json"]; build.Name != "build.json" || build.Type != "blob" ||
+		build.Mode != "100644" ||
+		build.ObjectSHA == "" ||
+		build.SizeBytes == 0 {
 		t.Fatalf("build entry mismatch: %+v", build)
 	}
 
-	if deploy := entries[".vectis/jobs/deploy.json"]; deploy.Name != "deploy.json" || deploy.Type != "blob" || deploy.Mode != "100644" || deploy.ObjectSHA == "" || deploy.SizeBytes == 0 {
+	if deploy := entries[".vectis/jobs/deploy.json"]; deploy.Name != "deploy.json" || deploy.Type != "blob" ||
+		deploy.Mode != "100644" ||
+		deploy.ObjectSHA == "" ||
+		deploy.SizeBytes == 0 {
 		t.Fatalf("deploy entry mismatch: %+v", deploy)
 	}
 
@@ -511,11 +549,23 @@ func TestGitCheckoutListTree(t *testing.T) {
 		}
 	}
 
-	if _, err := checkout.ListTree(context.Background(), ListTreeOptions{Ref: "HEAD", Path: "../secret"}); !errors.Is(err, ErrInvalidReference) {
+	if _, err := checkout.ListTree(
+		context.Background(),
+		ListTreeOptions{Ref: "HEAD", Path: "../secret"},
+	); !errors.Is(
+		err,
+		ErrInvalidReference,
+	) {
 		t.Fatalf("expected invalid tree path, got %v", err)
 	}
 
-	if _, err := checkout.ListTree(context.Background(), ListTreeOptions{Ref: "HEAD", Path: "missing"}); !errors.Is(err, ErrNotFound) {
+	if _, err := checkout.ListTree(
+		context.Background(),
+		ListTreeOptions{Ref: "HEAD", Path: "missing"},
+	); !errors.Is(
+		err,
+		ErrNotFound,
+	) {
 		t.Fatalf("expected missing tree path, got %v", err)
 	}
 }
@@ -551,11 +601,13 @@ func TestGitCheckoutListDefinitionFiles(t *testing.T) {
 		files[file.Path] = file
 	}
 
-	if build := files[".vectis/jobs/build.json"]; build.Name != "build.json" || build.BlobSHA != buildBlob || build.SizeBytes == 0 {
+	if build := files[".vectis/jobs/build.json"]; build.Name != "build.json" || build.BlobSHA != buildBlob ||
+		build.SizeBytes == 0 {
 		t.Fatalf("build definition file mismatch: %+v", build)
 	}
 
-	if deploy := files[".vectis/jobs/nested/deploy.json"]; deploy.Name != "deploy.json" || deploy.BlobSHA == "" || deploy.SizeBytes == 0 {
+	if deploy := files[".vectis/jobs/nested/deploy.json"]; deploy.Name != "deploy.json" || deploy.BlobSHA == "" ||
+		deploy.SizeBytes == 0 {
 		t.Fatalf("deploy definition file mismatch: %+v", deploy)
 	}
 
@@ -587,12 +639,41 @@ func TestGitCheckoutListDefinitionFiles(t *testing.T) {
 		t.Fatalf("cursor definition files mismatch: %+v", listing)
 	}
 
-	if _, err := checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{Ref: "HEAD", Path: "../secret"}); !errors.Is(err, ErrInvalidReference) {
+	if _, err := checkout.ListDefinitionFiles(
+		context.Background(),
+		ListDefinitionFilesOptions{Ref: "HEAD", Path: "../secret"},
+	); !errors.Is(
+		err,
+		ErrInvalidReference,
+	) {
 		t.Fatalf("expected invalid definition path, got %v", err)
 	}
 
-	if _, err := checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{Ref: "HEAD", Cursor: "../secret"}); !errors.Is(err, ErrInvalidReference) {
+	if _, err := checkout.ListDefinitionFiles(
+		context.Background(),
+		ListDefinitionFilesOptions{Ref: "HEAD", Cursor: "../secret"},
+	); !errors.Is(
+		err,
+		ErrInvalidReference,
+	) {
 		t.Fatalf("expected invalid definition cursor, got %v", err)
+	}
+}
+
+func TestGitCheckoutListDefinitionFilesEmptyRepository(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+
+	listing, err := NewGitCheckout(repo).ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{
+		Ref: "main",
+	})
+
+	if err != nil {
+		t.Fatalf("ListDefinitionFiles empty jobs directory: %v", err)
+	}
+
+	if listing.Path != DefaultDefinitionPath || len(listing.Files) != 0 || listing.Truncated {
+		t.Fatalf("empty jobs directory listing = %+v", listing)
 	}
 }
 
@@ -1026,7 +1107,7 @@ func gitTestRefs(repo, prefix string) ([]string, bool) {
 			out = append(out, ref)
 		}
 	}
-	
+
 	sort.Strings(out)
 	return out, true
 }

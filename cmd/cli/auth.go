@@ -144,7 +144,12 @@ func doLogin(username, password string) (string, error) {
 		return "", fmt.Errorf("failed to encode request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.PublicAPIBaseURL()+"/api/v1/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		config.PublicAPIBaseURL()+"/api/v1/login",
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -185,7 +190,12 @@ func doLogout(token string) error {
 		return nil
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.PublicAPIBaseURL()+"/api/v1/logout", nil)
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		config.PublicAPIBaseURL()+"/api/v1/logout",
+		nil,
+	)
 	if err != nil {
 		return err
 	}

@@ -39,7 +39,11 @@ func newMemoryServiceWithClock(c clock) *MemoryService {
 	}
 }
 
-func (m *MemoryService) TakeRateLimitToken(_ context.Context, key string, rule RateLimitRule) (RateLimitDecision, error) {
+func (m *MemoryService) TakeRateLimitToken(
+	_ context.Context,
+	key string,
+	rule RateLimitRule,
+) (RateLimitDecision, error) {
 	if key == "" {
 		return RateLimitDecision{}, fmt.Errorf("rate limit key is required")
 	}
@@ -111,7 +115,12 @@ func (m *MemoryService) CreateSession(_ context.Context, session Session) error 
 	return nil
 }
 
-func (m *MemoryService) ResolveSession(_ context.Context, tokenHash string, now time.Time, idleTTL time.Duration) (Session, error) {
+func (m *MemoryService) ResolveSession(
+	_ context.Context,
+	tokenHash string,
+	now time.Time,
+	idleTTL time.Duration,
+) (Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

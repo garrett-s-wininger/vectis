@@ -106,7 +106,11 @@ func acquireArtifactStorageLock(dir string) (*os.File, error) {
 	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
 		if platform.IsFileLockUnavailable(err) {
-			return nil, fmt.Errorf("artifact storage directory %s is already in use by another artifact process; use a distinct storage directory for each active artifact shard: %w", dir, err)
+			return nil, fmt.Errorf(
+				"artifact storage directory %s is already in use by another artifact process; use a distinct storage directory for each active artifact shard: %w",
+				dir,
+				err,
+			)
 		}
 
 		return nil, fmt.Errorf("lock artifact storage directory %s: %w", dir, err)
@@ -129,7 +133,11 @@ func (s *LocalStore) Close() error {
 	}
 
 	if err := lockFile.Close(); err != nil && result == nil {
-		result = fmt.Errorf("close artifact storage lock %s: %w", filepath.Join(s.baseDir, artifactStorageLockFile), err)
+		result = fmt.Errorf(
+			"close artifact storage lock %s: %w",
+			filepath.Join(s.baseDir, artifactStorageLockFile),
+			err,
+		)
 	}
 
 	return result
@@ -192,7 +200,12 @@ func (s *LocalStore) Put(ctx context.Context, r io.Reader, opts PutOptions) (Blo
 	digest := hex.EncodeToString(h.Sum(nil))
 	desc := descriptorForSHA256(digest, size)
 	if expectedDigest != "" && digest != expectedDigest {
-		return BlobDescriptor{}, fmt.Errorf("%w: got %s want %s", ErrBlobDigestMismatch, desc.Key, BlobKeySHA256(expectedDigest))
+		return BlobDescriptor{}, fmt.Errorf(
+			"%w: got %s want %s",
+			ErrBlobDigestMismatch,
+			desc.Key,
+			BlobKeySHA256(expectedDigest),
+		)
 	}
 
 	if opts.RequireSize && size != opts.ExpectedSize {
@@ -219,7 +232,13 @@ func (s *LocalStore) Put(ctx context.Context, r io.Reader, opts PutOptions) (Blo
 		}
 
 		if existing.Size != size {
-			return BlobDescriptor{}, fmt.Errorf("%w: existing %s has %d bytes, upload has %d", ErrBlobSizeMismatch, desc.Key, existing.Size, size)
+			return BlobDescriptor{}, fmt.Errorf(
+				"%w: existing %s has %d bytes, upload has %d",
+				ErrBlobSizeMismatch,
+				desc.Key,
+				existing.Size,
+				size,
+			)
 		}
 	} else {
 		for _, dir := range blobPublishSyncDirs(finalPath) {
@@ -361,7 +380,13 @@ func (s *LocalStore) ensureCanCreateBlob() error {
 	}
 
 	if stats.freeBytes < s.newBlobMinFreeBytes {
-		return fmt.Errorf("%w: %d bytes free below %d byte threshold in %s", ErrStoreReadOnly, stats.freeBytes, s.newBlobMinFreeBytes, s.baseDir)
+		return fmt.Errorf(
+			"%w: %d bytes free below %d byte threshold in %s",
+			ErrStoreReadOnly,
+			stats.freeBytes,
+			s.newBlobMinFreeBytes,
+			s.baseDir,
+		)
 	}
 
 	return nil
@@ -421,7 +446,12 @@ func (s *LocalStore) verifySHA256Digest(ctx context.Context, digest string) (Blo
 
 	gotDigest := hex.EncodeToString(h.Sum(nil))
 	if gotDigest != digest {
-		return BlobDescriptor{}, fmt.Errorf("%w: stored %s has digest %s", ErrBlobDigestMismatch, BlobKeySHA256(digest), BlobKeySHA256(gotDigest))
+		return BlobDescriptor{}, fmt.Errorf(
+			"%w: stored %s has digest %s",
+			ErrBlobDigestMismatch,
+			BlobKeySHA256(digest),
+			BlobKeySHA256(gotDigest),
+		)
 	}
 
 	return descriptorForSHA256(digest, size), nil

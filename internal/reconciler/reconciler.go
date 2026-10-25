@@ -146,7 +146,11 @@ func (s *Service) recordDispatchEvent(ctx context.Context, runID, targetCellID, 
 	}
 }
 
-func (s *Service) recordDispatchAttemptOutcome(ctx context.Context, runID, targetCellID, outcomeEventType string, message *string) error {
+func (s *Service) recordDispatchAttemptOutcome(
+	ctx context.Context,
+	runID, targetCellID, outcomeEventType string,
+	message *string,
+) error {
 	if s.dispatchMetrics != nil {
 		s.dispatchMetrics.RecordDispatchEvent(ctx, dal.DispatchSourceReconciler, dal.DispatchEventAttempt, targetCellID)
 		if outcomeEventType != dal.DispatchEventSuccess {
@@ -155,7 +159,13 @@ func (s *Service) recordDispatchAttemptOutcome(ctx context.Context, runID, targe
 	}
 
 	if s.dispatch != nil {
-		if err := s.dispatch.RecordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceReconciler, outcomeEventType, message); err != nil {
+		if err := s.dispatch.RecordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			dal.DispatchSourceReconciler,
+			outcomeEventType,
+			message,
+		); err != nil {
 			return err
 		}
 	} else if outcomeEventType == dal.DispatchEventSuccess && s.runs != nil {
@@ -222,7 +232,11 @@ func (s *Service) Process(ctx context.Context) error {
 	s.noteDBRecovered()
 
 	for _, rec := range expired {
-		s.logger.Warn("reconciler: execution %s for run %s failed after dispatch start deadline expired", rec.ExecutionID, rec.RunID)
+		s.logger.Warn(
+			"reconciler: execution %s for run %s failed after dispatch start deadline expired",
+			rec.ExecutionID,
+			rec.RunID,
+		)
 	}
 
 	if err := s.repairTaskFinalization(ctx); err != nil {
@@ -285,7 +299,11 @@ func (s *Service) Process(ctx context.Context) error {
 func (s *Service) repairTaskFinalization(ctx context.Context) error {
 	candidates, err := s.runs.ListOrphanedTaskFinalizationCandidates(ctx, TaskFinalizeRepairLimit)
 	if err != nil {
-		s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeError, observability.ReconcilerTaskFinalizationReduceOutcomeUnknown)
+		s.recordTaskFinalizationRepair(
+			ctx,
+			observability.ReconcilerTaskFinalizationOutcomeError,
+			observability.ReconcilerTaskFinalizationReduceOutcomeUnknown,
+		)
 		return err
 	}
 
@@ -299,32 +317,61 @@ func (s *Service) repairTaskFinalization(ctx context.Context) error {
 		case taskreduce.OutcomeSucceeded:
 			if err := s.runs.RepairMarkRunSucceeded(ctx, summary.RunID, ""); err != nil {
 				if dal.IsConflict(err) || dal.IsNotFound(err) {
-					s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSkippedConflict, string(decision.Outcome))
+					s.recordTaskFinalizationRepair(
+						ctx,
+						observability.ReconcilerTaskFinalizationOutcomeSkippedConflict,
+						string(decision.Outcome),
+					)
 					s.logger.Warn("reconciler: task finalization repair skipped run %s: %v", summary.RunID, err)
 					continue
 				}
 
-				s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeError, string(decision.Outcome))
+				s.recordTaskFinalizationRepair(
+					ctx,
+					observability.ReconcilerTaskFinalizationOutcomeError,
+					string(decision.Outcome),
+				)
 				return err
 			}
 
-			s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSuccess, string(decision.Outcome))
+			s.recordTaskFinalizationRepair(
+				ctx,
+				observability.ReconcilerTaskFinalizationOutcomeSuccess,
+				string(decision.Outcome),
+			)
 			s.logger.Info("reconciler: repaired orphaned task run %s to succeeded", summary.RunID)
 		case taskreduce.OutcomeWaiting:
 		case taskreduce.OutcomeFailed:
 			reason := taskfinalize.FailureReason(taskfinalize.Decision{Reduce: decision})
-			if err := s.runs.RepairMarkRunFailedWithCode(ctx, summary.RunID, dal.FailureCodeExecution, reason); err != nil {
+			if err := s.runs.RepairMarkRunFailedWithCode(
+				ctx,
+				summary.RunID,
+				dal.FailureCodeExecution,
+				reason,
+			); err != nil {
 				if dal.IsConflict(err) || dal.IsNotFound(err) {
-					s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSkippedConflict, string(decision.Outcome))
+					s.recordTaskFinalizationRepair(
+						ctx,
+						observability.ReconcilerTaskFinalizationOutcomeSkippedConflict,
+						string(decision.Outcome),
+					)
 					s.logger.Warn("reconciler: task finalization repair skipped run %s: %v", summary.RunID, err)
 					continue
 				}
 
-				s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeError, string(decision.Outcome))
+				s.recordTaskFinalizationRepair(
+					ctx,
+					observability.ReconcilerTaskFinalizationOutcomeError,
+					string(decision.Outcome),
+				)
 				return err
 			}
 
-			s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSuccess, string(decision.Outcome))
+			s.recordTaskFinalizationRepair(
+				ctx,
+				observability.ReconcilerTaskFinalizationOutcomeSuccess,
+				string(decision.Outcome),
+			)
 			s.logger.Info("reconciler: repaired orphaned task run %s to failed", summary.RunID)
 		}
 	}
@@ -472,7 +519,8 @@ func (s *Service) DispatchRunNow(ctx context.Context, runID string) error {
 
 func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	runID, jobID := qr.RunID, qr.JobID
-	ctx, span := observability.Tracer("vectis/reconciler").Start(ctx, "reconciler.run.reenqueue", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := observability.Tracer("vectis/reconciler").
+		Start(ctx, "reconciler.run.reenqueue", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(attribute.Int("vectis.run.definition.version", qr.DefinitionVersion))
 	defer span.End()
@@ -493,7 +541,9 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		if dal.IsNotFound(err) {
 			s.logger.Debug("reconciler: skip run %s (no job_definitions row for job %q version %d)",
 				runID, jobID, qr.DefinitionVersion)
-			span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSkippedMissingJobDef))
+			span.SetAttributes(
+				attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSkippedMissingJobDef),
+			)
 
 			if s.metrics != nil {
 				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSkippedMissingJobDef)
@@ -530,7 +580,13 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "build dispatch requests")
 		msg := err.Error()
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+		if dispatchErr := s.recordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			qr.OwningCell,
+			dal.DispatchEventFailure,
+			&msg,
+		); dispatchErr != nil {
 			s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 		}
 
@@ -551,7 +607,13 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "cell ingress endpoints")
 		msg := err.Error()
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+		if dispatchErr := s.recordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			qr.OwningCell,
+			dal.DispatchEventFailure,
+			&msg,
+		); dispatchErr != nil {
 			s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 		}
 
@@ -570,7 +632,13 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 			span.SetStatus(codes.Error, "execution submission")
 			msg := err.Error()
 
-			if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+			if dispatchErr := s.recordDispatchAttemptOutcome(
+				ctx,
+				runID,
+				qr.OwningCell,
+				dal.DispatchEventFailure,
+				&msg,
+			); dispatchErr != nil {
 				s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 			}
 			if s.metrics != nil {
@@ -585,7 +653,13 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 			span.SetStatus(codes.Error, "enqueue")
 			msg := err.Error()
 
-			if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+			if dispatchErr := s.recordDispatchAttemptOutcome(
+				ctx,
+				runID,
+				qr.OwningCell,
+				dal.DispatchEventFailure,
+				&msg,
+			); dispatchErr != nil {
 				s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 			}
 			if s.metrics != nil {
@@ -616,11 +690,22 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSuccess)
 	}
 
-	s.logger.Info("reconciler: re-enqueued run %s (job %s, %s, executions=%d)", runID, jobID, decision.ReasonCode, enqueued)
+	s.logger.Info(
+		"reconciler: re-enqueued run %s (job %s, %s, executions=%d)",
+		runID,
+		jobID,
+		decision.ReasonCode,
+		enqueued,
+	)
 	return nil
 }
 
-func (s *Service) dispatchRequestsForQueuedRun(ctx context.Context, runID string, job *api.Job, definitionHash string) ([]*api.JobRequest, int, error) {
+func (s *Service) dispatchRequestsForQueuedRun(
+	ctx context.Context,
+	runID string,
+	job *api.Job,
+	definitionHash string,
+) ([]*api.JobRequest, int, error) {
 	baseReq := &api.JobRequest{Job: cloneJobForReconciler(job)}
 	dispatches, err := s.runs.ListPendingExecutions(ctx, runID)
 	if err != nil {
@@ -659,14 +744,27 @@ func (s *Service) dispatchRequestsForQueuedRun(ctx context.Context, runID string
 	return reqs, len(dispatches), nil
 }
 
-func (s *Service) attachDispatchEnvelope(ctx context.Context, req *api.JobRequest, dispatch dal.ExecutionDispatchRecord) error {
-	deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()))
+func (s *Service) attachDispatchEnvelope(
+	ctx context.Context,
+	req *api.JobRequest,
+	dispatch dal.ExecutionDispatchRecord,
+) error {
+	deadline, err := s.runs.EnsureExecutionStartDeadline(
+		ctx,
+		dispatch.ExecutionID,
+		dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()),
+	)
 	if err != nil {
 		return fmt.Errorf("ensure execution start deadline: %w", err)
 	}
 
 	dispatch.StartDeadlineUnixNano = deadline
-	if _, err := cell.AttachExecutionEnvelopeWithActions(req, dispatch, s.clock.Now().UnixNano(), s.actionResolver); err != nil {
+	if _, err := cell.AttachExecutionEnvelopeWithActions(
+		req,
+		dispatch,
+		s.clock.Now().UnixNano(),
+		s.actionResolver,
+	); err != nil {
 		return fmt.Errorf("attach execution envelope: %w", err)
 	}
 
@@ -679,7 +777,8 @@ func requestEnvelopeMatchesDispatch(req *api.JobRequest, dispatch dal.ExecutionD
 		return false
 	}
 
-	return env.ExecutionID == dispatch.ExecutionID && env.TaskID == dispatch.TaskID && env.TaskAttemptID == dispatch.TaskAttemptID
+	return env.ExecutionID == dispatch.ExecutionID && env.TaskID == dispatch.TaskID &&
+		env.TaskAttemptID == dispatch.TaskAttemptID
 }
 
 func cloneJobRequestForReconciler(req *api.JobRequest) *api.JobRequest {
@@ -734,11 +833,22 @@ func (s *Service) executionIngress() (cell.ExecutionIngress, error) {
 		queueClient = nil
 	}
 
-	return cell.NewExecutionRouterWithOptions(config.CellID(), queueClient, endpoints, s.logger, cell.ExecutionRouterOptions{
-		TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
-	}), nil
+	return cell.NewExecutionRouterWithOptions(
+		config.CellID(),
+		queueClient,
+		endpoints,
+		s.logger,
+		cell.ExecutionRouterOptions{
+			TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
+		},
+	), nil
 }
 
-func (s *Service) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
+func (s *Service) recordExecutionPayload(
+	ctx context.Context,
+	runID string,
+	req *api.JobRequest,
+	definitionHash string,
+) (*api.JobRequest, error) {
 	return cell.RecordExecutionHandoffPayload(ctx, s.runs, runID, req, definitionHash)
 }

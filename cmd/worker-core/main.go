@@ -41,7 +41,12 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	}
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
-	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, config.WorkerCoreMetricsListenAddr(), "Worker core", logger)
+	metricsSrv, err := cli.StartMetricsHTTPServer(
+		metricsHandler,
+		config.WorkerCoreMetricsListenAddr(),
+		"Worker core",
+		logger,
+	)
 	if err != nil {
 		logger.Fatal("Failed to start metrics server: %v", err)
 	}
@@ -108,7 +113,15 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	logger.Info("Worker core listening on %s", socketPath)
 	logger.Info("Worker core execution backend: %s", backend)
 	if strings.TrimSpace(executorConfig.CheckoutCacheRoot) != "" && len(executorConfig.CheckoutCacheRemoteURLs) > 0 {
-		logger.Info("Worker core checkout cache enabled: root=%s persistent_remotes=%d generations_to_keep=%d lease_ttl=%s max_bytes=%d warm_parallelism=%d", executorConfig.CheckoutCacheRoot, len(executorConfig.CheckoutCacheRemoteURLs), executorConfig.CheckoutCacheGenerationsToKeep, executorConfig.CheckoutCacheLeaseTTL, executorConfig.CheckoutCacheMaxBytes, executorConfig.CheckoutCacheWarmParallelism)
+		logger.Info(
+			"Worker core checkout cache enabled: root=%s persistent_remotes=%d generations_to_keep=%d lease_ttl=%s max_bytes=%d warm_parallelism=%d",
+			executorConfig.CheckoutCacheRoot,
+			len(executorConfig.CheckoutCacheRemoteURLs),
+			executorConfig.CheckoutCacheGenerationsToKeep,
+			executorConfig.CheckoutCacheLeaseTTL,
+			executorConfig.CheckoutCacheMaxBytes,
+			executorConfig.CheckoutCacheWarmParallelism,
+		)
 	}
 
 	if err := cli.ServeGRPC(ctx, grpcServer, listener, "Worker core", logger); err != nil {
@@ -125,7 +138,10 @@ func workerCoreCapabilities(checkoutCacheRoot string) []workercore.CoreCapabilit
 	}
 
 	if strings.TrimSpace(checkoutCacheRoot) != "" {
-		capabilities = append(capabilities, workercore.CoreCapability{Name: workersdk.CapabilityCheckoutCacheWarm, Version: "v1"})
+		capabilities = append(
+			capabilities,
+			workercore.CoreCapability{Name: workersdk.CapabilityCheckoutCacheWarm, Version: "v1"},
+		)
 	}
 
 	return capabilities
@@ -196,7 +212,9 @@ func workerCorePersistentCheckoutCacheRemotes() ([]workercore.CheckoutCacheRemot
 	return workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(nil)
 }
 
-func workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(credentialResolver sourcepkg.RepositoryCredentialResolver) ([]workercore.CheckoutCacheRemote, error) {
+func workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(
+	credentialResolver sourcepkg.RepositoryCredentialResolver,
+) ([]workercore.CheckoutCacheRemote, error) {
 	decls, err := config.SourceRepositoryDeclarations()
 	if err != nil {
 		return nil, err
@@ -228,8 +246,14 @@ func workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(credentialRe
 
 		fallbackRemoteURLs := workerCoreUniqueRemoteURLs(decl.FallbackRemoteURLs, remoteURL)
 		if existing, ok := seen[remoteURL]; ok {
-			out[existing].FallbackRemoteURLs = workerCoreUniqueRemoteURLs(append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...), remoteURL)
-			out[existing].WarmRefspecs = mergeWorkerCoreCheckoutCacheWarmRefspecs(out[existing].WarmRefspecs, decl.WorkerCacheWarmRefspecs)
+			out[existing].FallbackRemoteURLs = workerCoreUniqueRemoteURLs(
+				append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...),
+				remoteURL,
+			)
+			out[existing].WarmRefspecs = mergeWorkerCoreCheckoutCacheWarmRefspecs(
+				out[existing].WarmRefspecs,
+				decl.WorkerCacheWarmRefspecs,
+			)
 			if out[existing].Credentials.IsZero() && !credentials.IsZero() {
 				out[existing].Credentials = credentials
 			}
@@ -281,7 +305,11 @@ func workerCoreUniqueWarmRefspecs(refspecs []string) []string {
 	return out
 }
 
-func workerCoreSourceRepositoryCredentials(ctx context.Context, decl config.SourceRepositoryDeclaration, credentialResolver sourcepkg.RepositoryCredentialResolver) (sourcepkg.GitCredentials, error) {
+func workerCoreSourceRepositoryCredentials(
+	ctx context.Context,
+	decl config.SourceRepositoryDeclaration,
+	credentialResolver sourcepkg.RepositoryCredentialResolver,
+) (sourcepkg.GitCredentials, error) {
 	if strings.TrimSpace(decl.CredentialRef) == "" {
 		return sourcepkg.GitCredentials{}, nil
 	}
@@ -292,7 +320,9 @@ func workerCoreSourceRepositoryCredentials(ctx context.Context, decl config.Sour
 	}, credentialResolver)
 }
 
-func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourcepkg.RepositoryCredentialResolver, error) {
+func newConfiguredSourceRepositoryCredentialResolver(
+	logger interfaces.Logger,
+) (sourcepkg.RepositoryCredentialResolver, error) {
 	encryptedFSConfig := encryptedfs.ConfigFromViper(viper.GetViper())
 	root := strings.TrimSpace(encryptedFSConfig.Root)
 	keyFile := strings.TrimSpace(encryptedFSConfig.KeyFile)
@@ -301,7 +331,11 @@ func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (
 	}
 
 	if root == "" || keyFile == "" {
-		return nil, fmt.Errorf("source repository credentials require both %s and %s", encryptedfs.ConfigKeyRoot, encryptedfs.ConfigKeyKeyFile)
+		return nil, fmt.Errorf(
+			"source repository credentials require both %s and %s",
+			encryptedfs.ConfigKeyRoot,
+			encryptedfs.ConfigKeyKeyFile,
+		)
 	}
 
 	provider, err := encryptedFSConfig.NewProvider()
@@ -376,21 +410,31 @@ var rootCmd = &cobra.Command{
 func init() {
 	cli.ConfigureVersion(rootCmd)
 
-	rootCmd.PersistentFlags().String("socket", workercore.DefaultCoreSocketPath(), "Unix socket served by the worker core")
-	rootCmd.PersistentFlags().String("metrics-host", config.WorkerCoreMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().
+		String("socket", workercore.DefaultCoreSocketPath(), "Unix socket served by the worker core")
+	rootCmd.PersistentFlags().
+		String("metrics-host", config.WorkerCoreMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerCoreMetricsPort(), "HTTP port for Prometheus /metrics")
-	rootCmd.PersistentFlags().String("execution-backend", workercore.ExecutionBackendHost, "Command execution backend: host or lima")
+	rootCmd.PersistentFlags().
+		String("execution-backend", workercore.ExecutionBackendHost, "Command execution backend: host or lima")
 	rootCmd.PersistentFlags().String("workspace-root", "", "Parent directory for automatically-created run workspaces")
-	rootCmd.PersistentFlags().String("checkout-cache-root", "", "Persistent worker checkout cache root for source repositories with worker_cache_mode=persistent")
-	rootCmd.PersistentFlags().Int("checkout-cache-generations-to-keep", 0, "Persistent checkout cache mirror generations to keep per remote; 0 uses worker execution config")
-	rootCmd.PersistentFlags().Duration("checkout-cache-lease-ttl", 0, "Persistent checkout cache generation lease TTL; 0 uses worker execution config")
-	rootCmd.PersistentFlags().Int64("checkout-cache-max-bytes", 0, "Persistent checkout cache pack-byte budget per remote; 0 uses worker execution config")
-	rootCmd.PersistentFlags().Int("checkout-cache-warm-parallelism", 0, "Persistent checkout cache remotes to warm concurrently; 0 uses worker execution config")
+	rootCmd.PersistentFlags().
+		String("checkout-cache-root", "", "Persistent worker checkout cache root for source repositories with worker_cache_mode=persistent")
+	rootCmd.PersistentFlags().
+		Int("checkout-cache-generations-to-keep", 0, "Persistent checkout cache mirror generations to keep per remote; 0 uses worker execution config")
+	rootCmd.PersistentFlags().
+		Duration("checkout-cache-lease-ttl", 0, "Persistent checkout cache generation lease TTL; 0 uses worker execution config")
+	rootCmd.PersistentFlags().
+		Int64("checkout-cache-max-bytes", 0, "Persistent checkout cache pack-byte budget per remote; 0 uses worker execution config")
+	rootCmd.PersistentFlags().
+		Int("checkout-cache-warm-parallelism", 0, "Persistent checkout cache remotes to warm concurrently; 0 uses worker execution config")
 	rootCmd.PersistentFlags().String("lima-path", "", "Path to limactl when --execution-backend=lima")
 	rootCmd.PersistentFlags().String("lima-instance", "", "Lima instance name when --execution-backend=lima")
 	rootCmd.PersistentFlags().String("lima-guest-workspace-root", "", "Guest-side parent directory for Lima workspaces")
-	rootCmd.PersistentFlags().Bool("lima-start", false, "Start the Lima instance before each command when --execution-backend=lima")
-	rootCmd.PersistentFlags().Bool("lima-preserve-env", false, "Preserve host environment variables in Lima shell commands")
+	rootCmd.PersistentFlags().
+		Bool("lima-start", false, "Start the Lima instance before each command when --execution-backend=lima")
+	rootCmd.PersistentFlags().
+		Bool("lima-preserve-env", false, "Preserve host environment variables in Lima shell commands")
 	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
 
 	_ = viper.BindPFlag("socket", rootCmd.PersistentFlags().Lookup("socket"))
@@ -399,10 +443,16 @@ func init() {
 	_ = viper.BindPFlag("execution_backend", rootCmd.PersistentFlags().Lookup("execution-backend"))
 	_ = viper.BindPFlag("workspace_root", rootCmd.PersistentFlags().Lookup("workspace-root"))
 	_ = viper.BindPFlag("checkout_cache_root", rootCmd.PersistentFlags().Lookup("checkout-cache-root"))
-	_ = viper.BindPFlag("checkout_cache_generations_to_keep", rootCmd.PersistentFlags().Lookup("checkout-cache-generations-to-keep"))
+	_ = viper.BindPFlag(
+		"checkout_cache_generations_to_keep",
+		rootCmd.PersistentFlags().Lookup("checkout-cache-generations-to-keep"),
+	)
 	_ = viper.BindPFlag("checkout_cache_lease_ttl", rootCmd.PersistentFlags().Lookup("checkout-cache-lease-ttl"))
 	_ = viper.BindPFlag("checkout_cache_max_bytes", rootCmd.PersistentFlags().Lookup("checkout-cache-max-bytes"))
-	_ = viper.BindPFlag("checkout_cache_warm_parallelism", rootCmd.PersistentFlags().Lookup("checkout-cache-warm-parallelism"))
+	_ = viper.BindPFlag(
+		"checkout_cache_warm_parallelism",
+		rootCmd.PersistentFlags().Lookup("checkout-cache-warm-parallelism"),
+	)
 	_ = viper.BindPFlag("lima_path", rootCmd.PersistentFlags().Lookup("lima-path"))
 	_ = viper.BindPFlag("lima_instance", rootCmd.PersistentFlags().Lookup("lima-instance"))
 	_ = viper.BindPFlag("lima_guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))

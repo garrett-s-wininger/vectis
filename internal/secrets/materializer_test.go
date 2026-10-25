@@ -166,7 +166,10 @@ func TestMaterializeFilesRejectsUnsafePaths(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := MaterializeFiles(t.TempDir(), []FileMaterial{{ID: "bad", Path: path, Data: []byte("x")}}); err == nil {
+			if _, err := MaterializeFiles(
+				t.TempDir(),
+				[]FileMaterial{{ID: "bad", Path: path, Data: []byte("x")}},
+			); err == nil {
 				t.Fatalf("MaterializeFiles accepted unsafe path %q", path)
 			}
 		})

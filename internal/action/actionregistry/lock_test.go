@@ -15,8 +15,14 @@ func TestResolveJobActions(t *testing.T) {
 	job := actionLockJob()
 	resolver := fakeDescriptorResolver{
 		descriptors: map[string]Descriptor{
-			"builtins/sequence": descriptorForLockTest("builtins/sequence", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-			"builtins/script":   descriptorForLockTest("builtins/script", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+			"builtins/sequence": descriptorForLockTest(
+				"builtins/sequence",
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			),
+			"builtins/script": descriptorForLockTest(
+				"builtins/script",
+				"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			),
 		},
 	}
 
@@ -29,11 +35,13 @@ func TestResolveJobActions(t *testing.T) {
 		t.Fatalf("lock count: got %d, want 2: %+v", len(locks), locks)
 	}
 
-	if locks[0].NodeID != "root" || locks[0].NodePath != "root" || locks[0].Descriptor.CanonicalName != "builtins/sequence" {
+	if locks[0].NodeID != "root" || locks[0].NodePath != "root" ||
+		locks[0].Descriptor.CanonicalName != "builtins/sequence" {
 		t.Fatalf("root lock mismatch: %+v", locks[0])
 	}
 
-	if locks[1].NodeID != "script" || locks[1].NodePath != "root.steps[0]" || locks[1].Descriptor.CanonicalName != "builtins/script" {
+	if locks[1].NodeID != "script" || locks[1].NodePath != "root.steps[0]" ||
+		locks[1].Descriptor.CanonicalName != "builtins/script" {
 		t.Fatalf("child lock mismatch: %+v", locks[1])
 	}
 }
@@ -44,7 +52,10 @@ func TestResolveJobActionsReportsPath(t *testing.T) {
 	job := actionLockJob()
 	resolver := fakeDescriptorResolver{
 		descriptors: map[string]Descriptor{
-			"builtins/sequence": descriptorForLockTest("builtins/sequence", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+			"builtins/sequence": descriptorForLockTest(
+				"builtins/sequence",
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			),
 		},
 	}
 

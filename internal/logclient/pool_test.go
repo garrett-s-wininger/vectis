@@ -257,7 +257,12 @@ func TestRoutingLogStreamUsesChunkAssignedShard(t *testing.T) {
 
 	got := metrics.failures[0]
 	if got.operation != ShardRouteOperationAssignedWrite || got.reason != ShardRouteFailureShardMismatch {
-		t.Fatalf("failure metric = %+v, want %s/%s", got, ShardRouteOperationAssignedWrite, ShardRouteFailureShardMismatch)
+		t.Fatalf(
+			"failure metric = %+v, want %s/%s",
+			got,
+			ShardRouteOperationAssignedWrite,
+			ShardRouteFailureShardMismatch,
+		)
 	}
 }
 
@@ -283,7 +288,12 @@ func TestLogPoolRecordsAssignedShardUnavailable(t *testing.T) {
 
 	got := metrics.failures[0]
 	if got.operation != ShardRouteOperationWrite || got.reason != ShardRouteFailureAssignedUnavailable {
-		t.Fatalf("failure metric = %+v, want %s/%s", got, ShardRouteOperationWrite, ShardRouteFailureAssignedUnavailable)
+		t.Fatalf(
+			"failure metric = %+v, want %s/%s",
+			got,
+			ShardRouteOperationWrite,
+			ShardRouteFailureAssignedUnavailable,
+		)
 	}
 }
 

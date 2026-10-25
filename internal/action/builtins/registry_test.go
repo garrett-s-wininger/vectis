@@ -16,7 +16,8 @@ func TestRegistryResolveDescriptorForBuiltins(t *testing.T) {
 		t.Fatalf("ResolveDescriptor: %v", err)
 	}
 
-	if descriptor.CanonicalName != "builtins/script" || descriptor.DisplayName != "Script" || descriptor.Version != "v1" {
+	if descriptor.CanonicalName != "builtins/script" || descriptor.DisplayName != "Script" ||
+		descriptor.Version != "v1" {
 		t.Fatalf("unexpected descriptor: %+v", descriptor)
 	}
 

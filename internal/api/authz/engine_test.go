@@ -33,7 +33,11 @@ func (m *mockNamespacesRepo) Create(ctx context.Context, name string, parentID *
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockNamespacesRepo) CreateWithDescription(ctx context.Context, name, description string, parentID *int64) (*dal.NamespaceRecord, error) {
+func (m *mockNamespacesRepo) CreateWithDescription(
+	ctx context.Context,
+	name, description string,
+	parentID *int64,
+) (*dal.NamespaceRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -62,7 +66,11 @@ func (m *mockNamespacesRepo) ListChildren(ctx context.Context, parentID int64) (
 	return nil, nil
 }
 
-func (m *mockNamespacesRepo) UpdateDescription(ctx context.Context, id int64, description string) (*dal.NamespaceRecord, error) {
+func (m *mockNamespacesRepo) UpdateDescription(
+	ctx context.Context,
+	id int64,
+	description string,
+) (*dal.NamespaceRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -90,7 +98,11 @@ func (m *mockRoleBindingsRepo) add(userID, namespaceID int64, roles ...string) {
 	m.bindings[userID][namespaceID] = append(m.bindings[userID][namespaceID], roles...)
 }
 
-func (m *mockRoleBindingsRepo) Create(ctx context.Context, localUserID, namespaceID int64, role string) (*dal.RoleBindingRecord, error) {
+func (m *mockRoleBindingsRepo) Create(
+	ctx context.Context,
+	localUserID, namespaceID int64,
+	role string,
+) (*dal.RoleBindingRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -98,7 +110,10 @@ func (m *mockRoleBindingsRepo) Delete(ctx context.Context, localUserID, namespac
 	return errors.New("not implemented")
 }
 
-func (m *mockRoleBindingsRepo) ListByNamespace(ctx context.Context, namespaceID int64) ([]dal.RoleBindingRecord, error) {
+func (m *mockRoleBindingsRepo) ListByNamespace(
+	ctx context.Context,
+	namespaceID int64,
+) ([]dal.RoleBindingRecord, error) {
 	return nil, nil
 }
 
@@ -112,7 +127,11 @@ func (m *mockRoleBindingsRepo) ListByUser(ctx context.Context, localUserID int64
 
 	return out, nil
 }
-func (m *mockRoleBindingsRepo) GetUserRolesInNamespace(ctx context.Context, localUserID, namespaceID int64) ([]string, error) {
+
+func (m *mockRoleBindingsRepo) GetUserRolesInNamespace(
+	ctx context.Context,
+	localUserID, namespaceID int64,
+) ([]string, error) {
 	if roles, ok := m.bindings[localUserID][namespaceID]; ok {
 		return roles, nil
 	}
@@ -308,7 +327,8 @@ func TestHierarchicalRBAC_AdminRoleGrantsAllActions(t *testing.T) {
 
 	allActions := allDistinctActions()
 	for _, action := range allActions {
-		if action == ActionSetupStatus || action == ActionSetupComplete || action == ActionCatalogIngest || action == ActionUserAdmin {
+		if action == ActionSetupStatus || action == ActionSetupComplete || action == ActionCatalogIngest ||
+			action == ActionUserAdmin {
 			continue
 		}
 

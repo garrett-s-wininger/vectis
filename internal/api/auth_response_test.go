@@ -41,9 +41,15 @@ func TestWriteAPIError_noWWWAuthenticateOnOtherStatuses(t *testing.T) {
 
 func TestWriteAPIError_encodesContract(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeAPIError(rec, http.StatusConflict, "run_requeue_conflict", "run cannot be requeued from current status", map[string]any{
-		"status": "running",
-	})
+	writeAPIError(
+		rec,
+		http.StatusConflict,
+		"run_requeue_conflict",
+		"run cannot be requeued from current status",
+		map[string]any{
+			"status": "running",
+		},
+	)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status=%d", rec.Code)

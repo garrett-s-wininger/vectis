@@ -65,7 +65,11 @@ func NewService(logger interfaces.Logger, db *sql.DB) *Service {
 	return s
 }
 
-func NewServiceWithRepository(logger interfaces.Logger, polls dal.SCMPollTriggersRepository, clock interfaces.Clock) *Service {
+func NewServiceWithRepository(
+	logger interfaces.Logger,
+	polls dal.SCMPollTriggersRepository,
+	clock interfaces.Clock,
+) *Service {
 	if logger == nil {
 		logger = interfaces.NewLogger("scm-poller")
 	}
@@ -248,7 +252,11 @@ func (s *Service) processSpec(ctx context.Context, spec dal.SCMPollTriggerSpec, 
 			return fmt.Errorf("complete unsupported provider poll: claim was lost")
 		}
 		completed = true
-		s.logger.Warn("scm-poller: no provider registered for %q; next poll at %s", spec.Provider, nextPoll.Format(time.RFC3339))
+		s.logger.Warn(
+			"scm-poller: no provider registered for %q; next poll at %s",
+			spec.Provider,
+			nextPoll.Format(time.RFC3339),
+		)
 		return nil
 	}
 

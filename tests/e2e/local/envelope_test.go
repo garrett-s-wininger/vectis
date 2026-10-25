@@ -147,7 +147,14 @@ func TestE2ELocalEnvelope(t *testing.T) {
 	runLatencies := make([]time.Duration, 0, len(terminalResults))
 	for _, result := range terminalResults {
 		if result.err != nil {
-			t.Fatalf("run %s did not complete successfully: %v statuses=%v final=%+v\nvectis-local stderr:\n%s", result.info.runID, result.err, result.statuses, result.final, proc.stderr.String())
+			t.Fatalf(
+				"run %s did not complete successfully: %v statuses=%v final=%+v\nvectis-local stderr:\n%s",
+				result.info.runID,
+				result.err,
+				result.statuses,
+				result.final,
+				proc.stderr.String(),
+			)
 		}
 
 		runLatencies = append(runLatencies, result.latency)
@@ -156,10 +163,21 @@ func TestE2ELocalEnvelope(t *testing.T) {
 	totalDuration := terminalDone.Sub(workStart)
 	runsPerSecond := float64(len(triggered)) / totalDuration.Seconds()
 	if cfg.minRunsPerSecond > 0 && runsPerSecond < cfg.minRunsPerSecond {
-		t.Fatalf("local envelope throughput %.2f runs/s below %s=%.2f", runsPerSecond, envEnvelopeMinRunsPerSecond, cfg.minRunsPerSecond)
+		t.Fatalf(
+			"local envelope throughput %.2f runs/s below %s=%.2f",
+			runsPerSecond,
+			envEnvelopeMinRunsPerSecond,
+			cfg.minRunsPerSecond,
+		)
 	}
 
-	t.Logf("local envelope: runs=%d trigger_clients=%d status_reads/run=%d status_readers=%d", cfg.runs, cfg.triggerClients, cfg.statusReadsPerRun, cfg.statusReaders)
+	t.Logf(
+		"local envelope: runs=%d trigger_clients=%d status_reads/run=%d status_readers=%d",
+		cfg.runs,
+		cfg.triggerClients,
+		cfg.statusReadsPerRun,
+		cfg.statusReaders,
+	)
 	t.Logf("local envelope: trigger_burst=%s terminal_duration=%s total_duration=%s runs/s=%.2f accepted/s=%.2f",
 		triggerDone.Sub(workStart).Round(time.Millisecond),
 		totalDuration.Round(time.Millisecond),
@@ -167,10 +185,33 @@ func TestE2ELocalEnvelope(t *testing.T) {
 		runsPerSecond,
 		float64(len(triggered))/triggerDone.Sub(workStart).Seconds())
 
-	t.Logf("local envelope: run latency p50=%s p95=%s p99=%s", localEnvelopeQuantile(runLatencies, 0.50), localEnvelopeQuantile(runLatencies, 0.95), localEnvelopeQuantile(runLatencies, 0.99))
-	t.Logf("local envelope: status reads=%d p50=%s p95=%s p99=%s", len(statusLatencies), localEnvelopeQuantile(statusLatencies, 0.50), localEnvelopeQuantile(statusLatencies, 0.95), localEnvelopeQuantile(statusLatencies, 0.99))
-	t.Logf("local envelope: log replays=%d p50=%s p95=%s p99=%s", len(logLatencies), localEnvelopeQuantile(logLatencies, 0.50), localEnvelopeQuantile(logLatencies, 0.95), localEnvelopeQuantile(logLatencies, 0.99))
-	t.Logf("local envelope: artifact downloads=%d p50=%s p95=%s p99=%s", len(artifactLatencies), localEnvelopeQuantile(artifactLatencies, 0.50), localEnvelopeQuantile(artifactLatencies, 0.95), localEnvelopeQuantile(artifactLatencies, 0.99))
+	t.Logf(
+		"local envelope: run latency p50=%s p95=%s p99=%s",
+		localEnvelopeQuantile(runLatencies, 0.50),
+		localEnvelopeQuantile(runLatencies, 0.95),
+		localEnvelopeQuantile(runLatencies, 0.99),
+	)
+	t.Logf(
+		"local envelope: status reads=%d p50=%s p95=%s p99=%s",
+		len(statusLatencies),
+		localEnvelopeQuantile(statusLatencies, 0.50),
+		localEnvelopeQuantile(statusLatencies, 0.95),
+		localEnvelopeQuantile(statusLatencies, 0.99),
+	)
+	t.Logf(
+		"local envelope: log replays=%d p50=%s p95=%s p99=%s",
+		len(logLatencies),
+		localEnvelopeQuantile(logLatencies, 0.50),
+		localEnvelopeQuantile(logLatencies, 0.95),
+		localEnvelopeQuantile(logLatencies, 0.99),
+	)
+	t.Logf(
+		"local envelope: artifact downloads=%d p50=%s p95=%s p99=%s",
+		len(artifactLatencies),
+		localEnvelopeQuantile(artifactLatencies, 0.50),
+		localEnvelopeQuantile(artifactLatencies, 0.95),
+		localEnvelopeQuantile(artifactLatencies, 0.99),
+	)
 }
 
 func localEnvelopeConfigFromEnv(t *testing.T) localEnvelopeConfig {
@@ -219,7 +260,12 @@ func localEnvelopeEnvFloat(t *testing.T, key string, defaultValue float64) float
 	return value
 }
 
-func triggerLocalEnvelopeBurst(t *testing.T, client *http.Client, cfg localEnvelopeConfig, onInfo func(localEnvelopeRunInfo)) ([]localEnvelopeRunInfo, error) {
+func triggerLocalEnvelopeBurst(
+	t *testing.T,
+	client *http.Client,
+	cfg localEnvelopeConfig,
+	onInfo func(localEnvelopeRunInfo),
+) ([]localEnvelopeRunInfo, error) {
 	t.Helper()
 
 	clients := cfg.triggerClients
@@ -257,7 +303,11 @@ func triggerLocalEnvelopeBurst(t *testing.T, client *http.Client, cfg localEnvel
 					return
 				}
 
-				info, err := triggerLocalEnvelopeJob(workCtx, client, fmt.Sprintf("envelope-%d-%d", time.Now().UnixNano(), i))
+				info, err := triggerLocalEnvelopeJob(
+					workCtx,
+					client,
+					fmt.Sprintf("envelope-%d-%d", time.Now().UnixNano(), i),
+				)
 				if err != nil {
 					setErr(err)
 					return
@@ -282,9 +332,18 @@ func triggerLocalEnvelopeBurst(t *testing.T, client *http.Client, cfg localEnvel
 	return infos, nil
 }
 
-func triggerLocalEnvelopeJob(ctx context.Context, client *http.Client, idempotencyKey string) (localEnvelopeRunInfo, error) {
+func triggerLocalEnvelopeJob(
+	ctx context.Context,
+	client *http.Client,
+	idempotencyKey string,
+) (localEnvelopeRunInfo, error) {
 	triggerStart := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, localEnvelopeBaseURL+"/api/v1/jobs/trigger/"+url.PathEscape(canonicalJobID), nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		localEnvelopeBaseURL+"/api/v1/jobs/trigger/"+url.PathEscape(canonicalJobID),
+		nil,
+	)
 	if err != nil {
 		return localEnvelopeRunInfo{}, err
 	}
@@ -323,7 +382,11 @@ func triggerLocalEnvelopeJob(ctx context.Context, client *http.Client, idempoten
 	}, nil
 }
 
-func waitForLocalEnvelopeTerminalRuns(t *testing.T, client *http.Client, infos []localEnvelopeRunInfo) []localEnvelopeTerminalResult {
+func waitForLocalEnvelopeTerminalRuns(
+	t *testing.T,
+	client *http.Client,
+	infos []localEnvelopeRunInfo,
+) []localEnvelopeTerminalResult {
 	t.Helper()
 
 	results := make([]localEnvelopeTerminalResult, len(infos))
@@ -348,7 +411,11 @@ func waitForLocalEnvelopeTerminalRuns(t *testing.T, client *http.Client, infos [
 	return results
 }
 
-func waitForLocalEnvelopeRunTerminal(client *http.Client, runID string, timeout time.Duration) (runShowResult, []string, error) {
+func waitForLocalEnvelopeRunTerminal(
+	client *http.Client,
+	runID string,
+	timeout time.Duration,
+) (runShowResult, []string, error) {
 	deadline := time.Now().Add(timeout)
 	statuses := make([]string, 0, 4)
 	var last runShowResult
@@ -388,7 +455,12 @@ func getLocalEnvelopeRun(client *http.Client, runID string) (runShowResult, erro
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, localEnvelopeBaseURL+"/api/v1/runs/"+url.PathEscape(runID), nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		localEnvelopeBaseURL+"/api/v1/runs/"+url.PathEscape(runID),
+		nil,
+	)
 	if err != nil {
 		return runShowResult{}, err
 	}
@@ -416,7 +488,12 @@ func getLocalEnvelopeRun(client *http.Client, runID string) (runShowResult, erro
 	return out, nil
 }
 
-func startLocalEnvelopeStatusReaders(client *http.Client, jobs <-chan string, results chan<- localEnvelopeHTTPResult, readers int) func() {
+func startLocalEnvelopeStatusReaders(
+	client *http.Client,
+	jobs <-chan string,
+	results chan<- localEnvelopeHTTPResult,
+	readers int,
+) func() {
 	if readers <= 0 {
 		readers = 1
 	}
@@ -452,7 +529,12 @@ func collectLocalEnvelopeHTTPResults(t *testing.T, ch <-chan localEnvelopeHTTPRe
 	return latencies
 }
 
-func replayLocalEnvelopeLogs(t *testing.T, client *http.Client, runs []localEnvelopeRunInfo, limit int) []time.Duration {
+func replayLocalEnvelopeLogs(
+	t *testing.T,
+	client *http.Client,
+	runs []localEnvelopeRunInfo,
+	limit int,
+) []time.Duration {
 	t.Helper()
 
 	limit = min(limit, len(runs))
@@ -476,7 +558,12 @@ func getLocalEnvelopeRunLogs(t *testing.T, client *http.Client, runID string) []
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, localEnvelopeBaseURL+"/api/v1/runs/"+url.PathEscape(runID)+"/logs?tail=200&replay_limit=200", nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		localEnvelopeBaseURL+"/api/v1/runs/"+url.PathEscape(runID)+"/logs?tail=200&replay_limit=200",
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +599,12 @@ func getLocalEnvelopeRunLogs(t *testing.T, client *http.Client, runID string) []
 	return body.Bytes()
 }
 
-func downloadLocalEnvelopeArtifacts(t *testing.T, client *http.Client, runs []localEnvelopeRunInfo, limit int) []time.Duration {
+func downloadLocalEnvelopeArtifacts(
+	t *testing.T,
+	client *http.Client,
+	runs []localEnvelopeRunInfo,
+	limit int,
+) []time.Duration {
 	t.Helper()
 
 	limit = min(limit, len(runs))
@@ -528,7 +620,13 @@ func downloadLocalEnvelopeArtifacts(t *testing.T, client *http.Client, runs []lo
 			started := time.Now()
 			body := downloadLocalEnvelopeArtifact(t, client, runs[i].runID, artifact.name)
 			if string(body) != artifact.want {
-				t.Fatalf("run %s artifact %s content=%q want=%q", runs[i].runID, artifact.name, string(body), artifact.want)
+				t.Fatalf(
+					"run %s artifact %s content=%q want=%q",
+					runs[i].runID,
+					artifact.name,
+					string(body),
+					artifact.want,
+				)
 			}
 
 			latencies = append(latencies, time.Since(started))
@@ -544,7 +642,12 @@ func downloadLocalEnvelopeArtifact(t *testing.T, client *http.Client, runID, nam
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, localEnvelopeBaseURL+"/api/v1/runs/"+url.PathEscape(runID)+"/artifacts/"+url.PathEscape(name)+"/download", nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		localEnvelopeBaseURL+"/api/v1/runs/"+url.PathEscape(runID)+"/artifacts/"+url.PathEscape(name)+"/download",
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

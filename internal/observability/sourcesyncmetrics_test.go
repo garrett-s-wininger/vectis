@@ -26,12 +26,48 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerManual, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, 25*time.Millisecond)
-	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerPeriodic, "local_checkout", "managed", SourceSyncOutcomeFailed, SourceSyncReasonFromErrorCode("git_credentials_unavailable"), 10*time.Millisecond)
-	m.RecordSourceRefHydration(ctx, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, "fallback-2", SourceRefHydrationCacheHit, 15*time.Millisecond)
-	m.RecordSourceRepositoryObjectStore(ctx, "managed-repo", "local_checkout", "managed", "warning", 64, 128<<20, 6000, 42, []SourceRepositoryObjectStoreWarning{
-		{Code: "many_pack_files", Severity: "warning"},
-	})
+	m.RecordSourceRepositorySync(
+		ctx,
+		SourceSyncTriggerManual,
+		"local_checkout",
+		"managed",
+		SourceSyncOutcomeSucceeded,
+		SourceSyncReasonNone,
+		25*time.Millisecond,
+	)
+	m.RecordSourceRepositorySync(
+		ctx,
+		SourceSyncTriggerPeriodic,
+		"local_checkout",
+		"managed",
+		SourceSyncOutcomeFailed,
+		SourceSyncReasonFromErrorCode("git_credentials_unavailable"),
+		10*time.Millisecond,
+	)
+	m.RecordSourceRefHydration(
+		ctx,
+		"local_checkout",
+		"managed",
+		SourceSyncOutcomeSucceeded,
+		SourceSyncReasonNone,
+		"fallback-2",
+		SourceRefHydrationCacheHit,
+		15*time.Millisecond,
+	)
+	m.RecordSourceRepositoryObjectStore(
+		ctx,
+		"managed-repo",
+		"local_checkout",
+		"managed",
+		"warning",
+		64,
+		128<<20,
+		6000,
+		42,
+		[]SourceRepositoryObjectStoreWarning{
+			{Code: "many_pack_files", Severity: "warning"},
+		},
+	)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -102,7 +138,10 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 		"checkout_mode": "managed",
 		"pressure":      "warning",
 	}) {
-		t.Fatalf("pressure metric missing object-store labels: %v", families["vectis_source_repository_object_store_pressure"])
+		t.Fatalf(
+			"pressure metric missing object-store labels: %v",
+			families["vectis_source_repository_object_store_pressure"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_source_repository_object_store_warnings"], map[string]string{
@@ -112,7 +151,10 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 		"code":          "many_pack_files",
 		"severity":      "warning",
 	}) {
-		t.Fatalf("warning metric missing object-store labels: %v", families["vectis_source_repository_object_store_warnings"])
+		t.Fatalf(
+			"warning metric missing object-store labels: %v",
+			families["vectis_source_repository_object_store_warnings"],
+		)
 	}
 }
 

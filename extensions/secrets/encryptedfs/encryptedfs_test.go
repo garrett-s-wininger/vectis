@@ -19,7 +19,12 @@ func TestEncryptedFSProviderConformance(t *testing.T) {
 		t.Helper()
 
 		root := t.TempDir()
-		if err := WriteEncryptedFSSecretFile(root, "encryptedfs://team/conformance", []byte("conformance-secret"), testEncryptedFSKey); err != nil {
+		if err := WriteEncryptedFSSecretFile(
+			root,
+			"encryptedfs://team/conformance",
+			[]byte("conformance-secret"),
+			testEncryptedFSKey,
+		); err != nil {
 			t.Fatalf("write conformance secret: %v", err)
 		}
 
@@ -47,7 +52,12 @@ func TestEncryptedFSProviderResolveReadsEncryptedSecretFiles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	if err := WriteEncryptedFSSecretFile(root, "encryptedfs://team/npm-token", []byte("secret-value"), testEncryptedFSKey); err != nil {
+	if err := WriteEncryptedFSSecretFile(
+		root,
+		"encryptedfs://team/npm-token",
+		[]byte("secret-value"),
+		testEncryptedFSKey,
+	); err != nil {
 		t.Fatalf("write encrypted secret: %v", err)
 	}
 
@@ -85,7 +95,8 @@ func TestEncryptedFSProviderResolveReadsEncryptedSecretFiles(t *testing.T) {
 	}
 
 	file := bundle.Files[0]
-	if file.ID != "npm-token" || file.Path != "npm/token" || string(file.Data) != "secret-value" || file.Mode != DefaultFileMode {
+	if file.ID != "npm-token" || file.Path != "npm/token" || string(file.Data) != "secret-value" ||
+		file.Mode != DefaultFileMode {
 		t.Fatalf("file = %+v", file)
 	}
 }
@@ -143,7 +154,12 @@ func TestEncryptedFSProviderResolveRejectsSymlinkEscape(t *testing.T) {
 
 	root := t.TempDir()
 	outside := t.TempDir()
-	if err := WriteEncryptedFSSecretFile(outside, "encryptedfs://token", []byte("secret-value"), testEncryptedFSKey); err != nil {
+	if err := WriteEncryptedFSSecretFile(
+		outside,
+		"encryptedfs://token",
+		[]byte("secret-value"),
+		testEncryptedFSKey,
+	); err != nil {
 		t.Fatalf("write outside encrypted secret: %v", err)
 	}
 
@@ -176,7 +192,12 @@ func TestEncryptedFSProviderResolveRejectsOversizedSecret(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	if err := WriteEncryptedFSSecretFile(root, "encryptedfs://token", []byte("too-large"), testEncryptedFSKey); err != nil {
+	if err := WriteEncryptedFSSecretFile(
+		root,
+		"encryptedfs://token",
+		[]byte("too-large"),
+		testEncryptedFSKey,
+	); err != nil {
 		t.Fatalf("write encrypted secret: %v", err)
 	}
 
@@ -234,7 +255,12 @@ func TestEncryptedFSProviderResolveRejectsSwappedEnvelope(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	if err := WriteEncryptedFSSecretFile(root, "encryptedfs://team/source", []byte("secret-value"), testEncryptedFSKey); err != nil {
+	if err := WriteEncryptedFSSecretFile(
+		root,
+		"encryptedfs://team/source",
+		[]byte("secret-value"),
+		testEncryptedFSKey,
+	); err != nil {
 		t.Fatalf("write encrypted secret: %v", err)
 	}
 

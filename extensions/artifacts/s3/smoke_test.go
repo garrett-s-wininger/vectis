@@ -32,7 +32,8 @@ func TestRunSmokeAgainstFakeS3WithAccessKey(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 
-	if result.BlobKey == "" || result.Digest != sha256Hex("s3 external smoke") || result.Bytes != int64(len("s3 external smoke")) {
+	if result.BlobKey == "" || result.Digest != sha256Hex("s3 external smoke") ||
+		result.Bytes != int64(len("s3 external smoke")) {
 		t.Fatalf("bad blob result: %+v", result)
 	}
 
@@ -73,7 +74,8 @@ func TestRunSmokeAgainstFakeS3Unsigned(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 
-	if result.BlobKey == "" || result.Digest != sha256Hex("s3 external public smoke") || result.Bytes != int64(len("s3 external public smoke")) {
+	if result.BlobKey == "" || result.Digest != sha256Hex("s3 external public smoke") ||
+		result.Bytes != int64(len("s3 external public smoke")) {
 		t.Fatalf("bad blob result: %+v", result)
 	}
 

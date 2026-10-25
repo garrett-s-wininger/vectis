@@ -91,7 +91,13 @@ func runS3ArtifactSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, er
 
 	artifactEnv := smokeArtifactS3Env(opts)
 	snapshotCtx, snapshotCancel := context.WithTimeout(ctx, opts.Wait)
-	artifactEnvSnapshot, err := snapshotSmokeWorkloadEnv(snapshotCtx, opts, smokeArtifactStatefulSetName, smokeArtifactContainerName, mapKeys(artifactEnv))
+	artifactEnvSnapshot, err := snapshotSmokeWorkloadEnv(
+		snapshotCtx,
+		opts,
+		smokeArtifactStatefulSetName,
+		smokeArtifactContainerName,
+		mapKeys(artifactEnv),
+	)
 	snapshotCancel()
 	if err != nil {
 		return SmokeResult{}, err
@@ -99,7 +105,13 @@ func runS3ArtifactSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, er
 	defer restoreSmokeWorkloadEnv(opts, smokeArtifactStatefulSetName, smokeArtifactContainerName, artifactEnvSnapshot)
 
 	patchCtx, patchCancel := context.WithTimeout(ctx, opts.Wait)
-	if err := setSmokeWorkloadEnv(patchCtx, opts, smokeArtifactStatefulSetName, smokeArtifactContainerName, artifactEnv); err != nil {
+	if err := setSmokeWorkloadEnv(
+		patchCtx,
+		opts,
+		smokeArtifactStatefulSetName,
+		smokeArtifactContainerName,
+		artifactEnv,
+	); err != nil {
 		patchCancel()
 		return SmokeResult{}, err
 	}
@@ -113,7 +125,13 @@ func runS3ArtifactSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, er
 	result.S3Endpoint = opts.S3ClusterEndpoint
 	result.S3Bucket = opts.S3Bucket
 	result.S3Prefix = opts.S3Prefix
-	fmt.Fprintf(out, "Kubernetes S3 artifact smoke succeeded: run_id=%s bucket=%s prefix=%s\n", result.RunID, opts.S3Bucket, opts.S3Prefix)
+	fmt.Fprintf(
+		out,
+		"Kubernetes S3 artifact smoke succeeded: run_id=%s bucket=%s prefix=%s\n",
+		result.RunID,
+		opts.S3Bucket,
+		opts.S3Prefix,
+	)
 	return result, nil
 }
 
@@ -150,11 +168,23 @@ func validateS3ArtifactSmokeOptions(opts SmokeOptions) error {
 }
 
 func applySmokeS3ArtifactFixture(ctx context.Context, opts SmokeOptions) error {
-	return applySmokeManifest(ctx, opts, "S3 artifact smoke fixture", smokeS3ArtifactFixtureManifest(opts), smokeS3ArtifactDeploymentName)
+	return applySmokeManifest(
+		ctx,
+		opts,
+		"S3 artifact smoke fixture",
+		smokeS3ArtifactFixtureManifest(opts),
+		smokeS3ArtifactDeploymentName,
+	)
 }
 
 func cleanupSmokeS3ArtifactFixture(opts SmokeOptions) {
-	cleanupSmokeResources(opts, "S3 artifact smoke fixture", smokeS3ArtifactDeploymentName, smokeS3ArtifactServiceName, "configmap/vectis-s3-artifact-auth")
+	cleanupSmokeResources(
+		opts,
+		"S3 artifact smoke fixture",
+		smokeS3ArtifactDeploymentName,
+		smokeS3ArtifactServiceName,
+		"configmap/vectis-s3-artifact-auth",
+	)
 }
 
 func smokeS3ArtifactFixtureManifest(opts SmokeOptions) string {
@@ -293,7 +323,12 @@ type smokeWorkloadEnvSnapshot struct {
 	HadValue bool
 }
 
-func snapshotSmokeWorkloadEnv(ctx context.Context, opts SmokeOptions, workload, container string, names []string) (map[string]smokeWorkloadEnvSnapshot, error) {
+func snapshotSmokeWorkloadEnv(
+	ctx context.Context,
+	opts SmokeOptions,
+	workload, container string,
+	names []string,
+) (map[string]smokeWorkloadEnvSnapshot, error) {
 	current, err := fetchSmokeWorkload(ctx, opts, workload)
 	if err != nil {
 		return nil, err
@@ -325,7 +360,12 @@ func fetchSmokeWorkload(ctx context.Context, opts SmokeOptions, workload string)
 	return deployment, nil
 }
 
-func setSmokeWorkloadEnv(ctx context.Context, opts SmokeOptions, workload, container string, env map[string]string) error {
+func setSmokeWorkloadEnv(
+	ctx context.Context,
+	opts SmokeOptions,
+	workload, container string,
+	env map[string]string,
+) error {
 	if len(env) == 0 {
 		return nil
 	}
@@ -357,7 +397,11 @@ func setSmokeWorkloadEnv(ctx context.Context, opts SmokeOptions, workload, conta
 	return nil
 }
 
-func restoreSmokeWorkloadEnv(opts SmokeOptions, workload, container string, snapshot map[string]smokeWorkloadEnvSnapshot) {
+func restoreSmokeWorkloadEnv(
+	opts SmokeOptions,
+	workload, container string,
+	snapshot map[string]smokeWorkloadEnvSnapshot,
+) {
 	if len(snapshot) == 0 {
 		return
 	}

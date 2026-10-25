@@ -116,7 +116,12 @@ func sanitizeRunIDForSpool(id string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "-"), string(filepath.Separator), "-")
 }
 
-func newDurableLogStream(ctx context.Context, logClient interfaces.LogClient, logger interfaces.Logger, runID string) (*durableLogStream, error) {
+func newDurableLogStream(
+	ctx context.Context,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	runID string,
+) (*durableLogStream, error) {
 	if logClient == nil {
 		return nil, fmt.Errorf("log client is required")
 	}
@@ -210,7 +215,9 @@ func (d *durableLogStream) CloseSend() error {
 	if d.degraded && !d.closeWaitLog {
 		d.closeWaitLog = true
 		if d.logger != nil {
-			d.logger.Warn("Log aggregator still unavailable; flush will continue in background (run outcome is independent)")
+			d.logger.Warn(
+				"Log aggregator still unavailable; flush will continue in background (run outcome is independent)",
+			)
 		}
 	}
 	d.mu.Unlock()

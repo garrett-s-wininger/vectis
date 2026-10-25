@@ -68,7 +68,13 @@ func runLDAPAuthSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, erro
 
 	apiEnv := smokeLDAPAPIEnv(opts)
 	snapshotCtx, snapshotCancel := context.WithTimeout(ctx, opts.Wait)
-	apiEnvSnapshot, err := snapshotSmokeWorkloadEnv(snapshotCtx, opts, smokeAPIDeploymentName, smokeAPIContainerName, mapKeys(apiEnv))
+	apiEnvSnapshot, err := snapshotSmokeWorkloadEnv(
+		snapshotCtx,
+		opts,
+		smokeAPIDeploymentName,
+		smokeAPIContainerName,
+		mapKeys(apiEnv),
+	)
 	snapshotCancel()
 	if err != nil {
 		return SmokeResult{}, err
@@ -116,7 +122,14 @@ func runLDAPAuthSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, erro
 		LDAPSetupPreexisting: apiResult.SetupAlreadyComplete,
 	}
 
-	fmt.Fprintf(out, "Kubernetes LDAP auth smoke succeeded: username=%s user_id=%d setup_performed=%t setup_preexisting=%t\n", apiResult.Username, apiResult.UserID, apiResult.SetupPerformed, apiResult.SetupAlreadyComplete)
+	fmt.Fprintf(
+		out,
+		"Kubernetes LDAP auth smoke succeeded: username=%s user_id=%d setup_performed=%t setup_preexisting=%t\n",
+		apiResult.Username,
+		apiResult.UserID,
+		apiResult.SetupPerformed,
+		apiResult.SetupAlreadyComplete,
+	)
 	return result, nil
 }
 
@@ -187,11 +200,23 @@ func applySmokeLDAPFixture(ctx context.Context, opts SmokeOptions) error {
 		return fmt.Errorf("read LDAP bootstrap LDIF %s: %w", opts.LDAPBootstrapLDIF, err)
 	}
 
-	return applySmokeManifest(ctx, opts, "LDAP smoke fixture", smokeLDAPFixtureManifest(opts, string(ldif)), smokeLDAPDeploymentName)
+	return applySmokeManifest(
+		ctx,
+		opts,
+		"LDAP smoke fixture",
+		smokeLDAPFixtureManifest(opts, string(ldif)),
+		smokeLDAPDeploymentName,
+	)
 }
 
 func cleanupSmokeLDAPFixture(opts SmokeOptions) {
-	cleanupSmokeResources(opts, "LDAP smoke fixture", smokeLDAPDeploymentName, smokeLDAPServiceName, smokeLDAPConfigMapResource)
+	cleanupSmokeResources(
+		opts,
+		"LDAP smoke fixture",
+		smokeLDAPDeploymentName,
+		smokeLDAPServiceName,
+		smokeLDAPConfigMapResource,
+	)
 }
 
 func smokeLDAPFixtureManifest(opts SmokeOptions, ldif string) string {

@@ -18,7 +18,11 @@ func (f fakeOrchestratorRegistry) InstanceAddress(context.Context, api.Component
 	return "", nil
 }
 
-func (f fakeOrchestratorRegistry) ListRegistrations(_ context.Context, _ api.Component, metadata map[string]string) ([]*api.RegistryEntry, error) {
+func (f fakeOrchestratorRegistry) ListRegistrations(
+	_ context.Context,
+	_ api.Component,
+	metadata map[string]string,
+) ([]*api.RegistryEntry, error) {
 	if len(metadata) == 0 {
 		return f.entries, nil
 	}

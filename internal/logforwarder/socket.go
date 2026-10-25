@@ -150,7 +150,11 @@ func (s *SocketServer) handleConn(conn net.Conn) {
 		case s.chunks <- chunk:
 		default:
 			if s.logger != nil {
-				s.logger.Warn("Socket buffer full; dropping chunk (run %s seq %d)", chunk.GetRunId(), chunk.GetSequence())
+				s.logger.Warn(
+					"Socket buffer full; dropping chunk (run %s seq %d)",
+					chunk.GetRunId(),
+					chunk.GetSequence(),
+				)
 			}
 		}
 	}

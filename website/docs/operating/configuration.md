@@ -42,6 +42,7 @@ Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dis
 | Bind private cell ingress to another interface | `VECTIS_CELL_INGRESS_HOST=0.0.0.0`, internal mTLS via `VECTIS_GRPC_TLS_*`, plus a matching static endpoint or `VECTIS_CELL_INGRESS_ALLOWED_HOSTS=<ingress-host>` |
 | Route API dispatch to a remote cell | `vectis-api --cell-ingress-endpoint iad-a=https://iad.example:8085` |
 | Disable local API authentication for a dev loop | `vectis-local --auth=false` or `VECTIS_LOCAL_AUTH_ENABLED=false` |
+| Leave local first-admin setup for the bootstrap token | `vectis-local --setup=off` or `VECTIS_LOCAL_SETUP=off` |
 | Run local UI with Vite hot assets through the UI BFF | `vectis-local --ui-dev-assets` or `VECTIS_LOCAL_UI_DEV_ASSETS_ENABLED=true` |
 | Enable API authentication | `VECTIS_API_AUTH_ENABLED=true` and, for a new database, `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` |
 | Select authorization engine | `VECTIS_API_AUTHZ_ENGINE=hierarchical_rbac` or `authenticated_full` |
@@ -162,14 +163,14 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
 | `vectis-ui` | `VECTIS_UI` | `--host`, `--port`, `--dir`, `--dev-assets-url`, `--api-url` |
-| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--auth`, `--ui-port`, `--ui-dir`, `--ui-dev-assets`, `--ui-dev-assets-host`, `--ui-dev-assets-port`, `--ui-dev-assets-dir`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`, `--config-as-code`, `--source-repository`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
+| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--auth`, `--setup`, `--ui-port`, `--ui-dir`, `--ui-dev-assets`, `--ui-dev-assets-host`, `--ui-dev-assets-port`, `--ui-dev-assets-dir`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`, `--config-as-code`, `--source-repository`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate`; `VECTIS_RETENTION_CLEANUP_*` for retention cleanup defaults |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
 
 ## HTTP API Authentication {#http-api-authentication-vectis-api}
 
-Standalone API authentication is off by default. `vectis-local` enables HTTP API authentication for its child API process by default and writes a reusable local setup bootstrap token under `$XDG_DATA_HOME/vectis/local-bootstrap-token`. Browser sessions are owned by `vectis-ui`: it performs first-load setup/login/app-shell routing, gives the browser an HttpOnly UI session cookie, and stores and forwards API bearer tokens server-side.
+Standalone API authentication is off by default. `vectis-local` enables HTTP API authentication for its child API process by default. It also registers managed source repository `vectis-local` in namespace `/` with `local_commit` authoring and default ref `main`, unless you pass `--source-repository`. With `--setup=auto`, it creates the first admin after the API is healthy, prompts for a password when a terminal is attached, and otherwise writes a generated password under `$XDG_DATA_HOME/vectis/local-admin-password`. `--setup=off` leaves a reusable bootstrap token under `$XDG_DATA_HOME/vectis/local-bootstrap-token`. Browser sessions are owned by `vectis-ui`: it performs first-load setup/login/app-shell routing, gives the browser an HttpOnly UI session cookie, and stores and forwards API bearer tokens server-side.
 
 | Variable / key | Purpose |
 | --- | --- |
@@ -188,7 +189,7 @@ Standalone API authentication is off by default. `vectis-local` enables HTTP API
 | `VECTIS_API_AUTH_LDAP_AUTO_LINK_USERS` / `api.auth.ldap.auto_link_users` | When `true`, a first-seen LDAP subject may be linked to an existing local user with the same mapped username. Defaults to `true`; set `false` to require explicit pre-linking. |
 | `VECTIS_API_AUTH_LDAP_AUTO_CREATE_USERS` / `api.auth.ldap.auto_create_users` | When `true`, successful LDAP logins create missing local Vectis user rows. Defaults to `false`; pre-create users when you want explicit provisioning. Successful LDAP logins record an external identity link keyed by provider ID and LDAP subject. |
 
-`vectis-cli login` calls `POST /api/v1/login` and saves the returned token in the OS user config directory. You can override the saved token for one shell session with:
+`vectis-cli auth login` calls `POST /api/v1/login` and saves the returned token in the OS user config directory. On a new auth-enabled database, create the first admin with `POST /api/v1/setup/complete` before that login can succeed. You can override the saved token for one shell session with:
 
 ```sh
 export VECTIS_API_TOKEN=<token>
@@ -433,7 +434,7 @@ Internal gRPC TLS settings are global across Vectis binaries.
 | `VECTIS_GRPC_TLS_SERVER_NAME` | Optional server-name override for outbound TLS verification. Useful when discovery returns an IP but the certificate is issued for a DNS name. |
 | `VECTIS_GRPC_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstraps a local development CA and sets `VECTIS_GRPC_TLS_*` for child processes unless you pass `--grpc-insecure`; plaintext local mode also skips `vectis-secrets`. The same generated server certificate can also be used for local API/docs HTTPS. Run `vectis-local init` as your normal user to create or renew the files, then run `vectis-local install-cert` with elevated privileges if your OS requires that to trust the generated CA. The `install-cert` command only installs the CA certificate; it does not create files, migrate databases, or start services. In normal runs, `--http-tls=auto` uses HTTPS when the generated certificate verifies against the system trust store, `--http-tls=on` forces HTTPS with the generated cert, and `--http-tls=off` keeps API/docs on HTTP. The Podman reference deployment also generates internal gRPC TLS material and mounts it into the Vectis containers.
+Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstraps a local development CA and sets `VECTIS_GRPC_TLS_*` for child processes unless you pass `--grpc-insecure`; plaintext local mode also skips `vectis-secrets`. The same generated server certificate can also be used for local API/docs HTTPS. Run `vectis-local init` as your normal user to create or renew the files, then run `vectis-local install-cert` with elevated privileges if your OS requires that to trust the generated CA. The `install-cert` command only installs the CA certificate; it does not create files, migrate databases, or start services. In normal runs, `--http-tls=auto` uses HTTPS when the generated certificate verifies against the system trust store, `--http-tls=on` forces HTTPS with the generated cert, and `--http-tls=off` keeps API/docs on HTTP. When local API auth stays on HTTP, `vectis-local` sets `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` for the API process so startup secure-cookie validation can pass. The Podman reference deployment also generates internal gRPC TLS material and mounts it into the Vectis containers.
 
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |

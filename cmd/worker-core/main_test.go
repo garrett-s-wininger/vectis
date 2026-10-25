@@ -107,10 +107,12 @@ func TestWorkerCorePersistentCheckoutCacheRemotesResolveCredentials(t *testing.T
 	]`)
 
 	var resolvedRepositoryID string
-	remotes, err := workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(func(_ context.Context, rec dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
-		resolvedRepositoryID = rec.RepositoryID
-		return sourcepkg.GitCredentials{Username: "oauth2", Password: "token"}, nil
-	})
+	remotes, err := workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(
+		func(_ context.Context, rec dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
+			resolvedRepositoryID = rec.RepositoryID
+			return sourcepkg.GitCredentials{Username: "oauth2", Password: "token"}, nil
+		},
+	)
 
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +344,12 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	}
 
 	if artifacts.name != "smoke" || artifacts.path != "artifact.txt" || artifacts.contentType != "text/plain" {
-		t.Fatalf("artifact request = name:%q path:%q content_type:%q", artifacts.name, artifacts.path, artifacts.contentType)
+		t.Fatalf(
+			"artifact request = name:%q path:%q content_type:%q",
+			artifacts.name,
+			artifacts.path,
+			artifacts.contentType,
+		)
 	}
 
 	if err := core.CancelTask(ctx, workercore.CancelTaskRequest{
@@ -412,7 +419,13 @@ func reserveWorkerCoreProcessMetricsPort(t *testing.T) int {
 	return addr.Port
 }
 
-func dialWorkerCoreProcess(t *testing.T, ctx context.Context, socketPath string, done <-chan error, output *bytes.Buffer) (*workercore.RemoteCore, func()) {
+func dialWorkerCoreProcess(
+	t *testing.T,
+	ctx context.Context,
+	socketPath string,
+	done <-chan error,
+	output *bytes.Buffer,
+) (*workercore.RemoteCore, func()) {
 	t.Helper()
 
 	var lastErr error
@@ -432,7 +445,12 @@ func dialWorkerCoreProcess(t *testing.T, ctx context.Context, socketPath string,
 
 		lastErr = err
 		if ctx.Err() != nil {
-			t.Fatalf("timed out dialing worker core helper: %v; last error: %v\n%s", ctx.Err(), lastErr, output.String())
+			t.Fatalf(
+				"timed out dialing worker core helper: %v; last error: %v\n%s",
+				ctx.Err(),
+				lastErr,
+				output.String(),
+			)
 		}
 
 		time.Sleep(25 * time.Millisecond)
@@ -476,7 +494,10 @@ type recordingProcessArtifactPublisher struct {
 	data        string
 }
 
-func (p *recordingProcessArtifactPublisher) PublishArtifact(_ context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+func (p *recordingProcessArtifactPublisher) PublishArtifact(
+	_ context.Context,
+	req action.ArtifactPublishRequest,
+) (action.ArtifactPublishResult, error) {
 	data, err := io.ReadAll(req.Reader)
 	if err != nil {
 		return action.ArtifactPublishResult{}, err

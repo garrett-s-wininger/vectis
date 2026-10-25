@@ -81,7 +81,11 @@ func (p routeQueryPolicy) sameAllowed(want routeQueryPolicy) bool {
 	return true
 }
 
-func routeQueryMiddleware(policy routeQueryPolicy, next http.Handler, recorders ...securityRejectionRecorder) http.Handler {
+func routeQueryMiddleware(
+	policy routeQueryPolicy,
+	next http.Handler,
+	recorders ...securityRejectionRecorder,
+) http.Handler {
 	var record securityRejectionRecorder
 	if len(recorders) > 0 {
 		record = recorders[0]

@@ -181,7 +181,9 @@ func TestSpoolCorruptionDetected(t *testing.T) {
 		t.Fatalf("new writer: %v", err)
 	}
 
-	if err := w.Append(&api.LogChunk{RunId: proto.String("r"), Sequence: proto.Int64(1), Data: []byte("x")}); err != nil {
+	if err := w.Append(
+		&api.LogChunk{RunId: proto.String("r"), Sequence: proto.Int64(1), Data: []byte("x")},
+	); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 

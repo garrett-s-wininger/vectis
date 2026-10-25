@@ -140,16 +140,56 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.packerPath, "packer", opts.packerPath, "packer executable")
 	flags.StringVar(&opts.prepVersion, "prep-version", opts.prepVersion, "expected prepared VM marker version")
 	flags.StringVar(&opts.lane, "lane", opts.lane, "VM lane to inspect, or all")
-	flags.StringVar(&opts.deployLimaPath, "deploy-lima-bin", opts.deployLimaPath, "limactl executable for deploy smoke VM")
+	flags.StringVar(
+		&opts.deployLimaPath,
+		"deploy-lima-bin",
+		opts.deployLimaPath,
+		"limactl executable for deploy smoke VM",
+	)
 	flags.StringVar(&opts.deployInstance, "deploy-instance", opts.deployInstance, "deploy smoke VM instance")
-	flags.StringVar(&opts.builderLimaPath, "builder-lima-bin", opts.builderLimaPath, "limactl executable for package builder VM")
+	flags.StringVar(
+		&opts.builderLimaPath,
+		"builder-lima-bin",
+		opts.builderLimaPath,
+		"limactl executable for package builder VM",
+	)
 	flags.StringVar(&opts.builderInstance, "builder-instance", opts.builderInstance, "package builder VM instance")
-	flags.StringVar(&opts.builderGoVersion, "builder-go-version", opts.builderGoVersion, "expected package builder Go version")
-	flags.StringVar(&opts.builderCacheRoot, "builder-cache-root", opts.builderCacheRoot, "expected package builder cache root")
-	flags.StringVar(&opts.builderWorkspaceRoot, "builder-workspace-root", opts.builderWorkspaceRoot, "expected package builder workspace root")
-	flags.StringVar(&opts.smokeLimaPath, "smoke-lima-bin", opts.smokeLimaPath, "limactl executable for package smoke VMs")
-	flags.StringVar(&opts.debSmokeInstance, "deb-smoke-instance", opts.debSmokeInstance, "DEB package smoke VM instance")
-	flags.StringVar(&opts.rpmSmokeInstance, "rpm-smoke-instance", opts.rpmSmokeInstance, "RPM package smoke VM instance")
+	flags.StringVar(
+		&opts.builderGoVersion,
+		"builder-go-version",
+		opts.builderGoVersion,
+		"expected package builder Go version",
+	)
+	flags.StringVar(
+		&opts.builderCacheRoot,
+		"builder-cache-root",
+		opts.builderCacheRoot,
+		"expected package builder cache root",
+	)
+	flags.StringVar(
+		&opts.builderWorkspaceRoot,
+		"builder-workspace-root",
+		opts.builderWorkspaceRoot,
+		"expected package builder workspace root",
+	)
+	flags.StringVar(
+		&opts.smokeLimaPath,
+		"smoke-lima-bin",
+		opts.smokeLimaPath,
+		"limactl executable for package smoke VMs",
+	)
+	flags.StringVar(
+		&opts.debSmokeInstance,
+		"deb-smoke-instance",
+		opts.debSmokeInstance,
+		"DEB package smoke VM instance",
+	)
+	flags.StringVar(
+		&opts.rpmSmokeInstance,
+		"rpm-smoke-instance",
+		opts.rpmSmokeInstance,
+		"RPM package smoke VM instance",
+	)
 
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -213,7 +253,11 @@ func runDoctor(ctx context.Context, opts options, stdout io.Writer) error {
 	}
 
 	if issueCount > 0 {
-		fmt.Fprintf(stdout, "\nFound %d issue(s). Repair with the target shown for each lane, then rerun mage vmDoctor.\n", issueCount)
+		fmt.Fprintf(
+			stdout,
+			"\nFound %d issue(s). Repair with the target shown for each lane, then rerun mage vmDoctor.\n",
+			issueCount,
+		)
 		return errDoctorFailed
 	}
 
@@ -273,30 +317,59 @@ func lanes(opts options) []lane {
 				{label: "prep-version", path: prepRoot + "/package-builder-prep-version", want: opts.prepVersion},
 			},
 			checks: []guestCheck{
-				{label: "go", args: []string{"sh", "-lc", `PATH=/usr/local/go/bin:$PATH; test "$(go env GOVERSION)" = "$1"`, "vectis-builder-go", "go" + opts.builderGoVersion}},
+				{
+					label: "go",
+					args: []string{
+						"sh",
+						"-lc",
+						`PATH=/usr/local/go/bin:$PATH; test "$(go env GOVERSION)" = "$1"`,
+						"vectis-builder-go",
+						"go" + opts.builderGoVersion,
+					},
+				},
 				{label: "mage", args: []string{"mage", "--version"}},
 				{label: "cc", args: []string{"cc", "--version"}},
 				{label: "cache-root", args: []string{"test", "-d", opts.builderCacheRoot}},
 				{label: "workspace-root", args: []string{"test", "-d", opts.builderWorkspaceRoot}},
 			},
 		},
-		packageSmokeLane(opts, "package-smoke-deb", opts.debSmokeInstance, "deb", "mage vmPackageSmokeDebPrepare", "mage vmPackageSmokeDebCheck", []guestCheck{
-			{label: "dpkg", args: []string{"dpkg", "--version"}},
-			{label: "dpkg-deb", args: []string{"dpkg-deb", "--version"}},
-			{label: "systemctl", args: []string{"systemctl", "--version"}},
-			{label: "systemd-sysusers", args: []string{"systemd-sysusers", "--version"}},
-			{label: "systemd-tmpfiles", args: []string{"systemd-tmpfiles", "--version"}},
-		}),
-		packageSmokeLane(opts, "package-smoke-rpm", opts.rpmSmokeInstance, "rpm", "mage vmPackageSmokeRPMPrepare", "mage vmPackageSmokeRPMCheck", []guestCheck{
-			{label: "rpm", args: []string{"rpm", "--version"}},
-			{label: "systemctl", args: []string{"systemctl", "--version"}},
-			{label: "systemd-sysusers", args: []string{"systemd-sysusers", "--version"}},
-			{label: "systemd-tmpfiles", args: []string{"systemd-tmpfiles", "--version"}},
-		}),
+		packageSmokeLane(
+			opts,
+			"package-smoke-deb",
+			opts.debSmokeInstance,
+			"deb",
+			"mage vmPackageSmokeDebPrepare",
+			"mage vmPackageSmokeDebCheck",
+			[]guestCheck{
+				{label: "dpkg", args: []string{"dpkg", "--version"}},
+				{label: "dpkg-deb", args: []string{"dpkg-deb", "--version"}},
+				{label: "systemctl", args: []string{"systemctl", "--version"}},
+				{label: "systemd-sysusers", args: []string{"systemd-sysusers", "--version"}},
+				{label: "systemd-tmpfiles", args: []string{"systemd-tmpfiles", "--version"}},
+			},
+		),
+		packageSmokeLane(
+			opts,
+			"package-smoke-rpm",
+			opts.rpmSmokeInstance,
+			"rpm",
+			"mage vmPackageSmokeRPMPrepare",
+			"mage vmPackageSmokeRPMCheck",
+			[]guestCheck{
+				{label: "rpm", args: []string{"rpm", "--version"}},
+				{label: "systemctl", args: []string{"systemctl", "--version"}},
+				{label: "systemd-sysusers", args: []string{"systemd-sysusers", "--version"}},
+				{label: "systemd-tmpfiles", args: []string{"systemd-tmpfiles", "--version"}},
+			},
+		),
 	}
 }
 
-func packageSmokeLane(opts options, name, instance, profile, prepareTarget, checkTarget string, checks []guestCheck) lane {
+func packageSmokeLane(
+	opts options,
+	name, instance, profile, prepareTarget, checkTarget string,
+	checks []guestCheck,
+) lane {
 	return lane{
 		name:          name,
 		instance:      instance,
@@ -421,7 +494,10 @@ func inspectLaneDoctor(ctx context.Context, l lane) laneReport {
 
 		got = strings.TrimSpace(got)
 		if got != expectation.want {
-			report.issues = append(report.issues, fmt.Sprintf("%s = %q, want %q", expectation.label, got, expectation.want))
+			report.issues = append(
+				report.issues,
+				fmt.Sprintf("%s = %q, want %q", expectation.label, got, expectation.want),
+			)
 		}
 	}
 

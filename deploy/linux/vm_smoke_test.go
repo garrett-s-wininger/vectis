@@ -35,7 +35,13 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 	}
 
 	if manager.copiedLocal != out || manager.copiedRemote != vmSmokeRemoteArtifactDir {
-		t.Fatalf("copy = %s -> %s, want %s -> %s", manager.copiedLocal, manager.copiedRemote, out, vmSmokeRemoteArtifactDir)
+		t.Fatalf(
+			"copy = %s -> %s, want %s -> %s",
+			manager.copiedLocal,
+			manager.copiedRemote,
+			out,
+			vmSmokeRemoteArtifactDir,
+		)
 	}
 
 	if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(vmSmokeBinDir), "vectis-cli")); err != nil {
@@ -43,7 +49,8 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 	}
 
 	for _, command := range manager.shellCommands {
-		if len(command) >= 3 && command[0] == "sudo" && command[1] == "sh" && (command[2] == "-s" || command[2] == "-c") {
+		if len(command) >= 3 && command[0] == "sudo" && command[1] == "sh" &&
+			(command[2] == "-s" || command[2] == "-c") {
 			t.Fatalf("guest smoke should not run shell scripts, got command %v", command)
 		}
 	}
@@ -95,7 +102,11 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		"/etc/systemd/system/vectis.target",
 	})
 
-	requireRecordedCommand(t, manager, append([]string{"sudo", "systemctl", "enable"}, expectedSmokeTargetMemberUnits()...))
+	requireRecordedCommand(
+		t,
+		manager,
+		append([]string{"sudo", "systemctl", "enable"}, expectedSmokeTargetMemberUnits()...),
+	)
 	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "start", "vectis.target"})
 	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "is-active", "--quiet", "vectis.target"})
 }
@@ -138,7 +149,11 @@ func TestRunVMSmokeVerifyCleansGuestAfterFailure(t *testing.T) {
 	}
 
 	requireRecordedCommand(t, manager, failCommand)
-	requireRecordedCommand(t, manager, append([]string{"sudo", "systemctl", "disable"}, expectedSmokeTargetMemberUnits()...))
+	requireRecordedCommand(
+		t,
+		manager,
+		append([]string{"sudo", "systemctl", "disable"}, expectedSmokeTargetMemberUnits()...),
+	)
 	requireRecordedCommandContaining(t, manager,
 		[]string{"sudo", "rm", "-f"},
 		vmSmokeMarkerDestination,
@@ -232,7 +247,12 @@ func requireRecordedCommand(t *testing.T, manager *recordingVMManager, want []st
 	t.Fatalf("missing guest command %v", want)
 }
 
-func requireRecordedCommandContaining(t *testing.T, manager *recordingVMManager, prefix []string, requiredArgs ...string) {
+func requireRecordedCommandContaining(
+	t *testing.T,
+	manager *recordingVMManager,
+	prefix []string,
+	requiredArgs ...string,
+) {
 	t.Helper()
 	for _, got := range manager.shellCommands {
 		if len(got) < len(prefix) || !reflect.DeepEqual(got[:len(prefix)], prefix) {

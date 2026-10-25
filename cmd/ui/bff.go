@@ -163,7 +163,12 @@ func (b *uiBackend) apiProxyHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if bffOnlyAPIPath(r.URL.Path) {
-			writeBFFError(w, http.StatusNotFound, "bff_route_required", "use the UI session endpoint for this browser flow")
+			writeBFFError(
+				w,
+				http.StatusNotFound,
+				"bff_route_required",
+				"use the UI session endpoint for this browser flow",
+			)
 			return
 		}
 
@@ -542,7 +547,13 @@ func (b *uiBackend) sessionFromRequest(r *http.Request) (uiSession, bool) {
 	return b.sessions.get(cookie.Value)
 }
 
-func (b *uiBackend) forwardJSON(w http.ResponseWriter, r *http.Request, method, apiPath string, body []byte, out any) bool {
+func (b *uiBackend) forwardJSON(
+	w http.ResponseWriter,
+	r *http.Request,
+	method, apiPath string,
+	body []byte,
+	out any,
+) bool {
 	target := b.apiURL.ResolveReference(&url.URL{Path: apiPath})
 	req, err := http.NewRequestWithContext(r.Context(), method, target.String(), bytes.NewReader(body))
 	if err != nil {

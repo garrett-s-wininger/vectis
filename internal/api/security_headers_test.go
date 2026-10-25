@@ -30,7 +30,12 @@ func TestHandlerAppliesSecurityHeaders(t *testing.T) {
 	assertSecurityHeader(t, rec, "Origin-Agent-Cluster", "?1")
 	assertSecurityHeader(t, rec, "X-Permitted-Cross-Domain-Policies", "none")
 	assertSecurityHeader(t, rec, "X-Download-Options", "noopen")
-	assertSecurityHeader(t, rec, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	assertSecurityHeader(
+		t,
+		rec,
+		"Content-Security-Policy",
+		"default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+	)
 
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)

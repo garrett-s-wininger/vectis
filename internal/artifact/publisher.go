@@ -153,13 +153,25 @@ func (p *Publisher) enforceRunQuota(ctx context.Context, req PublishRequest, pro
 
 	projectedCount := usage.Count + 1
 	if p.maxRunArtifacts > 0 && projectedCount > p.maxRunArtifacts {
-		return fmt.Errorf("%w: run %s would have %d artifacts, max %d", ErrRunArtifactQuotaExceeded, req.RunID, projectedCount, p.maxRunArtifacts)
+		return fmt.Errorf(
+			"%w: run %s would have %d artifacts, max %d",
+			ErrRunArtifactQuotaExceeded,
+			req.RunID,
+			projectedCount,
+			p.maxRunArtifacts,
+		)
 	}
 
 	if p.maxRunBytes > 0 && haveSize {
 		projectedBytes := usage.SizeBytes + projectedSize
 		if projectedBytes > p.maxRunBytes {
-			return fmt.Errorf("%w: run %s would have %d artifact bytes, max %d", ErrRunArtifactQuotaExceeded, req.RunID, projectedBytes, p.maxRunBytes)
+			return fmt.Errorf(
+				"%w: run %s would have %d artifact bytes, max %d",
+				ErrRunArtifactQuotaExceeded,
+				req.RunID,
+				projectedBytes,
+				p.maxRunBytes,
+			)
 		}
 	}
 

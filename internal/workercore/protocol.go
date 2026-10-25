@@ -123,7 +123,8 @@ func (c *RemoteCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) er
 		return fmt.Errorf("remote worker core requires a task session id")
 	}
 
-	if (session.GetLogsEnabled() || session.GetArtifactsEnabled()) && strings.TrimSpace(session.GetShellEndpoint()) == "" {
+	if (session.GetLogsEnabled() || session.GetArtifactsEnabled()) &&
+		strings.TrimSpace(session.GetShellEndpoint()) == "" {
 		return fmt.Errorf("remote worker core requires a shell endpoint for callback-enabled sessions")
 	}
 
@@ -163,7 +164,10 @@ func (c *RemoteCore) CancelTask(ctx context.Context, req CancelTaskRequest) erro
 	return nil
 }
 
-func (c *RemoteCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCacheRequest) (WarmCheckoutCacheResult, error) {
+func (c *RemoteCore) WarmCheckoutCache(
+	ctx context.Context,
+	req WarmCheckoutCacheRequest,
+) (WarmCheckoutCacheResult, error) {
 	if c == nil || c.client == nil {
 		return WarmCheckoutCacheResult{}, fmt.Errorf("remote worker core is not configured")
 	}
@@ -238,7 +242,9 @@ func CoreDescriptionProto(desc CoreDescription) *api.DescribeWorkerCoreResponse 
 }
 
 func WarmCheckoutCacheRequestProto(req WarmCheckoutCacheRequest) *api.WarmWorkerCoreCheckoutCacheRequest {
-	remoteURLs := uniqueCheckoutCacheRemoteURLs(append(cloneStringSlice(req.RemoteURLs), checkoutCacheRemoteURLsFromRemotes(req.Remotes)...))
+	remoteURLs := uniqueCheckoutCacheRemoteURLs(
+		append(cloneStringSlice(req.RemoteURLs), checkoutCacheRemoteURLsFromRemotes(req.Remotes)...),
+	)
 
 	return &api.WarmWorkerCoreCheckoutCacheRequest{
 		RemoteUrls: remoteURLs,

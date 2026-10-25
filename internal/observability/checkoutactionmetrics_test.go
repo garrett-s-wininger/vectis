@@ -26,12 +26,46 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metrics.RecordCheckoutActionCacheCheck(ctx, CheckoutActionCacheOutcomeHit, CheckoutActionReasonOK, 20*time.Millisecond)
-	metrics.RecordCheckoutActionCacheCheck(ctx, CheckoutActionCacheOutcomeMiss, CheckoutActionReasonNoCache, 3*time.Millisecond)
-	metrics.RecordCheckoutActionResult(ctx, CheckoutActionStrategyCache, CheckoutActionOutcomeSuccess, CheckoutActionReasonOK, 120*time.Millisecond)
-	metrics.RecordCheckoutActionResult(ctx, CheckoutActionStrategyDirect, CheckoutActionOutcomeFailed, CheckoutActionReasonGitCloneFailed, 2*time.Second)
-	metrics.RecordCheckoutActionDirectClone(ctx, CheckoutActionCacheOutcomeMiss, CheckoutActionOutcomeFailed, CheckoutActionReasonGitCloneFailed, 1800*time.Millisecond)
-	metrics.RecordCheckoutActionDirectClone(ctx, CheckoutActionCacheOutcomeSkipped, CheckoutActionOutcomeSuccess, CheckoutActionReasonOK, 900*time.Millisecond)
+	metrics.RecordCheckoutActionCacheCheck(
+		ctx,
+		CheckoutActionCacheOutcomeHit,
+		CheckoutActionReasonOK,
+		20*time.Millisecond,
+	)
+	metrics.RecordCheckoutActionCacheCheck(
+		ctx,
+		CheckoutActionCacheOutcomeMiss,
+		CheckoutActionReasonNoCache,
+		3*time.Millisecond,
+	)
+	metrics.RecordCheckoutActionResult(
+		ctx,
+		CheckoutActionStrategyCache,
+		CheckoutActionOutcomeSuccess,
+		CheckoutActionReasonOK,
+		120*time.Millisecond,
+	)
+	metrics.RecordCheckoutActionResult(
+		ctx,
+		CheckoutActionStrategyDirect,
+		CheckoutActionOutcomeFailed,
+		CheckoutActionReasonGitCloneFailed,
+		2*time.Second,
+	)
+	metrics.RecordCheckoutActionDirectClone(
+		ctx,
+		CheckoutActionCacheOutcomeMiss,
+		CheckoutActionOutcomeFailed,
+		CheckoutActionReasonGitCloneFailed,
+		1800*time.Millisecond,
+	)
+	metrics.RecordCheckoutActionDirectClone(
+		ctx,
+		CheckoutActionCacheOutcomeSkipped,
+		CheckoutActionOutcomeSuccess,
+		CheckoutActionReasonOK,
+		900*time.Millisecond,
+	)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -63,7 +97,10 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 		"outcome":  CheckoutActionOutcomeSuccess,
 		"reason":   CheckoutActionReasonOK,
 	}) {
-		t.Fatalf("checkout result metric missing cache success labels: %v", families["vectis_checkout_action_results_total"])
+		t.Fatalf(
+			"checkout result metric missing cache success labels: %v",
+			families["vectis_checkout_action_results_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_checkout_action_results_total"], map[string]string{
@@ -71,21 +108,30 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 		"outcome":  CheckoutActionOutcomeFailed,
 		"reason":   CheckoutActionReasonGitCloneFailed,
 	}) {
-		t.Fatalf("checkout result metric missing direct failure labels: %v", families["vectis_checkout_action_results_total"])
+		t.Fatalf(
+			"checkout result metric missing direct failure labels: %v",
+			families["vectis_checkout_action_results_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_checkout_action_cache_checks_total"], map[string]string{
 		"outcome": CheckoutActionCacheOutcomeHit,
 		"reason":  CheckoutActionReasonOK,
 	}) {
-		t.Fatalf("checkout cache check metric missing hit labels: %v", families["vectis_checkout_action_cache_checks_total"])
+		t.Fatalf(
+			"checkout cache check metric missing hit labels: %v",
+			families["vectis_checkout_action_cache_checks_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_checkout_action_cache_checks_total"], map[string]string{
 		"outcome": CheckoutActionCacheOutcomeMiss,
 		"reason":  CheckoutActionReasonNoCache,
 	}) {
-		t.Fatalf("checkout cache check metric missing miss labels: %v", families["vectis_checkout_action_cache_checks_total"])
+		t.Fatalf(
+			"checkout cache check metric missing miss labels: %v",
+			families["vectis_checkout_action_cache_checks_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_checkout_action_direct_clone_duration_seconds"], map[string]string{
@@ -93,7 +139,10 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 		"outcome":     CheckoutActionOutcomeFailed,
 		"reason":      CheckoutActionReasonGitCloneFailed,
 	}) {
-		t.Fatalf("checkout direct clone metric missing fallback failure labels: %v", families["vectis_checkout_action_direct_clone_duration_seconds"])
+		t.Fatalf(
+			"checkout direct clone metric missing fallback failure labels: %v",
+			families["vectis_checkout_action_direct_clone_duration_seconds"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_checkout_action_direct_clone_duration_seconds"], map[string]string{
@@ -101,6 +150,9 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 		"outcome":     CheckoutActionOutcomeSuccess,
 		"reason":      CheckoutActionReasonOK,
 	}) {
-		t.Fatalf("checkout direct clone metric missing skipped-cache success labels: %v", families["vectis_checkout_action_direct_clone_duration_seconds"])
+		t.Fatalf(
+			"checkout direct clone metric missing skipped-cache success labels: %v",
+			families["vectis_checkout_action_direct_clone_duration_seconds"],
+		)
 	}
 }

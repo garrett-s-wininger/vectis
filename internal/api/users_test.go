@@ -51,7 +51,12 @@ func TestDisableUserRevokesCredentialsAcrossReenable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "target", string(passHash), true)
+	res, err := db.Exec(
+		"INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)",
+		"target",
+		string(passHash),
+		true,
+	)
 	if err != nil {
 		t.Fatalf("insert target user: %v", err)
 	}
@@ -66,7 +71,12 @@ func TestDisableUserRevokesCredentialsAcrossReenable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", targetUserID, hashAPIToken(targetAPIToken), "target-token"); err != nil {
+	if _, err := db.Exec(
+		"INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)",
+		targetUserID,
+		hashAPIToken(targetAPIToken),
+		"target-token",
+	); err != nil {
 		t.Fatalf("insert target token: %v", err)
 	}
 
@@ -112,7 +122,11 @@ func TestDisableUserRevokesCredentialsAcrossReenable(t *testing.T) {
 
 	disableBody, _ := json.Marshal(map[string]bool{"enabled": false})
 	disableRec := httptest.NewRecorder()
-	disableReq := httptest.NewRequest(http.MethodPut, "/api/v1/users/"+formatInt64(targetUserID), bytes.NewReader(disableBody))
+	disableReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/users/"+formatInt64(targetUserID),
+		bytes.NewReader(disableBody),
+	)
 	disableReq.Header.Set("Content-Type", "application/json")
 	disableReq.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
 	h.ServeHTTP(disableRec, disableReq)
@@ -122,7 +136,11 @@ func TestDisableUserRevokesCredentialsAcrossReenable(t *testing.T) {
 
 	enableBody, _ := json.Marshal(map[string]bool{"enabled": true})
 	enableRec := httptest.NewRecorder()
-	enableReq := httptest.NewRequest(http.MethodPut, "/api/v1/users/"+formatInt64(targetUserID), bytes.NewReader(enableBody))
+	enableReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/users/"+formatInt64(targetUserID),
+		bytes.NewReader(enableBody),
+	)
 	enableReq.Header.Set("Content-Type", "application/json")
 	enableReq.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
 	h.ServeHTTP(enableRec, enableReq)
@@ -170,7 +188,12 @@ func TestDeleteUserRevokesMemoryCachedSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "target", string(passHash), true)
+	res, err := db.Exec(
+		"INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)",
+		"target",
+		string(passHash),
+		true,
+	)
 	if err != nil {
 		t.Fatalf("insert target user: %v", err)
 	}
@@ -274,7 +297,12 @@ func TestChangePassword_endToEnd(t *testing.T) {
 
 	t.Run("create_regular_user", func(t *testing.T) {
 		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
-		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "regular", string(hash), true)
+		res, err := db.Exec(
+			"INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)",
+			"regular",
+			string(hash),
+			true,
+		)
 
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)
@@ -283,13 +311,23 @@ func TestChangePassword_endToEnd(t *testing.T) {
 		regularUserID, _ = res.LastInsertId()
 		plainToken, _ := randomHexToken(apiTokenRandomBytes)
 		tokenHash := hashAPIToken(plainToken)
-		_, err = db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", regularUserID, tokenHash, "regular-token")
+		_, err = db.Exec(
+			"INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)",
+			regularUserID,
+			tokenHash,
+			"regular-token",
+		)
 		if err != nil {
 			t.Fatalf("failed to insert token: %v", err)
 		}
 
 		regularToken = plainToken
-		_, err = db.Exec("INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)", regularUserID, 1, "viewer")
+		_, err = db.Exec(
+			"INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)",
+			regularUserID,
+			1,
+			"viewer",
+		)
 		if err != nil {
 			t.Fatalf("failed to insert role binding: %v", err)
 		}
@@ -408,11 +446,19 @@ func TestChangePassword_endToEnd(t *testing.T) {
 	})
 
 	t.Run("self_service_password_change_rejects_password_auth_disabled_user", func(t *testing.T) {
-		if _, err := db.Exec("UPDATE local_users SET password_auth_enabled = ? WHERE id = ?", false, regularUserID); err != nil {
+		if _, err := db.Exec(
+			"UPDATE local_users SET password_auth_enabled = ? WHERE id = ?",
+			false,
+			regularUserID,
+		); err != nil {
 			t.Fatalf("disable regular password auth: %v", err)
 		}
 		t.Cleanup(func() {
-			if _, err := db.Exec("UPDATE local_users SET password_auth_enabled = ? WHERE id = ?", true, regularUserID); err != nil {
+			if _, err := db.Exec(
+				"UPDATE local_users SET password_auth_enabled = ? WHERE id = ?",
+				true,
+				regularUserID,
+			); err != nil {
 				t.Errorf("restore regular password auth: %v", err)
 			}
 		})
@@ -456,7 +502,12 @@ func TestChangePassword_endToEnd(t *testing.T) {
 
 			plainToken, _ := randomHexToken(apiTokenRandomBytes)
 			tokenHash := hashAPIToken(plainToken)
-			_, err = db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", adminUserID, tokenHash, "admin-token-2")
+			_, err = db.Exec(
+				"INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)",
+				adminUserID,
+				tokenHash,
+				"admin-token-2",
+			)
 			if err != nil {
 				t.Fatalf("failed to insert admin token: %v", err)
 			}
@@ -525,7 +576,12 @@ func TestChangePassword_endToEnd(t *testing.T) {
 
 			plainToken, _ := randomHexToken(apiTokenRandomBytes)
 			tokenHash := hashAPIToken(plainToken)
-			_, err = db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", regularUserID, tokenHash, "regular-token-2")
+			_, err = db.Exec(
+				"INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)",
+				regularUserID,
+				tokenHash,
+				"regular-token-2",
+			)
 			if err != nil {
 				t.Fatalf("failed to insert regular token: %v", err)
 			}
@@ -795,7 +851,11 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 
 		b, _ := json.Marshal(body)
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", bytes.NewReader(b))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/users/"+formatInt64(createdUserID)+"/external-identities",
+			bytes.NewReader(b),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		h.ServeHTTP(rec, req)
@@ -809,12 +869,17 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if linked.ProviderID != "corp-ldap" || linked.Kind != "ldap" || linked.Subject != "uuid-123" || linked.LocalUserID != createdUserID {
+		if linked.ProviderID != "corp-ldap" || linked.Kind != "ldap" || linked.Subject != "uuid-123" ||
+			linked.LocalUserID != createdUserID {
 			t.Fatalf("unexpected link: %+v", linked)
 		}
 
 		rec = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodGet, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", nil)
+		req = httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/users/"+formatInt64(createdUserID)+"/external-identities",
+			nil,
+		)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		h.ServeHTTP(rec, req)
 
@@ -832,7 +897,11 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 		}
 
 		rec = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodPost, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", bytes.NewReader(b))
+		req = httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/users/"+formatInt64(createdUserID)+"/external-identities",
+			bytes.NewReader(b),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		h.ServeHTTP(rec, req)
@@ -842,7 +911,11 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 		}
 
 		rec = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities/"+formatInt64(linked.ID), nil)
+		req = httptest.NewRequest(
+			http.MethodDelete,
+			"/api/v1/users/"+formatInt64(createdUserID)+"/external-identities/"+formatInt64(linked.ID),
+			nil,
+		)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		h.ServeHTTP(rec, req)
 
@@ -851,7 +924,11 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 		}
 
 		rec = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodGet, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", nil)
+		req = httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/users/"+formatInt64(createdUserID)+"/external-identities",
+			nil,
+		)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		h.ServeHTTP(rec, req)
 
@@ -876,7 +953,11 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 
 		b, _ := json.Marshal(body)
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", bytes.NewReader(b))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/users/"+formatInt64(createdUserID)+"/external-identities",
+			bytes.NewReader(b),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 		h.ServeHTTP(rec, req)
@@ -936,13 +1017,23 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 	t.Run("cannot_delete_breakglass", func(t *testing.T) {
 		// Create another admin user first
 		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
-		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "otheradmin", string(hash), true)
+		res, err := db.Exec(
+			"INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)",
+			"otheradmin",
+			string(hash),
+			true,
+		)
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)
 		}
 
 		otherAdminID, _ = res.LastInsertId()
-		_, err = db.Exec("INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)", otherAdminID, 1, "admin")
+		_, err = db.Exec(
+			"INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)",
+			otherAdminID,
+			1,
+			"admin",
+		)
 		if err != nil {
 			t.Fatalf("failed to insert role binding: %v", err)
 		}
@@ -1045,7 +1136,12 @@ func TestNamespaceAdminCannotManageGlobalUsers(t *testing.T) {
 		}
 
 		hash, _ := bcrypt.GenerateFromPassword([]byte("teamadmin123"), bcrypt.MinCost)
-		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "team-admin", string(hash), true)
+		res, err := db.Exec(
+			"INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)",
+			"team-admin",
+			string(hash),
+			true,
+		)
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)
 		}
@@ -1053,12 +1149,22 @@ func TestNamespaceAdminCannotManageGlobalUsers(t *testing.T) {
 		uid, _ := res.LastInsertId()
 		plainToken, _ := randomHexToken(apiTokenRandomBytes)
 		tokenHash := hashAPIToken(plainToken)
-		_, err = db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", uid, tokenHash, "team-admin-token")
+		_, err = db.Exec(
+			"INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)",
+			uid,
+			tokenHash,
+			"team-admin-token",
+		)
 		if err != nil {
 			t.Fatalf("failed to insert token: %v", err)
 		}
 
-		_, err = db.Exec("INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)", uid, 2, "admin")
+		_, err = db.Exec(
+			"INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)",
+			uid,
+			2,
+			"admin",
+		)
 		if err != nil {
 			t.Fatalf("failed to insert role binding: %v", err)
 		}

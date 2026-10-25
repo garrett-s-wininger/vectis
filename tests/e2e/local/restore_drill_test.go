@@ -54,7 +54,13 @@ func TestE2ELocalRestoreDrill(t *testing.T) {
 	before := runLocalRestoreDrillSmokeJob(t, root, sourceEnv, cli)
 	beforeStatuses, beforeFinal := waitForRunTerminal(t, root, sourceEnv, cli, before.RunID, 3*time.Minute)
 	if beforeFinal.Status != "succeeded" {
-		t.Fatalf("pre-restore run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s", before.RunID, beforeFinal.Status, beforeStatuses, proc.stderr.String())
+		t.Fatalf(
+			"pre-restore run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s",
+			before.RunID,
+			beforeFinal.Status,
+			beforeStatuses,
+			proc.stderr.String(),
+		)
 	}
 
 	waitForRunTaskCompletionSucceeded(t, root, sourceEnv, cli, before.RunID, 30*time.Second)
@@ -66,7 +72,16 @@ func TestE2ELocalRestoreDrill(t *testing.T) {
 	)
 
 	assertRunArtifact(t, root, sourceEnv, cli, before.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
-	assertRunArtifact(t, root, sourceEnv, cli, before.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
+	assertRunArtifact(
+		t,
+		root,
+		sourceEnv,
+		cli,
+		before.RunID,
+		smokeRetryArtifactName,
+		smokeRetryArtifactPath,
+		smokeRetryArtifactContent,
+	)
 
 	stopVectisLocal(t, proc)
 	sourceStopped = true
@@ -81,7 +96,12 @@ func TestE2ELocalRestoreDrill(t *testing.T) {
 
 	restoredEnv := localRestoreDrillEnv(t, root, restoredDataHome, ports)
 	evidence := verifyLocalRestoreDrillBackupEvidence(t, root, restoredEnv, cli, restoredDataHome)
-	t.Logf("local restore drill evidence: inventory=%s manifest=%s reports=%d", evidence.InventoryPath, evidence.ManifestPath, len(evidence.StorageReportPaths))
+	t.Logf(
+		"local restore drill evidence: inventory=%s manifest=%s reports=%d",
+		evidence.InventoryPath,
+		evidence.ManifestPath,
+		len(evidence.StorageReportPaths),
+	)
 
 	restoredProc := startVectisLocal(t, root, restoredEnv, local)
 	if !truthyEnv("VECTIS_E2E_KEEP_LOCAL") {
@@ -108,13 +128,37 @@ func TestE2ELocalRestoreDrill(t *testing.T) {
 		"Run "+before.RunID+" finished successfully.",
 	)
 
-	assertRunArtifact(t, root, restoredEnv, cli, before.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
-	assertRunArtifact(t, root, restoredEnv, cli, before.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
+	assertRunArtifact(
+		t,
+		root,
+		restoredEnv,
+		cli,
+		before.RunID,
+		smokeArtifactName,
+		smokeArtifactPath,
+		smokeArtifactContent,
+	)
+	assertRunArtifact(
+		t,
+		root,
+		restoredEnv,
+		cli,
+		before.RunID,
+		smokeRetryArtifactName,
+		smokeRetryArtifactPath,
+		smokeRetryArtifactContent,
+	)
 
 	after := runLocalRestoreDrillSmokeJob(t, root, restoredEnv, cli)
 	afterStatuses, afterFinal := waitForRunTerminal(t, root, restoredEnv, cli, after.RunID, 3*time.Minute)
 	if afterFinal.Status != "succeeded" {
-		t.Fatalf("post-restore run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s", after.RunID, afterFinal.Status, afterStatuses, restoredProc.stderr.String())
+		t.Fatalf(
+			"post-restore run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s",
+			after.RunID,
+			afterFinal.Status,
+			afterStatuses,
+			restoredProc.stderr.String(),
+		)
 	}
 
 	waitForRunTaskCompletionSucceeded(t, root, restoredEnv, cli, after.RunID, 30*time.Second)
@@ -125,10 +169,35 @@ func TestE2ELocalRestoreDrill(t *testing.T) {
 		"Run "+after.RunID+" finished successfully.",
 	)
 
-	assertRunArtifact(t, root, restoredEnv, cli, after.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
-	assertRunArtifact(t, root, restoredEnv, cli, after.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
+	assertRunArtifact(
+		t,
+		root,
+		restoredEnv,
+		cli,
+		after.RunID,
+		smokeArtifactName,
+		smokeArtifactPath,
+		smokeArtifactContent,
+	)
+	assertRunArtifact(
+		t,
+		root,
+		restoredEnv,
+		cli,
+		after.RunID,
+		smokeRetryArtifactName,
+		smokeRetryArtifactPath,
+		smokeRetryArtifactContent,
+	)
 
-	evidence.RestoreValidationPath = writeLocalRestoreDrillRestoreValidation(t, root, restoredEnv, cli, evidence, after.RunID)
+	evidence.RestoreValidationPath = writeLocalRestoreDrillRestoreValidation(
+		t,
+		root,
+		restoredEnv,
+		cli,
+		evidence,
+		after.RunID,
+	)
 	t.Logf("local restore drill validation: %s", evidence.RestoreValidationPath)
 }
 
@@ -333,7 +402,17 @@ func runLocalRestoreDrillHealthCheck(t *testing.T, root string, env []string, cl
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := runCommand(ctx, root, localRestoreDrillBackupEvidenceEnv(env, dataHome), nil, cli, "--format", "json", "health", "check"); err != nil {
+	if _, err := runCommand(
+		ctx,
+		root,
+		localRestoreDrillBackupEvidenceEnv(env, dataHome),
+		nil,
+		cli,
+		"--format",
+		"json",
+		"health",
+		"check",
+	); err != nil {
 		t.Fatalf("health check after restore: %v", err)
 	}
 }
@@ -344,7 +423,18 @@ func runLocalRestoreDrillSmokeJob(t *testing.T, root string, env []string, cli s
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	result, err := runCommand(ctx, root, env, nil, cli, "--format", "json", "jobs", "run", filepath.Join(root, "examples", "e2e-canonical.json"))
+	result, err := runCommand(
+		ctx,
+		root,
+		env,
+		nil,
+		cli,
+		"--format",
+		"json",
+		"jobs",
+		"run",
+		filepath.Join(root, "examples", "e2e-canonical.json"),
+	)
 	if err != nil {
 		t.Fatalf("run restore drill smoke job: %v", err)
 	}
@@ -361,7 +451,13 @@ func runLocalRestoreDrillSmokeJob(t *testing.T, root string, env []string, cli s
 	return out
 }
 
-func verifyLocalRestoreDrillBackupEvidence(t *testing.T, root string, env []string, cli string, dataHome string) localRestoreDrillEvidence {
+func verifyLocalRestoreDrillBackupEvidence(
+	t *testing.T,
+	root string,
+	env []string,
+	cli string,
+	dataHome string,
+) localRestoreDrillEvidence {
 	t.Helper()
 
 	evidenceDir := filepath.Join(t.TempDir(), "evidence")
@@ -370,8 +466,29 @@ func verifyLocalRestoreDrillBackupEvidence(t *testing.T, root string, env []stri
 	}
 
 	backupEnv := localRestoreDrillBackupEvidenceEnv(env, dataHome)
-	inventory := runLocalRestoreDrillCommandToFile(t, root, backupEnv, cli, filepath.Join(evidenceDir, "restored.inventory.json"), "--format", "json", "backup", "inventory")
-	manifest := runLocalRestoreDrillCommandToFile(t, root, backupEnv, cli, filepath.Join(evidenceDir, "restored.backup-manifest.json"), "--format", "json", "backup", "manifest", inventory)
+	inventory := runLocalRestoreDrillCommandToFile(
+		t,
+		root,
+		backupEnv,
+		cli,
+		filepath.Join(evidenceDir, "restored.inventory.json"),
+		"--format",
+		"json",
+		"backup",
+		"inventory",
+	)
+	manifest := runLocalRestoreDrillCommandToFile(
+		t,
+		root,
+		backupEnv,
+		cli,
+		filepath.Join(evidenceDir, "restored.backup-manifest.json"),
+		"--format",
+		"json",
+		"backup",
+		"manifest",
+		inventory,
+	)
 
 	localState := readLocalRestoreDrillInventoryPaths(t, inventory)
 	reportSpecs := []struct {
@@ -390,7 +507,20 @@ func verifyLocalRestoreDrillBackupEvidence(t *testing.T, root string, env []stri
 	for _, spec := range reportSpecs {
 		path := requireLocalRestoreDrillInventoryPath(t, localState, spec.id)
 		report := filepath.Join(evidenceDir, spec.name)
-		runLocalRestoreDrillCommandToFile(t, root, backupEnv, cli, report, "--format", "json", "storage", "verify", spec.surface, "--dir", path)
+		runLocalRestoreDrillCommandToFile(
+			t,
+			root,
+			backupEnv,
+			cli,
+			report,
+			"--format",
+			"json",
+			"storage",
+			"verify",
+			spec.surface,
+			"--dir",
+			path,
+		)
 		reportPaths = append(reportPaths, report)
 	}
 
@@ -400,7 +530,13 @@ func verifyLocalRestoreDrillBackupEvidence(t *testing.T, root string, env []stri
 	}
 
 	args = append(args, manifest)
-	verification := runLocalRestoreDrillCommandToFile(t, root, backupEnv, cli, filepath.Join(evidenceDir, "restored.backup-verification.json"), args...)
+	verification := runLocalRestoreDrillCommandToFile(
+		t,
+		root,
+		backupEnv,
+		cli,
+		filepath.Join(evidenceDir, "restored.backup-verification.json"),
+		args...)
 
 	return localRestoreDrillEvidence{
 		InventoryPath:      inventory,
@@ -410,7 +546,14 @@ func verifyLocalRestoreDrillBackupEvidence(t *testing.T, root string, env []stri
 	}
 }
 
-func writeLocalRestoreDrillRestoreValidation(t *testing.T, root string, env []string, cli string, evidence localRestoreDrillEvidence, smokeRunID string) string {
+func writeLocalRestoreDrillRestoreValidation(
+	t *testing.T,
+	root string,
+	env []string,
+	cli string,
+	evidence localRestoreDrillEvidence,
+	smokeRunID string,
+) string {
 	t.Helper()
 
 	args := []string{
@@ -427,7 +570,13 @@ func writeLocalRestoreDrillRestoreValidation(t *testing.T, root string, env []st
 	}
 
 	args = append(args, evidence.ManifestPath)
-	validationPath := runLocalRestoreDrillCommandToFile(t, root, env, cli, filepath.Join(filepath.Dir(evidence.ManifestPath), "restored.restore-validation.json"), args...)
+	validationPath := runLocalRestoreDrillCommandToFile(
+		t,
+		root,
+		env,
+		cli,
+		filepath.Join(filepath.Dir(evidence.ManifestPath), "restored.restore-validation.json"),
+		args...)
 	data, err := os.ReadFile(validationPath)
 	if err != nil {
 		t.Fatalf("read restore validation: %v", err)
@@ -443,10 +592,15 @@ func writeLocalRestoreDrillRestoreValidation(t *testing.T, root string, env []st
 	}
 
 	if validation.Verification.Summary.StorageReportsVerified < len(evidence.StorageReportPaths) {
-		t.Fatalf("restore validation verified %d storage report(s), want at least %d", validation.Verification.Summary.StorageReportsVerified, len(evidence.StorageReportPaths))
+		t.Fatalf(
+			"restore validation verified %d storage report(s), want at least %d",
+			validation.Verification.Summary.StorageReportsVerified,
+			len(evidence.StorageReportPaths),
+		)
 	}
 
-	if validation.SmokeRun.RunID != smokeRunID || validation.SmokeRun.Status != "succeeded" || !validation.SmokeRun.Passed {
+	if validation.SmokeRun.RunID != smokeRunID || validation.SmokeRun.Status != "succeeded" ||
+		!validation.SmokeRun.Passed {
 		t.Fatalf("restore validation smoke run = %+v, want run_id=%s succeeded", validation.SmokeRun, smokeRunID)
 	}
 
@@ -499,7 +653,14 @@ func localRestoreDrillEnvWithOverrides(env []string, overrides map[string]string
 	return out
 }
 
-func runLocalRestoreDrillCommandToFile(t *testing.T, root string, env []string, cli string, outputPath string, args ...string) string {
+func runLocalRestoreDrillCommandToFile(
+	t *testing.T,
+	root string,
+	env []string,
+	cli string,
+	outputPath string,
+	args ...string,
+) string {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -538,7 +699,11 @@ func readLocalRestoreDrillInventoryPaths(t *testing.T, path string) map[string]l
 	return out
 }
 
-func requireLocalRestoreDrillInventoryPath(t *testing.T, paths map[string]localRestoreDrillInventoryPath, id string) string {
+func requireLocalRestoreDrillInventoryPath(
+	t *testing.T,
+	paths map[string]localRestoreDrillInventoryPath,
+	id string,
+) string {
 	t.Helper()
 
 	item, ok := paths[id]

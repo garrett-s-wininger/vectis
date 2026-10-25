@@ -143,7 +143,11 @@ func TestRegListEntriesFiltersByMetadata(t *testing.T) {
 		MetadataCellID: DefaultCellID,
 	}, now)
 
-	got := r.listEntries(api.Component_COMPONENT_QUEUE, map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"}, now)
+	got := r.listEntries(
+		api.Component_COMPONENT_QUEUE,
+		map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"},
+		now,
+	)
 	if len(got) != 1 {
 		t.Fatalf("expected one matching pool queue, got %d", len(got))
 	}
@@ -153,7 +157,11 @@ func TestRegListEntriesFiltersByMetadata(t *testing.T) {
 	}
 
 	got[0].metadata["trait.os"] = "darwin"
-	again := r.listEntries(api.Component_COMPONENT_QUEUE, map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"}, now)
+	again := r.listEntries(
+		api.Component_COMPONENT_QUEUE,
+		map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"},
+		now,
+	)
 	if len(again) != 1 || again[0].metadata["trait.os"] != "linux" {
 		t.Fatalf("listEntries returned mutable metadata: %+v", again)
 	}
@@ -198,7 +206,10 @@ func TestRegistryServerGossipReplicatesDelta(t *testing.T) {
 		MetadataQueueRole: QueueRoleIngress,
 	}
 
-	if _, err := sponsor.Register(contextForTest(t), &api.Registration{Component: &component, Address: &address, Metadata: metadata}); err != nil {
+	if _, err := sponsor.Register(
+		contextForTest(t),
+		&api.Registration{Component: &component, Address: &address, Metadata: metadata},
+	); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -241,7 +252,10 @@ func TestRegistryServerSnapshotRepairsMissedGossip(t *testing.T) {
 
 	component := api.Component_COMPONENT_LOG
 	address := "log:8083"
-	if _, err := sponsor.Register(contextForTest(t), &api.Registration{Component: &component, Address: &address}); err != nil {
+	if _, err := sponsor.Register(
+		contextForTest(t),
+		&api.Registration{Component: &component, Address: &address},
+	); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 

@@ -21,7 +21,12 @@ type workerControlServer struct {
 	logger     interfaces.Logger
 }
 
-func newWorkerControlServer(workerID string, cancelCh chan string, getRunInfo func() (string, string), logger interfaces.Logger) *workerControlServer {
+func newWorkerControlServer(
+	workerID string,
+	cancelCh chan string,
+	getRunInfo func() (string, string),
+	logger interfaces.Logger,
+) *workerControlServer {
 	return &workerControlServer{
 		workerID:   workerID,
 		cancelCh:   cancelCh,
@@ -50,8 +55,15 @@ func (s *workerControlServer) CancelRun(ctx context.Context, req *api.CancelRunR
 	return &api.Empty{}, nil
 }
 
-func startWorkerControlServer(ctx context.Context, listener net.Listener, server *workerControlServer, logger interfaces.Logger) error {
-	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
+func startWorkerControlServer(
+	ctx context.Context,
+	listener net.Listener,
+	server *workerControlServer,
+	logger interfaces.Logger,
+) error {
+	srvOpts, err := config.GRPCServerOptionsForRole(
+		config.ServiceIdentityRoleWorkerControl,
+	) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
 	if err != nil {
 		return fmt.Errorf("worker control grpc tls: %w", err)
 	}

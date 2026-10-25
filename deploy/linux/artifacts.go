@@ -243,7 +243,14 @@ func (m Manifest) InstallPlan() ([]InstallEntry, error) {
 	for _, unit := range m.Units {
 		unitName := unit.UnitName()
 		envName := strings.TrimSuffix(unitName, ".service") + ".env"
-		unitEntry := installEntry("systemd/"+unitName, "/etc/systemd/system/"+unitName, "0644", "root", "root", "systemd")
+		unitEntry := installEntry(
+			"systemd/"+unitName,
+			"/etc/systemd/system/"+unitName,
+			"0644",
+			"root",
+			"root",
+			"systemd",
+		)
 		unitEntry.EnableWithTarget = unit.TargetMember && valueOr(unit.Type, "simple") != "oneshot"
 		entries = append(entries,
 			unitEntry,
@@ -325,7 +332,16 @@ func renderInstallManifestTSV(entries []InstallEntry) string {
 	var b strings.Builder
 	b.WriteString("# source\tdestination\tmode\towner\tgroup\tkind\n")
 	for _, entry := range entries {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n", entry.Source, entry.Destination, entry.Mode, entry.Owner, entry.Group, entry.Kind)
+		fmt.Fprintf(
+			&b,
+			"%s\t%s\t%s\t%s\t%s\t%s\n",
+			entry.Source,
+			entry.Destination,
+			entry.Mode,
+			entry.Owner,
+			entry.Group,
+			entry.Kind,
+		)
 	}
 
 	return b.String()
@@ -550,7 +566,9 @@ func (m Manifest) renderTmpfiles() string {
 func renderEnvExample(header string, env map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n", header)
-	b.WriteString("# Example only. Config management or package defaults should write the real /etc/vectis/*.env file for a target host.\n")
+	b.WriteString(
+		"# Example only. Config management or package defaults should write the real /etc/vectis/*.env file for a target host.\n",
+	)
 	b.WriteString("# Review secrets, DSNs, TLS settings, addresses, ports, and topology before use.\n")
 	for _, key := range sortedKeys(env) {
 		fmt.Fprintf(&b, "%s=%s\n", key, env[key])

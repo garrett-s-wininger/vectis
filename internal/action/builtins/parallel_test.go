@@ -33,7 +33,12 @@ func (n *barrierNode) Type() string { return "test/barrier" }
 
 func (n *barrierNode) ValidateWith(map[string]string) []action.FieldError { return nil }
 
-func (n *barrierNode) Execute(ctx context.Context, _ *action.ExecutionState, _ map[string]any, _ action.Ports) action.Result {
+func (n *barrierNode) Execute(
+	ctx context.Context,
+	_ *action.ExecutionState,
+	_ map[string]any,
+	_ action.Ports,
+) action.Result {
 	select {
 	case n.started <- struct{}{}:
 	case <-ctx.Done():

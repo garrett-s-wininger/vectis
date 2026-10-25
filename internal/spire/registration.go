@@ -75,7 +75,11 @@ type Registrar interface {
 	ReleaseRegistration(ctx context.Context, handle RegistrationHandle) error
 }
 
-func NewExecutionRegistrationIntent(spiffeID string, execution workloadidentity.Execution, opts ExecutionRegistrationOptions) (RegistrationIntent, error) {
+func NewExecutionRegistrationIntent(
+	spiffeID string,
+	execution workloadidentity.Execution,
+	opts ExecutionRegistrationOptions,
+) (RegistrationIntent, error) {
 	normalizedSPIFFEID, err := normalizeRegistrationSPIFFEID("execution SPIFFE ID", spiffeID)
 	if err != nil {
 		return RegistrationIntent{}, err
@@ -244,7 +248,10 @@ func normalizeSelector(selector Selector) (Selector, error) {
 	}
 
 	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
-		return Selector{}, fmt.Errorf("spire: registration selector value for type %q must not contain control characters", typ)
+		return Selector{}, fmt.Errorf(
+			"spire: registration selector value for type %q must not contain control characters",
+			typ,
+		)
 	}
 
 	return Selector{Type: typ, Value: value}, nil

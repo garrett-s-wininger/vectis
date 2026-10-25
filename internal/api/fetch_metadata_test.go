@@ -37,7 +37,13 @@ func TestFetchMetadataRejectsCrossSiteWithoutOrigin(t *testing.T) {
 		t.Fatalf("code=%q, want %q", body.Code, apiErrFetchMetadataForbidden)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonFetchMetadataForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
 }
 
 func TestFetchMetadataAllowsCrossSiteWithOriginForCORS(t *testing.T) {
@@ -150,7 +156,13 @@ func TestFetchMetadataRejectsBrowserNavigationsAndSubresources(t *testing.T) {
 			s.Handler().ServeHTTP(rec, req)
 
 			assertFetchMetadataForbidden(t, rec)
-			requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+			requireSecurityRejection(
+				t,
+				metrics,
+				securityReasonFetchMetadataForbidden,
+				securityRejectionUnknownRoute,
+				http.StatusForbidden,
+			)
 		})
 	}
 }
@@ -180,7 +192,13 @@ func TestFetchMetadataRejectsNavigationEvenWithCORSOrigin(t *testing.T) {
 		t.Fatalf("Access-Control-Allow-Origin=%q, want empty", got)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonFetchMetadataForbidden,
+		securityRejectionUnknownRoute,
+		http.StatusForbidden,
+	)
 }
 
 func TestValidFetchMetadataRejectsUnsafeModeDestForCookieAuth(t *testing.T) {

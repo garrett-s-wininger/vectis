@@ -72,12 +72,56 @@ func BenchmarkQueuePool_GRPCIdleDequeuePolling(b *testing.B) {
 		max        time.Duration
 		idleWindow time.Duration
 	}{
-		{name: "fixed_250ms", shards: 1, workers: 100, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
-		{name: "fixed_250ms", shards: 1, workers: 1000, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
-		{name: "fixed_250ms", shards: 4, workers: 100, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
-		{name: "fixed_250ms", shards: 4, workers: 1000, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
-		{name: "exp_max_1s_jitter_20pct", shards: 1, workers: 1000, base: 250 * time.Millisecond, jitter: 0.2, max: time.Second, idleWindow: 5 * time.Second},
-		{name: "exp_max_1s_jitter_20pct", shards: 4, workers: 1000, base: 250 * time.Millisecond, jitter: 0.2, max: time.Second, idleWindow: 5 * time.Second},
+		{
+			name:       "fixed_250ms",
+			shards:     1,
+			workers:    100,
+			base:       250 * time.Millisecond,
+			max:        250 * time.Millisecond,
+			idleWindow: 5 * time.Second,
+		},
+		{
+			name:       "fixed_250ms",
+			shards:     1,
+			workers:    1000,
+			base:       250 * time.Millisecond,
+			max:        250 * time.Millisecond,
+			idleWindow: 5 * time.Second,
+		},
+		{
+			name:       "fixed_250ms",
+			shards:     4,
+			workers:    100,
+			base:       250 * time.Millisecond,
+			max:        250 * time.Millisecond,
+			idleWindow: 5 * time.Second,
+		},
+		{
+			name:       "fixed_250ms",
+			shards:     4,
+			workers:    1000,
+			base:       250 * time.Millisecond,
+			max:        250 * time.Millisecond,
+			idleWindow: 5 * time.Second,
+		},
+		{
+			name:       "exp_max_1s_jitter_20pct",
+			shards:     1,
+			workers:    1000,
+			base:       250 * time.Millisecond,
+			jitter:     0.2,
+			max:        time.Second,
+			idleWindow: 5 * time.Second,
+		},
+		{
+			name:       "exp_max_1s_jitter_20pct",
+			shards:     4,
+			workers:    1000,
+			base:       250 * time.Millisecond,
+			jitter:     0.2,
+			max:        time.Second,
+			idleWindow: 5 * time.Second,
+		},
 	}
 
 	for _, tc := range cases {
@@ -97,9 +141,32 @@ func BenchmarkQueuePool_GRPCIdleWakeLatency(b *testing.B) {
 		max        time.Duration
 		idleWarmup time.Duration
 	}{
-		{name: "fixed_250ms", shards: 1, workers: 100, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWarmup: 2125 * time.Millisecond},
-		{name: "exp_max_1s_jitter_20pct", shards: 1, workers: 100, base: 250 * time.Millisecond, jitter: 0.2, max: time.Second, idleWarmup: 2125 * time.Millisecond},
-		{name: "exp_max_1s_jitter_20pct", shards: 4, workers: 100, base: 250 * time.Millisecond, jitter: 0.2, max: time.Second, idleWarmup: 2125 * time.Millisecond},
+		{
+			name:       "fixed_250ms",
+			shards:     1,
+			workers:    100,
+			base:       250 * time.Millisecond,
+			max:        250 * time.Millisecond,
+			idleWarmup: 2125 * time.Millisecond,
+		},
+		{
+			name:       "exp_max_1s_jitter_20pct",
+			shards:     1,
+			workers:    100,
+			base:       250 * time.Millisecond,
+			jitter:     0.2,
+			max:        time.Second,
+			idleWarmup: 2125 * time.Millisecond,
+		},
+		{
+			name:       "exp_max_1s_jitter_20pct",
+			shards:     4,
+			workers:    100,
+			base:       250 * time.Millisecond,
+			jitter:     0.2,
+			max:        time.Second,
+			idleWarmup: 2125 * time.Millisecond,
+		},
 	}
 
 	for _, tc := range cases {
@@ -242,7 +309,13 @@ func runQueuePoolGRPCWorkerFanout(b *testing.B, shardCount, workers int) {
 	b.ReportMetric(float64(queueConns+registryConns), "total_grpc_conns")
 }
 
-func runQueuePoolGRPCIdleWakeLatency(b *testing.B, shardCount, workers int, pollBase time.Duration, pollJitter float64, pollMax, idleWarmup time.Duration) {
+func runQueuePoolGRPCIdleWakeLatency(
+	b *testing.B,
+	shardCount, workers int,
+	pollBase time.Duration,
+	pollJitter float64,
+	pollMax, idleWarmup time.Duration,
+) {
 	if shardCount <= 0 {
 		b.Fatal("shard count must be positive")
 	}
@@ -405,7 +478,13 @@ func runQueuePoolGRPCIdleWakeLatency(b *testing.B, shardCount, workers int, poll
 	b.ReportMetric(float64(queueConns+registryConns), "total_grpc_conns")
 }
 
-func runQueuePoolGRPCIdleDequeuePolling(b *testing.B, shardCount, workers int, pollBase time.Duration, pollJitter float64, pollMax, idleWindow time.Duration) {
+func runQueuePoolGRPCIdleDequeuePolling(
+	b *testing.B,
+	shardCount, workers int,
+	pollBase time.Duration,
+	pollJitter float64,
+	pollMax, idleWindow time.Duration,
+) {
 	if shardCount <= 0 {
 		b.Fatal("shard count must be positive")
 	}
@@ -740,7 +819,12 @@ func (c *grpcBenchmarkConnCounter) HandleConn(_ context.Context, stat stats.Conn
 	}
 }
 
-func registerGRPCBenchmarkQueueShards(tb testing.TB, ctx context.Context, registryAddress string, shards []grpcBenchmarkQueueShard) {
+func registerGRPCBenchmarkQueueShards(
+	tb testing.TB,
+	ctx context.Context,
+	registryAddress string,
+	shards []grpcBenchmarkQueueShard,
+) {
 	tb.Helper()
 
 	reg, err := registry.New(ctx, registryAddress, mocks.NopLogger{}, interfaces.SystemClock{}, nil)
@@ -750,7 +834,13 @@ func registerGRPCBenchmarkQueueShards(tb testing.TB, ctx context.Context, regist
 	defer func() { _ = reg.Close() }()
 
 	for _, shard := range shards {
-		if err := reg.RegisterInstanceWithMetadata(ctx, api.Component_COMPONENT_QUEUE, shard.id, shard.address, registry.QueueIngressMetadata()); err != nil {
+		if err := reg.RegisterInstanceWithMetadata(
+			ctx,
+			api.Component_COMPONENT_QUEUE,
+			shard.id,
+			shard.address,
+			registry.QueueIngressMetadata(),
+		); err != nil {
 			tb.Fatalf("register queue shard %s: %v", shard.id, err)
 		}
 	}

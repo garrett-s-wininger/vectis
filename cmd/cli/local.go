@@ -108,7 +108,11 @@ func runReset(cmd *cobra.Command, args []string) {
 	}
 
 	if !resetYes {
-		runCLIError(fmt.Errorf("reset removes local Vectis config, data, cache, tokens, and generated deployment secrets; pass --yes to confirm or --dry-run to inspect the directories first"))
+		runCLIError(
+			fmt.Errorf(
+				"reset removes local Vectis config, data, cache, tokens, and generated deployment secrets; pass --yes to confirm or --dry-run to inspect the directories first",
+			),
+		)
 	}
 
 	results := make([]map[string]string, 0, len(targets))

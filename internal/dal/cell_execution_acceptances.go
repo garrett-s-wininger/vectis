@@ -15,7 +15,10 @@ type SQLCellExecutionAcceptancesRepository struct {
 	cellID string
 }
 
-func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Context, acceptance CellExecutionAcceptance) (bool, error) {
+func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(
+	ctx context.Context,
+	acceptance CellExecutionAcceptance,
+) (bool, error) {
 	normalized, err := normalizeCellExecutionAcceptance(acceptance, r.cellID)
 	if err != nil {
 		return false, err
@@ -23,7 +26,12 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Cont
 
 	acceptanceHash := cellExecutionAcceptanceHash(normalized)
 	executionPayloadHash := ExecutionPayloadHash(normalized.RequestJSON)
-	if created, err := r.acceptanceAlreadyRecorded(ctx, normalized.ExecutionID, acceptanceHash); err != nil || !created {
+	if created, err := r.acceptanceAlreadyRecorded(
+		ctx,
+		normalized.ExecutionID,
+		acceptanceHash,
+	); err != nil ||
+		!created {
 		return created, err
 	}
 
@@ -134,7 +142,10 @@ func assertRecordedAcceptanceHashTx(ctx context.Context, tx *sql.Tx, executionID
 	return nil
 }
 
-func (r *SQLCellExecutionAcceptancesRepository) acceptanceAlreadyRecorded(ctx context.Context, executionID, acceptanceHash string) (bool, error) {
+func (r *SQLCellExecutionAcceptancesRepository) acceptanceAlreadyRecorded(
+	ctx context.Context,
+	executionID, acceptanceHash string,
+) (bool, error) {
 	var existingHash string
 	err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx("SELECT acceptance_hash FROM cell_execution_acceptances WHERE execution_id = ?"),
@@ -143,7 +154,11 @@ func (r *SQLCellExecutionAcceptancesRepository) acceptanceAlreadyRecorded(ctx co
 
 	if err == nil {
 		if existingHash != acceptanceHash {
-			return false, fmt.Errorf("%w: execution %s was already accepted with different payload", ErrConflict, executionID)
+			return false, fmt.Errorf(
+				"%w: execution %s was already accepted with different payload",
+				ErrConflict,
+				executionID,
+			)
 		}
 
 		return false, nil
@@ -156,7 +171,11 @@ func (r *SQLCellExecutionAcceptancesRepository) acceptanceAlreadyRecorded(ctx co
 	return false, normalizeSQLError(err)
 }
 
-func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(ctx context.Context, cutoffUnixNano int64, limit int) ([]CellExecutionQueueHandoff, error) {
+func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(
+	ctx context.Context,
+	cutoffUnixNano int64,
+	limit int,
+) ([]CellExecutionQueueHandoff, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -231,7 +250,11 @@ func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(ctx con
 	return out, nil
 }
 
-func (r *SQLCellExecutionAcceptancesRepository) MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error {
+func (r *SQLCellExecutionAcceptancesRepository) MarkEnqueued(
+	ctx context.Context,
+	executionID string,
+	enqueuedAtUnixNano int64,
+) error {
 	executionID = strings.TrimSpace(executionID)
 	if executionID == "" {
 		return fmt.Errorf("%w: execution_id is required", ErrConflict)
@@ -258,7 +281,12 @@ func (r *SQLCellExecutionAcceptancesRepository) MarkEnqueued(ctx context.Context
 	return requireRowsAffected(result, "cell execution acceptance", executionID)
 }
 
-func (r *SQLCellExecutionAcceptancesRepository) MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error {
+func (r *SQLCellExecutionAcceptancesRepository) MarkEnqueueFailed(
+	ctx context.Context,
+	executionID string,
+	attemptedAtUnixNano int64,
+	message string,
+) error {
 	executionID = strings.TrimSpace(executionID)
 	if executionID == "" {
 		return fmt.Errorf("%w: execution_id is required", ErrConflict)
@@ -307,7 +335,10 @@ func truncateCellEnqueueError(message string) string {
 	return message[:maxLen]
 }
 
-func normalizeCellExecutionAcceptance(a CellExecutionAcceptance, fallbackCellID string) (CellExecutionAcceptance, error) {
+func normalizeCellExecutionAcceptance(
+	a CellExecutionAcceptance,
+	fallbackCellID string,
+) (CellExecutionAcceptance, error) {
 	a.ExecutionID = strings.TrimSpace(a.ExecutionID)
 	a.RunID = strings.TrimSpace(a.RunID)
 	a.JobID = strings.TrimSpace(a.JobID)
@@ -436,13 +467,23 @@ func ensureJobDefinitionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAccep
 	}
 
 	if existingHash != a.DefinitionHash {
-		return fmt.Errorf("%w: job %s version %d has different definition hash", ErrConflict, a.JobID, a.DefinitionVersion)
+		return fmt.Errorf(
+			"%w: job %s version %d has different definition hash",
+			ErrConflict,
+			a.JobID,
+			a.DefinitionVersion,
+		)
 	}
 
 	return nil
 }
 
-func ensureExecutionPayloadTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance, executionPayloadHash string) error {
+func ensureExecutionPayloadTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	a CellExecutionAcceptance,
+	executionPayloadHash string,
+) error {
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO execution_payloads (payload_hash, payload_json, definition_hash)
 		VALUES (?, ?, ?)
@@ -488,13 +529,18 @@ func ensureJobRunTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance, 
 		return normalizeSQLError(err)
 	}
 
-	if jobID != a.JobID || runIndex != a.RunIndex || definitionVersion != a.DefinitionVersion || definitionHash != a.DefinitionHash || owningCell != a.CellID {
+	if jobID != a.JobID || runIndex != a.RunIndex || definitionVersion != a.DefinitionVersion ||
+		definitionHash != a.DefinitionHash ||
+		owningCell != a.CellID {
 		return fmt.Errorf("%w: run %s has different accepted payload", ErrConflict, a.RunID)
 	}
 
 	if storedPayloadHash == "" {
-		if _, err := tx.ExecContext(ctx,
-			rebindQueryForPgx("UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''"),
+		if _, err := tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				"UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''",
+			),
 			executionPayloadHash,
 			a.RunID,
 		); err != nil {
@@ -562,8 +608,14 @@ func ensureAcceptedTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutio
 		return normalizeSQLError(err)
 	}
 
-	if storedAttemptID != a.TaskAttemptID || attemptRunID != a.RunID || attemptTaskID != taskID || cellID != a.CellID || attempt != a.Attempt {
-		return fmt.Errorf("%w: task attempt %s attempt %d has different accepted payload", ErrConflict, taskID, a.Attempt)
+	if storedAttemptID != a.TaskAttemptID || attemptRunID != a.RunID || attemptTaskID != taskID || cellID != a.CellID ||
+		attempt != a.Attempt {
+		return fmt.Errorf(
+			"%w: task attempt %s attempt %d has different accepted payload",
+			ErrConflict,
+			taskID,
+			a.Attempt,
+		)
 	}
 
 	if isPreDispatchStatus(attemptStatus) {
@@ -601,8 +653,11 @@ func ensureRunSegmentTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptan
 	}
 
 	if isPreDispatchStatus(status) {
-		if _, err := tx.ExecContext(ctx,
-			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+		if _, err := tx.ExecContext(
+			ctx,
+			rebindQueryForPgx(
+				"UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?",
+			),
 			SegmentStatusAccepted,
 			a.SegmentID,
 		); err != nil {
@@ -633,7 +688,9 @@ func ensureSegmentExecutionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAc
 		return normalizeSQLError(err)
 	}
 
-	if segmentID != a.SegmentID || runID != a.RunID || taskID != a.TaskID || taskAttemptID != a.TaskAttemptID || cellID != a.CellID || attempt != a.Attempt {
+	if segmentID != a.SegmentID || runID != a.RunID || taskID != a.TaskID || taskAttemptID != a.TaskAttemptID ||
+		cellID != a.CellID ||
+		attempt != a.Attempt {
 		return fmt.Errorf("%w: execution %s has different accepted payload", ErrConflict, a.ExecutionID)
 	}
 

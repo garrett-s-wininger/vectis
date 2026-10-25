@@ -93,8 +93,16 @@ func TestLocalRestoreDrillVerifiesRestoredSQLiteAndFileStores(t *testing.T) {
 		{name: "queue.storage-report.json", surface: storageverify.SurfaceQueue, dir: restored.QueueDir},
 		{name: "logs.storage-report.json", surface: storageverify.SurfaceLogs, dir: restored.LogDir},
 		{name: "artifact.storage-report.json", surface: storageverify.SurfaceArtifact, dir: restored.ArtifactDir},
-		{name: "log-forwarder-spool.storage-report.json", surface: storageverify.SurfaceLogForwarderSpool, dir: restored.LogForwarderSpoolDir},
-		{name: "worker-log-spool.storage-report.json", surface: storageverify.SurfaceWorkerLogSpool, dir: restored.WorkerLogSpoolDir},
+		{
+			name:    "log-forwarder-spool.storage-report.json",
+			surface: storageverify.SurfaceLogForwarderSpool,
+			dir:     restored.LogForwarderSpoolDir,
+		},
+		{
+			name:    "worker-log-spool.storage-report.json",
+			surface: storageverify.SurfaceWorkerLogSpool,
+			dir:     restored.WorkerLogSpoolDir,
+		},
 	}
 
 	reportPaths := make([]string, 0, len(reportInputs))
@@ -113,7 +121,14 @@ func TestLocalRestoreDrillVerifiesRestoredSQLiteAndFileStores(t *testing.T) {
 
 	checkedAt := time.Now().UTC()
 	var verificationBuf bytes.Buffer
-	if err := writeBackupManifestVerification(&verificationBuf, manifestPath, "", reportPaths, time.Hour, checkedAt); err != nil {
+	if err := writeBackupManifestVerification(
+		&verificationBuf,
+		manifestPath,
+		"",
+		reportPaths,
+		time.Hour,
+		checkedAt,
+	); err != nil {
 		t.Fatalf("verify restored manifest with storage reports: %v\n%s", err, verificationBuf.String())
 	}
 
@@ -131,7 +146,11 @@ func TestLocalRestoreDrillVerifiesRestoredSQLiteAndFileStores(t *testing.T) {
 	}
 
 	if verification.Summary.StorageReportsVerified != len(reportInputs) {
-		t.Fatalf("verified storage reports = %d, want %d", verification.Summary.StorageReportsVerified, len(reportInputs))
+		t.Fatalf(
+			"verified storage reports = %d, want %d",
+			verification.Summary.StorageReportsVerified,
+			len(reportInputs),
+		)
 	}
 
 	wantMatched := map[string]bool{
@@ -283,8 +302,19 @@ func seedLocalRestoreDrillLogs(t *testing.T, dir, runID string) {
 	}
 
 	err = store.AppendBatch(runID, []logserver.LogEntry{
-		{Timestamp: time.Unix(1_800_000_000, 0).UTC(), Stream: api.Stream_STREAM_STDOUT, Sequence: 1, Data: []byte("restore drill log\n")},
-		{Timestamp: time.Unix(1_800_000_001, 0).UTC(), Stream: api.Stream_STREAM_CONTROL, Sequence: 2, Data: []byte("completed\n"), Completed: api.RunOutcome_RUN_OUTCOME_SUCCESS},
+		{
+			Timestamp: time.Unix(1_800_000_000, 0).UTC(),
+			Stream:    api.Stream_STREAM_STDOUT,
+			Sequence:  1,
+			Data:      []byte("restore drill log\n"),
+		},
+		{
+			Timestamp: time.Unix(1_800_000_001, 0).UTC(),
+			Stream:    api.Stream_STREAM_CONTROL,
+			Sequence:  2,
+			Data:      []byte("completed\n"),
+			Completed: api.RunOutcome_RUN_OUTCOME_SUCCESS,
+		},
 	})
 
 	if closeErr := store.Close(); err == nil && closeErr != nil {
@@ -353,7 +383,8 @@ func assertLocalRestoreDrillLogs(t *testing.T, dir, runID string) {
 		t.Fatalf("list restored logs: %v", err)
 	}
 
-	if len(entries) != 2 || string(entries[0].Data) != "restore drill log\n" || entries[1].Completed != api.RunOutcome_RUN_OUTCOME_SUCCESS {
+	if len(entries) != 2 || string(entries[0].Data) != "restore drill log\n" ||
+		entries[1].Completed != api.RunOutcome_RUN_OUTCOME_SUCCESS {
 		t.Fatalf("restored log entries = %+v", entries)
 	}
 }

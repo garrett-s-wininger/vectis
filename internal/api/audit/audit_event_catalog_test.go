@@ -9,7 +9,9 @@ import (
 )
 
 func TestAuditEventCatalogMentionsRegisteredEvents(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "website", "docs", "operating", "reference", "audit-event-catalog.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "..", "website", "docs", "operating", "reference", "audit-event-catalog.md"),
+	)
 	if err != nil {
 		t.Fatalf("read audit event catalog: %v", err)
 	}
@@ -30,7 +32,9 @@ func TestAuditEventCatalogMentionsRegisteredEvents(t *testing.T) {
 }
 
 func TestAuditEventCatalogMentionsDurabilityValues(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "website", "docs", "operating", "reference", "audit-event-catalog.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "..", "website", "docs", "operating", "reference", "audit-event-catalog.md"),
+	)
 	if err != nil {
 		t.Fatalf("read audit event catalog: %v", err)
 	}

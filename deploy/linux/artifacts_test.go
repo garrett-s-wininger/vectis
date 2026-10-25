@@ -70,7 +70,13 @@ func TestLinuxArtifactsRenderFromTOML(t *testing.T) {
 
 	got := sortedKeys(files)
 	want := append(systemdPaths(t, manifest), envPaths(t, manifest)...)
-	want = append(want, "sysusers.d/vectis.conf", "tmpfiles.d/vectis.conf", "install/manifest.json", "install/manifest.tsv")
+	want = append(
+		want,
+		"sysusers.d/vectis.conf",
+		"tmpfiles.d/vectis.conf",
+		"install/manifest.json",
+		"install/manifest.tsv",
+	)
 	sort.Strings(want)
 
 	if !reflect.DeepEqual(got, want) {
@@ -204,7 +210,11 @@ func TestRetentionScheduledCleanupUnitAndTimerContract(t *testing.T) {
 		t.Fatalf("%s should not declare Restart", retentionUnit)
 	}
 
-	env := parseEnvExample(t, "env/vectis-retention-scheduled-cleanup.env.example", files["env/vectis-retention-scheduled-cleanup.env.example"])
+	env := parseEnvExample(
+		t,
+		"env/vectis-retention-scheduled-cleanup.env.example",
+		files["env/vectis-retention-scheduled-cleanup.env.example"],
+	)
 	for _, key := range []string{"VECTIS_API_SERVER_HOST", "VECTIS_API_SERVER_PORT", "VECTIS_API_TOKEN"} {
 		if _, ok := env[key]; !ok {
 			t.Fatalf("retention scheduled cleanup env example missing %s", key)
@@ -268,7 +278,9 @@ func TestInstallManifestContract(t *testing.T) {
 
 	covered := map[string]InstallEntry{}
 	for _, entry := range entries {
-		if entry.Source == "" || entry.Destination == "" || entry.Mode == "" || entry.Owner == "" || entry.Group == "" || entry.Kind == "" {
+		if entry.Source == "" || entry.Destination == "" || entry.Mode == "" || entry.Owner == "" ||
+			entry.Group == "" ||
+			entry.Kind == "" {
 			t.Fatalf("install entry has empty field: %+v", entry)
 		}
 
@@ -293,15 +305,66 @@ func TestInstallManifestContract(t *testing.T) {
 		}
 	}
 
-	requireInstallDestination(t, covered, "systemd/"+targetUnit, "/etc/systemd/system/"+targetUnit, "0644", "root", "root")
-	requireInstallDestination(t, covered, "systemd/"+retentionUnit, "/etc/systemd/system/"+retentionUnit, "0644", "root", "root")
-	requireInstallDestination(t, covered, "systemd/"+retentionTimer, "/etc/systemd/system/"+retentionTimer, "0644", "root", "root")
+	requireInstallDestination(
+		t,
+		covered,
+		"systemd/"+targetUnit,
+		"/etc/systemd/system/"+targetUnit,
+		"0644",
+		"root",
+		"root",
+	)
+	requireInstallDestination(
+		t,
+		covered,
+		"systemd/"+retentionUnit,
+		"/etc/systemd/system/"+retentionUnit,
+		"0644",
+		"root",
+		"root",
+	)
+	requireInstallDestination(
+		t,
+		covered,
+		"systemd/"+retentionTimer,
+		"/etc/systemd/system/"+retentionTimer,
+		"0644",
+		"root",
+		"root",
+	)
 	requireInstallDestination(t, covered, "env/vectis.env.example", "/etc/vectis/vectis.env", "0640", "root", "vectis")
-	requireInstallDestination(t, covered, "env/vectis-retention-scheduled-cleanup.env.example", "/etc/vectis/vectis-retention-scheduled-cleanup.env", "0640", "root", "vectis")
-	requireInstallDestination(t, covered, "sysusers.d/vectis.conf", "/usr/lib/sysusers.d/vectis.conf", "0644", "root", "root")
-	requireInstallDestination(t, covered, "tmpfiles.d/vectis.conf", "/usr/lib/tmpfiles.d/vectis.conf", "0644", "root", "root")
+	requireInstallDestination(
+		t,
+		covered,
+		"env/vectis-retention-scheduled-cleanup.env.example",
+		"/etc/vectis/vectis-retention-scheduled-cleanup.env",
+		"0640",
+		"root",
+		"vectis",
+	)
+	requireInstallDestination(
+		t,
+		covered,
+		"sysusers.d/vectis.conf",
+		"/usr/lib/sysusers.d/vectis.conf",
+		"0644",
+		"root",
+		"root",
+	)
+	requireInstallDestination(
+		t,
+		covered,
+		"tmpfiles.d/vectis.conf",
+		"/usr/lib/tmpfiles.d/vectis.conf",
+		"0644",
+		"root",
+		"root",
+	)
 
-	if !strings.Contains(files["install/manifest.tsv"], "env/vectis.env.example\t/etc/vectis/vectis.env\t0640\troot\tvectis\tenv") {
+	if !strings.Contains(
+		files["install/manifest.tsv"],
+		"env/vectis.env.example\t/etc/vectis/vectis.env\t0640\troot\tvectis\tenv",
+	) {
 		t.Fatalf("install TSV missing common env entry:\n%s", files["install/manifest.tsv"])
 	}
 }
@@ -507,7 +570,11 @@ func requireNoInlineEnvironment(t *testing.T, unit parsedUnit, service string) {
 	}
 }
 
-func requireInstallDestination(t *testing.T, entries map[string]InstallEntry, source, destination, mode, owner, group string) {
+func requireInstallDestination(
+	t *testing.T,
+	entries map[string]InstallEntry,
+	source, destination, mode, owner, group string,
+) {
 	t.Helper()
 	entry, ok := entries[source]
 	if !ok {
@@ -515,7 +582,15 @@ func requireInstallDestination(t *testing.T, entries map[string]InstallEntry, so
 	}
 
 	if entry.Destination != destination || entry.Mode != mode || entry.Owner != owner || entry.Group != group {
-		t.Fatalf("install entry for %s = %+v, want destination=%s mode=%s owner=%s group=%s", source, entry, destination, mode, owner, group)
+		t.Fatalf(
+			"install entry for %s = %+v, want destination=%s mode=%s owner=%s group=%s",
+			source,
+			entry,
+			destination,
+			mode,
+			owner,
+			group,
+		)
 	}
 }
 
@@ -570,7 +645,10 @@ func envPaths(t *testing.T, manifest Manifest) []string {
 	t.Helper()
 	paths := []string{"env/vectis.env.example"}
 	for _, unit := range manifest.Units {
-		paths = append(paths, filepath.ToSlash(filepath.Join("env", strings.TrimSuffix(unit.UnitName(), ".service")+".env.example")))
+		paths = append(
+			paths,
+			filepath.ToSlash(filepath.Join("env", strings.TrimSuffix(unit.UnitName(), ".service")+".env.example")),
+		)
 	}
 
 	sort.Strings(paths)

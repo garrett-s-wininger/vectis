@@ -103,7 +103,9 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	knoxConfig := knox.ConfigFromViper(viper.GetViper())
 	if encryptedFSConfig.Enabled() || knoxConfig.Enabled() {
 		if !config.WorkerExecutionIdentityEnabled() {
-			logger.Fatal("secret providers require worker.execution_identity.enabled=true so workload callers can be authorized")
+			logger.Fatal(
+				"secret providers require worker.execution_identity.enabled=true so workload callers can be authorized",
+			)
 		}
 
 		if err := config.ValidateWorkerExecutionIdentityConfig(); err != nil {
@@ -122,7 +124,11 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 		}
 
 		providerConfigured = true
-		logger.Info("Using encryptedfs secret provider rooted at %s with key file %s", encryptedFSConfig.Root, encryptedFSConfig.KeyFile)
+		logger.Info(
+			"Using encryptedfs secret provider rooted at %s with key file %s",
+			encryptedFSConfig.Root,
+			encryptedFSConfig.KeyFile,
+		)
 	}
 
 	if knoxConfig.Enabled() {
@@ -140,7 +146,11 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	}
 
 	if !providerConfigured {
-		logger.Info("Secret provider is not configured; set --encryptedfs-root, %s, --knox-url, or %s to enable resolution", encryptedfs.EnvRoot, knox.EnvURL)
+		logger.Info(
+			"Secret provider is not configured; set --encryptedfs-root, %s, --knox-url, or %s to enable resolution",
+			encryptedfs.EnvRoot,
+			knox.EnvURL,
+		)
 	}
 
 	provider := secrets.Provider(secrets.UnconfiguredProvider{})
@@ -175,7 +185,14 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 
 	logger.Info("Secrets service listening on %s", addr)
 
-	if err := cli.ServeGRPC(ctx, grpcServer, ln, "Secrets", logger, cli.WithGRPCHealthServer(hs, "secrets")); err != nil {
+	if err := cli.ServeGRPC(
+		ctx,
+		grpcServer,
+		ln,
+		"Secrets",
+		logger,
+		cli.WithGRPCHealthServer(hs, "secrets"),
+	); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }
@@ -188,7 +205,10 @@ type executionScopeResolver struct {
 	store activeExecutionDispatchStore
 }
 
-func (r executionScopeResolver) ResolveExecutionScope(ctx context.Context, runID, executionID string) (secrets.ExecutionScope, error) {
+func (r executionScopeResolver) ResolveExecutionScope(
+	ctx context.Context,
+	runID, executionID string,
+) (secrets.ExecutionScope, error) {
 	if r.store == nil {
 		return secrets.ExecutionScope{}, errors.New("active execution store is not configured")
 	}
@@ -255,11 +275,13 @@ func init() {
 	viper.SetDefault("policy_allow", config.SecretsPolicyAllowRules())
 
 	rootCmd.PersistentFlags().Int("port", config.SecretsPort(), "Port for the secrets gRPC service")
-	rootCmd.PersistentFlags().String("metrics-host", config.SecretsMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().
+		String("metrics-host", config.SecretsMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.SecretsMetricsPort(), "HTTP port for Prometheus /metrics")
 	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
 	knox.AddConfigFlags(rootCmd.PersistentFlags())
-	rootCmd.PersistentFlags().StringSlice("allow-secret", config.SecretsPolicyAllowRules(), "Secret access allow rule in namespace=...;job=...;task=...;ref=... form; may be repeated")
+	rootCmd.PersistentFlags().
+		StringSlice("allow-secret", config.SecretsPolicyAllowRules(), "Secret access allow rule in namespace=...;job=...;task=...;ref=... form; may be repeated")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))

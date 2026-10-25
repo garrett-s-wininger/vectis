@@ -59,9 +59,13 @@ func TestAccessControlMiddleware_setupRequiredBlocksJobs(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionJobRead}, func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-	})
+	h := wrapTestAccessHandler(
+		s,
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		func(w http.ResponseWriter, r *http.Request) {
+			hit = true
+		},
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -94,10 +98,14 @@ func TestAccessControlMiddleware_setupAllowsSetupStatus(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionSetupStatus}, func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-		w.WriteHeader(http.StatusNoContent)
-	})
+	h := wrapTestAccessHandler(
+		s,
+		routeAuthPolicy{Action: authz.ActionSetupStatus},
+		func(w http.ResponseWriter, r *http.Request) {
+			hit = true
+			w.WriteHeader(http.StatusNoContent)
+		},
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
@@ -146,9 +154,24 @@ func TestAccessControlMiddleware_requiresBearerAfterSetup(t *testing.T) {
 			method string
 			path   string
 		}{
-			{name: "read", policy: routeAuthPolicy{Action: authz.ActionJobRead}, method: http.MethodGet, path: "/api/v1/jobs"},
-			{name: "write", policy: routeAuthPolicy{Action: authz.ActionJobWrite}, method: http.MethodPost, path: "/api/v1/jobs"},
-			{name: "operator", policy: routeAuthPolicy{Action: authz.ActionRunOperator}, method: http.MethodPost, path: "/api/v1/runs/run-1/force-fail"},
+			{
+				name:   "read",
+				policy: routeAuthPolicy{Action: authz.ActionJobRead},
+				method: http.MethodGet,
+				path:   "/api/v1/jobs",
+			},
+			{
+				name:   "write",
+				policy: routeAuthPolicy{Action: authz.ActionJobWrite},
+				method: http.MethodPost,
+				path:   "/api/v1/jobs",
+			},
+			{
+				name:   "operator",
+				policy: routeAuthPolicy{Action: authz.ActionRunOperator},
+				method: http.MethodPost,
+				path:   "/api/v1/runs/run-1/force-fail",
+			},
 			{name: "default_secure", policy: routeAuthPolicy{}, method: http.MethodGet, path: "/api/v1/forgotten"},
 		}
 
@@ -192,9 +215,24 @@ func TestAccessControlMiddleware_requiresBearerAfterSetup(t *testing.T) {
 			method string
 			path   string
 		}{
-			{name: "read", policy: routeAuthPolicy{Action: authz.ActionJobRead}, method: http.MethodGet, path: "/api/v1/jobs"},
-			{name: "write", policy: routeAuthPolicy{Action: authz.ActionJobWrite}, method: http.MethodPost, path: "/api/v1/jobs"},
-			{name: "operator", policy: routeAuthPolicy{Action: authz.ActionRunOperator}, method: http.MethodPost, path: "/api/v1/runs/run-1/force-fail"},
+			{
+				name:   "read",
+				policy: routeAuthPolicy{Action: authz.ActionJobRead},
+				method: http.MethodGet,
+				path:   "/api/v1/jobs",
+			},
+			{
+				name:   "write",
+				policy: routeAuthPolicy{Action: authz.ActionJobWrite},
+				method: http.MethodPost,
+				path:   "/api/v1/jobs",
+			},
+			{
+				name:   "operator",
+				policy: routeAuthPolicy{Action: authz.ActionRunOperator},
+				method: http.MethodPost,
+				path:   "/api/v1/runs/run-1/force-fail",
+			},
 			{name: "default_secure", policy: routeAuthPolicy{}, method: http.MethodGet, path: "/api/v1/forgotten"},
 		}
 
@@ -233,9 +271,13 @@ func TestAccessControlMiddleware_authorizerDeniesAfterBearerAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionJobRead}, func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler must not run when Authorizer denies")
-	})
+	h := wrapTestAccessHandler(
+		s,
+		routeAuthPolicy{Action: authz.ActionJobRead},
+		func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler must not run when Authorizer denies")
+		},
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -287,9 +329,13 @@ func TestAccessControlMiddleware_nilAuthRepo(t *testing.T) {
 		mocks.NewMockJobsRepository(), mocks.NewMockRunsRepository(), mocks.StubEphemeralRunStarter{})
 	s.authRepo = nil
 
-	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionSetupStatus}, func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("should not reach handler")
-	})
+	h := wrapTestAccessHandler(
+		s,
+		routeAuthPolicy{Action: authz.ActionSetupStatus},
+		func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("should not reach handler")
+		},
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)

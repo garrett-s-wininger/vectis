@@ -132,9 +132,13 @@ func TestRateLimitRejectionRecordsSecurityEvent(t *testing.T) {
 		RateLimit: ratelimit.Rule{RefillRate: time.Second, BurstSize: 1},
 	}
 
-	handler := s.rateLimitMiddleware(alwaysDenyRateLimiter{}, spec, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	handler := s.rateLimitMiddleware(
+		alwaysDenyRateLimiter{},
+		spec,
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	req.Pattern = spec.Pattern

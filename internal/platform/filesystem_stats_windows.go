@@ -31,7 +31,12 @@ func StatFileSystem(path string) (FileSystemStats, error) {
 	var freeBytesAvailableToCaller uint64
 	var totalBytes uint64
 	var totalFreeBytes uint64
-	if err := windows.GetDiskFreeSpaceEx(pathPtr, &freeBytesAvailableToCaller, &totalBytes, &totalFreeBytes); err != nil {
+	if err := windows.GetDiskFreeSpaceEx(
+		pathPtr,
+		&freeBytesAvailableToCaller,
+		&totalBytes,
+		&totalFreeBytes,
+	); err != nil {
 		return FileSystemStats{}, err
 	}
 

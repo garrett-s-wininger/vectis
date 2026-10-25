@@ -62,7 +62,12 @@ func createBenchmarkRun(b *testing.B, ctx context.Context, runs dal.RunsReposito
 	return runID
 }
 
-func claimBenchmarkExecution(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) (string, string) {
+func claimBenchmarkExecution(
+	b *testing.B,
+	ctx context.Context,
+	runs dal.RunsRepository,
+	runID string,
+) (string, string) {
 	b.Helper()
 
 	dispatch, err := runs.GetPendingExecution(ctx, runID)
@@ -222,7 +227,13 @@ func BenchmarkDAL_DispatchEvents_RecordAttemptOutcomeSuccess(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if err := dispatch.RecordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil); err != nil {
+		if err := dispatch.RecordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			dal.DispatchSourceAPI,
+			dal.DispatchEventSuccess,
+			nil,
+		); err != nil {
 			b.Fatalf("record dispatch attempt outcome: %v", err)
 		}
 	}
@@ -248,7 +259,12 @@ func BenchmarkDAL_TryClaimExecution(b *testing.B) {
 		}
 		b.StartTimer()
 
-		claim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "bench-worker", time.Now().Add(dal.DefaultLeaseTTL))
+		claim, err := runs.TryClaimExecution(
+			ctx,
+			dispatch.ExecutionID,
+			"bench-worker",
+			time.Now().Add(dal.DefaultLeaseTTL),
+		)
 		if err != nil {
 			b.Fatalf("try claim execution: %v", err)
 		}
@@ -560,7 +576,13 @@ func BenchmarkDAL_RunRead_ListRunTasks(b *testing.B) {
 	}
 }
 
-func seedBenchmarkRunReadTasks(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, mode string, childTasks int) string {
+func seedBenchmarkRunReadTasks(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	mode string,
+	childTasks int,
+) string {
 	b.Helper()
 
 	switch mode {
@@ -574,7 +596,12 @@ func seedBenchmarkRunReadTasks(b *testing.B, ctx context.Context, repos *dal.SQL
 	}
 }
 
-func seedBenchmarkRunReadLiveTasks(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, childTasks int) string {
+func seedBenchmarkRunReadLiveTasks(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	childTasks int,
+) string {
 	b.Helper()
 
 	jobID := fmt.Sprintf("bench-run-read-live-%d", childTasks)
@@ -612,7 +639,12 @@ func seedBenchmarkRunHotStateOwner(b *testing.B, ctx context.Context, runs dal.R
 	}
 }
 
-func seedBenchmarkRunReadFinalFacts(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, childTasks int) string {
+func seedBenchmarkRunReadFinalFacts(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	childTasks int,
+) string {
 	b.Helper()
 
 	jobID := fmt.Sprintf("bench-run-read-final-facts-%d", childTasks)
@@ -813,7 +845,13 @@ func seedBenchmarkRuns(b *testing.B, ctx context.Context, runs dal.RunsRepositor
 	return runIDs
 }
 
-func resetBenchmarkExpiredRunningRuns(b *testing.B, ctx context.Context, db *sql.DB, jobID string, expiredLeaseUntil int64) {
+func resetBenchmarkExpiredRunningRuns(
+	b *testing.B,
+	ctx context.Context,
+	db *sql.DB,
+	jobID string,
+	expiredLeaseUntil int64,
+) {
 	b.Helper()
 
 	if _, err := db.ExecContext(ctx, `
@@ -830,7 +868,13 @@ func resetBenchmarkExpiredRunningRuns(b *testing.B, ctx context.Context, db *sql
 	}
 }
 
-func resetBenchmarkExpiredQueuedExecutions(b *testing.B, ctx context.Context, db *sql.DB, jobID string, expiredDeadlineUnixNano int64) {
+func resetBenchmarkExpiredQueuedExecutions(
+	b *testing.B,
+	ctx context.Context,
+	db *sql.DB,
+	jobID string,
+	expiredDeadlineUnixNano int64,
+) {
 	b.Helper()
 
 	execBenchmarkSQL(b, ctx, db, `

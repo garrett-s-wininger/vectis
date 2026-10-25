@@ -40,7 +40,12 @@ func (n *cancelAwareNode) Type() string { return "test/cancel-aware" }
 
 func (n *cancelAwareNode) ValidateWith(map[string]string) []action.FieldError { return nil }
 
-func (n *cancelAwareNode) Execute(ctx context.Context, _ *action.ExecutionState, _ map[string]any, _ action.Ports) action.Result {
+func (n *cancelAwareNode) Execute(
+	ctx context.Context,
+	_ *action.ExecutionState,
+	_ map[string]any,
+	_ action.Ports,
+) action.Result {
 	n.started.Add(1)
 	<-ctx.Done()
 	return action.NewFailureResult(ctx.Err())
@@ -55,7 +60,12 @@ func (n *sleepIgnoringContextNode) Type() string { return "test/sleep-ignore-con
 
 func (n *sleepIgnoringContextNode) ValidateWith(map[string]string) []action.FieldError { return nil }
 
-func (n *sleepIgnoringContextNode) Execute(context.Context, *action.ExecutionState, map[string]any, action.Ports) action.Result {
+func (n *sleepIgnoringContextNode) Execute(
+	context.Context,
+	*action.ExecutionState,
+	map[string]any,
+	action.Ports,
+) action.Result {
 	n.started.Add(1)
 	time.Sleep(n.sleep)
 	return action.NewSuccessResult(nil)
@@ -124,9 +134,14 @@ func TestTimeoutNodeExecuteReturnsBodySuccess(t *testing.T) {
 	child := &countedNode{count: &atomic.Int32{}, result: action.NewSuccessResult(map[string]any{"value": "ok"})}
 	state := policyTestState(testResolver{"test/counted": child})
 
-	result := (&TimeoutNode{}).Execute(context.Background(), state, map[string]any{"duration": time.Second.String()}, action.Ports{
-		taskgraph.BodyPort: {ifTestNode("quick", "test/counted")},
-	})
+	result := (&TimeoutNode{}).Execute(
+		context.Background(),
+		state,
+		map[string]any{"duration": time.Second.String()},
+		action.Ports{
+			taskgraph.BodyPort: {ifTestNode("quick", "test/counted")},
+		},
+	)
 
 	if result.Status != action.StatusSuccess {
 		t.Fatalf("status: got %s err=%v, want success", result.Status, result.Error)
@@ -226,9 +241,18 @@ func TestFallbackNodeExecuteReturnsFirstSuccess(t *testing.T) {
 	secondCount := &atomic.Int32{}
 	thirdCount := &atomic.Int32{}
 	state := policyTestState(testResolver{
-		"test/first":  &countedNode{count: firstCount, result: action.NewFailureResult(errors.New("primary unavailable"))},
-		"test/second": &countedNode{count: secondCount, result: action.NewSuccessResult(map[string]any{"value": "backup"})},
-		"test/third":  &countedNode{count: thirdCount, result: action.NewSuccessResult(map[string]any{"value": "last"})},
+		"test/first": &countedNode{
+			count:  firstCount,
+			result: action.NewFailureResult(errors.New("primary unavailable")),
+		},
+		"test/second": &countedNode{
+			count:  secondCount,
+			result: action.NewSuccessResult(map[string]any{"value": "backup"}),
+		},
+		"test/third": &countedNode{
+			count:  thirdCount,
+			result: action.NewSuccessResult(map[string]any{"value": "last"}),
+		},
 	})
 
 	result := (&FallbackNode{}).Execute(context.Background(), state, nil, action.Ports{
@@ -263,7 +287,10 @@ func TestFallbackNodeExecuteReturnsFirstSuccess(t *testing.T) {
 func TestFallbackNodeExecuteFailsAfterChoices(t *testing.T) {
 	wantErr := errors.New("backup failed")
 	state := policyTestState(testResolver{
-		"test/first":  &countedNode{count: &atomic.Int32{}, result: action.NewFailureResult(errors.New("primary failed"))},
+		"test/first": &countedNode{
+			count:  &atomic.Int32{},
+			result: action.NewFailureResult(errors.New("primary failed")),
+		},
 		"test/second": &countedNode{count: &atomic.Int32{}, result: action.NewFailureResult(wantErr)},
 	})
 

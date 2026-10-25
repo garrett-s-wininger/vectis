@@ -190,7 +190,10 @@ func (c *benchmarkCountingLogClient) StreamLogsForRun(ctx context.Context, runID
 	return c.StreamLogs(ctx)
 }
 
-func (c *benchmarkCountingLogClient) StreamLogsForAssignedRun(ctx context.Context, runID, shardID string) (interfaces.LogStream, error) {
+func (c *benchmarkCountingLogClient) StreamLogsForAssignedRun(
+	ctx context.Context,
+	runID, shardID string,
+) (interfaces.LogStream, error) {
 	if inner, ok := c.inner.(interfaces.AssignedRunLogClient); ok {
 		stream, err := inner.StreamLogsForAssignedRun(ctx, runID, shardID)
 		if err != nil {
@@ -217,7 +220,11 @@ func (c *benchmarkCountingLogClient) SendLogBatch(ctx context.Context, chunks []
 	return c.sendBatchByStream(ctx, chunks)
 }
 
-func (c *benchmarkCountingLogClient) SendLogBatchForRun(ctx context.Context, runID string, chunks []*api.LogChunk) error {
+func (c *benchmarkCountingLogClient) SendLogBatchForRun(
+	ctx context.Context,
+	runID string,
+	chunks []*api.LogChunk,
+) error {
 	if inner, ok := c.inner.(interfaces.RunLogBatchClient); ok {
 		if err := inner.SendLogBatchForRun(ctx, runID, chunks); err != nil {
 			return err
@@ -230,7 +237,11 @@ func (c *benchmarkCountingLogClient) SendLogBatchForRun(ctx context.Context, run
 	return c.SendLogBatch(ctx, chunks)
 }
 
-func (c *benchmarkCountingLogClient) SendLogBatchForAssignedRun(ctx context.Context, runID, shardID string, chunks []*api.LogChunk) error {
+func (c *benchmarkCountingLogClient) SendLogBatchForAssignedRun(
+	ctx context.Context,
+	runID, shardID string,
+	chunks []*api.LogChunk,
+) error {
 	if inner, ok := c.inner.(interfaces.AssignedRunLogBatchClient); ok {
 		if err := inner.SendLogBatchForAssignedRun(ctx, runID, shardID, chunks); err != nil {
 			return err
@@ -324,7 +335,11 @@ func (benchmarkRecordingLogClient) StreamLogsForRun(context.Context, string) (in
 	return benchmarkRecordingLogStream{}, nil
 }
 
-func (benchmarkRecordingLogClient) StreamLogsForAssignedRun(context.Context, string, string) (interfaces.LogStream, error) {
+func (benchmarkRecordingLogClient) StreamLogsForAssignedRun(
+	context.Context,
+	string,
+	string,
+) (interfaces.LogStream, error) {
 	return benchmarkRecordingLogStream{}, nil
 }
 

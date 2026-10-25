@@ -26,7 +26,11 @@ type BackfillProcessor struct {
 	publisher    cell.CatalogEventPublisher
 }
 
-func NewBackfillProcessor(sourceCellID string, state dal.CatalogStatusBackfillRepository, publisher cell.CatalogEventPublisher) *BackfillProcessor {
+func NewBackfillProcessor(
+	sourceCellID string,
+	state dal.CatalogStatusBackfillRepository,
+	publisher cell.CatalogEventPublisher,
+) *BackfillProcessor {
 	return &BackfillProcessor{
 		sourceCellID: strings.TrimSpace(sourceCellID),
 		state:        state,

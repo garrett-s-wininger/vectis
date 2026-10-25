@@ -30,11 +30,15 @@ func ValidateCellIngressHTTPMTLSConfig(localCellID, bindHost string) error {
 
 	if GRPCTLSInsecure() {
 		if len(allowedIdentities) > 0 {
-			return errors.New("cell_ingress: grpc_tls.insecure must be false when service_identity.cell_ingress_allowed_producer_identities is configured")
+			return errors.New(
+				"cell_ingress: grpc_tls.insecure must be false when service_identity.cell_ingress_allowed_producer_identities is configured",
+			)
 		}
 
 		if required {
-			return errors.New("cell_ingress: grpc_tls.insecure must be false when cell ingress binds or advertises a non-loopback endpoint")
+			return errors.New(
+				"cell_ingress: grpc_tls.insecure must be false when cell ingress binds or advertises a non-loopback endpoint",
+			)
 		}
 
 		return nil
@@ -46,7 +50,9 @@ func ValidateCellIngressHTTPMTLSConfig(localCellID, bindHost string) error {
 	}
 
 	if o.ClientCA == "" {
-		return errors.New("cell_ingress: grpc_tls.client_ca_file is required so cell ingress can verify producer client certificates")
+		return errors.New(
+			"cell_ingress: grpc_tls.client_ca_file is required so cell ingress can verify producer client certificates",
+		)
 	}
 
 	if _, err := tlsconfig.NewReloader(o); err != nil {
@@ -96,7 +102,10 @@ func CellIngressHTTPClientTLSConfig(endpoint string) (*tls.Config, error) {
 	switch u.Scheme {
 	case "http":
 		if !cellIngressHostIsLoopback(host) {
-			return nil, fmt.Errorf("cell ingress endpoint %q must use https with mTLS when it is not loopback", endpoint)
+			return nil, fmt.Errorf(
+				"cell ingress endpoint %q must use https with mTLS when it is not loopback",
+				endpoint,
+			)
 		}
 
 		if !GRPCTLSInsecure() {
@@ -118,7 +127,9 @@ func CellIngressHTTPClientTLSConfig(endpoint string) (*tls.Config, error) {
 	}
 
 	if o.ClientCert == "" || o.ClientKey == "" {
-		return nil, errors.New("cell_ingress: grpc_tls.client_cert_file and grpc_tls.client_key_file are required for producer mTLS")
+		return nil, errors.New(
+			"cell_ingress: grpc_tls.client_cert_file and grpc_tls.client_key_file are required for producer mTLS",
+		)
 	}
 
 	r, err := grpcTLSReloader()

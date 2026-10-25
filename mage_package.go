@@ -415,7 +415,9 @@ func packageLocalCGOCheck(arch string) error {
 	}
 
 	if hostOS != "linux" && !truthy(os.Getenv("PACKAGE_LOCAL_ALLOW_CROSS_CGO")) {
-		return fmt.Errorf("vectis-local Linux packages require a CGO Linux build. Run this target on Linux or set PACKAGE_LOCAL_ALLOW_CROSS_CGO=1 with a working Linux C toolchain")
+		return fmt.Errorf(
+			"vectis-local Linux packages require a CGO Linux build. Run this target on Linux or set PACKAGE_LOCAL_ALLOW_CROSS_CGO=1 with a working Linux C toolchain",
+		)
 	}
 
 	return nil
@@ -427,7 +429,11 @@ func packageLocalWrapper(cfg packageConfig) error {
 		return err
 	}
 
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexec /usr/lib/vectis-local/bin/vectis-local \"$@\"\n"), 0o755); err != nil {
+	if err := os.WriteFile(
+		path,
+		[]byte("#!/bin/sh\nexec /usr/lib/vectis-local/bin/vectis-local \"$@\"\n"),
+		0o755,
+	); err != nil {
 		return err
 	}
 
@@ -473,28 +479,56 @@ func packageLocalDispatch(cfg packageConfig, format, arch string) error {
 	}
 
 	args := []string{
-		"run", "./deploy/package/cmd/build-local",
-		"--format", format,
-		"--arch", arch,
-		"--workdir", cwd,
-		"--mage", envDefault("PACKAGE_LOCAL_MAGE", envDefault("MAGE", "mage")),
-		"--provider", envDefault("PACKAGE_LOCAL_VM_PROVIDER", "auto"),
-		"--provider-path", os.Getenv("PACKAGE_LOCAL_VM_PROVIDER_PATH"),
-		"--instance", envDefault("PACKAGE_LOCAL_VM_INSTANCE", envDefault("PACKER_PACKAGE_BUILDER_INSTANCE", "vectis-package-builder")),
-		"--timeout", envDefault("PACKAGE_LOCAL_VM_TIMEOUT", "30m"),
+		"run",
+		"./deploy/package/cmd/build-local",
+		"--format",
+		format,
+		"--arch",
+		arch,
+		"--workdir",
+		cwd,
+		"--mage",
+		envDefault("PACKAGE_LOCAL_MAGE", envDefault("MAGE", "mage")),
+		"--provider",
+		envDefault("PACKAGE_LOCAL_VM_PROVIDER", "auto"),
+		"--provider-path",
+		os.Getenv("PACKAGE_LOCAL_VM_PROVIDER_PATH"),
+		"--instance",
+		envDefault(
+			"PACKAGE_LOCAL_VM_INSTANCE",
+			envDefault("PACKER_PACKAGE_BUILDER_INSTANCE", "vectis-package-builder"),
+		),
+		"--timeout",
+		envDefault("PACKAGE_LOCAL_VM_TIMEOUT", "30m"),
 		"--allow-cross-cgo=" + envDefault("PACKAGE_LOCAL_ALLOW_CROSS_CGO", "0"),
 		"--keep-vm=" + envDefault("PACKAGE_LOCAL_VM_KEEP", "0"),
-		"--vm-workspace-root", envDefault("PACKAGE_LOCAL_VM_WORKSPACE_ROOT", envDefault("PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT", "/var/tmp/vectis-package-local-workspaces")),
-		"--vm-cache-root", envDefault("PACKAGE_LOCAL_VM_CACHE_ROOT", envDefault("PACKER_PACKAGE_BUILDER_CACHE_ROOT", "/var/tmp/vectis-package-local-cache")),
+		"--vm-workspace-root",
+		envDefault(
+			"PACKAGE_LOCAL_VM_WORKSPACE_ROOT",
+			envDefault("PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT", "/var/tmp/vectis-package-local-workspaces"),
+		),
+		"--vm-cache-root",
+		envDefault(
+			"PACKAGE_LOCAL_VM_CACHE_ROOT",
+			envDefault("PACKER_PACKAGE_BUILDER_CACHE_ROOT", "/var/tmp/vectis-package-local-cache"),
+		),
 		"--vm-preserve-env=" + envDefault("PACKAGE_LOCAL_VM_PRESERVE_ENV", "0"),
-		"--vm-go", envDefault("PACKAGE_LOCAL_VM_GO", "go"),
-		"--env", "PACKAGE_OUT=" + cfg.outDir,
-		"--env", "PACKAGE_BUILD_DIR=" + cfg.buildDir,
-		"--env", "PACKAGE_VERSION=" + cfg.version,
-		"--env", "PACKAGE_RELEASE=" + cfg.release,
-		"--env", "PACKAGE_ARCH=" + arch,
-		"--env", "PACKAGE_LOCAL_ARCHES=" + arch,
-		"--env", "PACKAGE_LOCAL_APPS=" + strings.Join(cfg.localApps, " "),
+		"--vm-go",
+		envDefault("PACKAGE_LOCAL_VM_GO", "go"),
+		"--env",
+		"PACKAGE_OUT=" + cfg.outDir,
+		"--env",
+		"PACKAGE_BUILD_DIR=" + cfg.buildDir,
+		"--env",
+		"PACKAGE_VERSION=" + cfg.version,
+		"--env",
+		"PACKAGE_RELEASE=" + cfg.release,
+		"--env",
+		"PACKAGE_ARCH=" + arch,
+		"--env",
+		"PACKAGE_LOCAL_ARCHES=" + arch,
+		"--env",
+		"PACKAGE_LOCAL_APPS=" + strings.Join(cfg.localApps, " "),
 	}
 
 	env := map[string]string{
@@ -723,43 +757,99 @@ func (cfg packageConfig) localWrapper() string {
 }
 
 func (cfg packageConfig) cliDebPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-cli_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf("vectis-cli_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)),
+	)
 }
 
 func (cfg packageConfig) cliRPMPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-cli-%s-%s.%s.rpm", packageRPMVersion(cfg.version), packageRPMVersion(cfg.release), packageRPMArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf(
+			"vectis-cli-%s-%s.%s.rpm",
+			packageRPMVersion(cfg.version),
+			packageRPMVersion(cfg.release),
+			packageRPMArch(arch),
+		),
+	)
 }
 
 func (cfg packageConfig) commonDebPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-common_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf("vectis-common_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)),
+	)
 }
 
 func (cfg packageConfig) commonRPMPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-common-%s-%s.%s.rpm", packageRPMVersion(cfg.version), packageRPMVersion(cfg.release), packageRPMArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf(
+			"vectis-common-%s-%s.%s.rpm",
+			packageRPMVersion(cfg.version),
+			packageRPMVersion(cfg.release),
+			packageRPMArch(arch),
+		),
+	)
 }
 
 func (cfg packageConfig) serviceDebPath(arch, app string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-%s_%s-%s_%s.deb", app, cfg.version, cfg.release, packageDebArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf("vectis-%s_%s-%s_%s.deb", app, cfg.version, cfg.release, packageDebArch(arch)),
+	)
 }
 
 func (cfg packageConfig) serviceRPMPath(arch, app string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-%s-%s-%s.%s.rpm", app, packageRPMVersion(cfg.version), packageRPMVersion(cfg.release), packageRPMArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf(
+			"vectis-%s-%s-%s.%s.rpm",
+			app,
+			packageRPMVersion(cfg.version),
+			packageRPMVersion(cfg.release),
+			packageRPMArch(arch),
+		),
+	)
 }
 
 func (cfg packageConfig) localDebPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-local_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf("vectis-local_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)),
+	)
 }
 
 func (cfg packageConfig) localRPMPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-local-%s-%s.%s.rpm", packageRPMVersion(cfg.version), packageRPMVersion(cfg.release), packageRPMArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf(
+			"vectis-local-%s-%s.%s.rpm",
+			packageRPMVersion(cfg.version),
+			packageRPMVersion(cfg.release),
+			packageRPMArch(arch),
+		),
+	)
 }
 
 func (cfg packageConfig) servicesDebPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-services_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf("vectis-services_%s-%s_%s.deb", cfg.version, cfg.release, packageDebArch(arch)),
+	)
 }
 
 func (cfg packageConfig) servicesRPMPath(arch string) string {
-	return filepath.Join(cfg.outDir, fmt.Sprintf("vectis-services-%s-%s.%s.rpm", packageRPMVersion(cfg.version), packageRPMVersion(cfg.release), packageRPMArch(arch)))
+	return filepath.Join(
+		cfg.outDir,
+		fmt.Sprintf(
+			"vectis-services-%s-%s.%s.rpm",
+			packageRPMVersion(cfg.version),
+			packageRPMVersion(cfg.release),
+			packageRPMArch(arch),
+		),
+	)
 }
 
 func packageDebArch(arch string) string {

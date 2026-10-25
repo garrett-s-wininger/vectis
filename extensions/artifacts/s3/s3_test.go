@@ -139,7 +139,11 @@ func TestStorePutCreatesConfiguredTempDir(t *testing.T) {
 		t.Fatalf("NewStore: %v", err)
 	}
 
-	if _, err := store.Put(context.Background(), strings.NewReader("creates temp dir"), sdkartifact.PutOptions{}); err != nil {
+	if _, err := store.Put(
+		context.Background(),
+		strings.NewReader("creates temp dir"),
+		sdkartifact.PutOptions{},
+	); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 

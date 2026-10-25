@@ -31,7 +31,12 @@ func (r *ResultAction) Type() string {
 	return "builtins/result"
 }
 
-func (r *ResultAction) Execute(_ context.Context, _ *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
+func (r *ResultAction) Execute(
+	_ context.Context,
+	_ *action.ExecutionState,
+	inputs map[string]any,
+	_ action.Ports,
+) action.Result {
 	raw, ok := inputs["success"].(string)
 	if !ok {
 		return action.NewFailureResult(fmt.Errorf("result action requires 'success' input"))

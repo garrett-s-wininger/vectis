@@ -92,7 +92,14 @@ func TestRPMArchiveShape(t *testing.T) {
 	})
 
 	headerSHA256 := sha256.Sum256(b[mainOffset:payloadOffset])
-	if got, want := rpmHeaderString(t, b[96:], signatureEntries, rpmTagSigSHA256), hex.EncodeToString(headerSHA256[:]); got != want {
+	if got, want := rpmHeaderString(
+		t,
+		b[96:],
+		signatureEntries,
+		rpmTagSigSHA256,
+	), hex.EncodeToString(
+		headerSHA256[:],
+	); got != want {
 		t.Fatalf("signature SHA256 header = %q, want %q", got, want)
 	}
 }

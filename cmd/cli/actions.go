@@ -197,5 +197,6 @@ func configureActionListFlags(cmd *cobra.Command) {
 }
 
 func configureActionResolveFlags(cmd *cobra.Command) {
-	cmd.Flags().BoolVar(&actionResolveIgnorePolicy, "ignore-policy", false, "Resolve without action registry policy checks")
+	cmd.Flags().
+		BoolVar(&actionResolveIgnorePolicy, "ignore-policy", false, "Resolve without action registry policy checks")
 }

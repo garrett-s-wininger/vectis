@@ -21,17 +21,33 @@ import (
 )
 
 type sourceRepositorySyncStatusFunc func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+
 type sourceRepositoryRefHydratorFunc func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus
 type sourceRepositoryCredentialResolver = sourcepkg.RepositoryCredentialResolver
 type sourceRepositorySyncMetrics interface {
-	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
+	RecordSourceRepositorySync(
+		ctx context.Context,
+		trigger, sourceKind, checkoutMode, outcome, reason string,
+		d time.Duration,
+	)
 }
 
 type sourceRepositoryObjectStoreMetrics interface {
-	RecordSourceRepositoryObjectStore(ctx context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []observability.SourceRepositoryObjectStoreWarning)
+	RecordSourceRepositoryObjectStore(
+		ctx context.Context,
+		repositoryID, sourceKind, checkoutMode, pressure string,
+		packFiles int,
+		packBytes int64,
+		looseObjects int,
+		warnings []observability.SourceRepositoryObjectStoreWarning,
+	)
 }
 
-func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
+func reconcileConfiguredSourceRepositories(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+) error {
 	decls, err := config.SourceRepositoryDeclarations()
 	if err != nil {
 		return err
@@ -63,7 +79,10 @@ func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRe
 		}
 
 		if existing.NamespaceID != rec.NamespaceID {
-			return fmt.Errorf("configured source repository %q is already registered in another namespace", rec.RepositoryID)
+			return fmt.Errorf(
+				"configured source repository %q is already registered in another namespace",
+				rec.RepositoryID,
+			)
 		}
 
 		if configuredSourceRepositoryEqual(existing, rec) {
@@ -83,14 +102,36 @@ func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRe
 }
 
 func syncConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
-	return syncConfiguredSourceRepositoriesWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus, nil)
+	return syncConfiguredSourceRepositoriesWithStatus(
+		ctx,
+		repos,
+		logger,
+		configuredSourceRepositorySyncCheckoutStatus,
+		nil,
+	)
 }
 
-func startConfiguredSourceRepositoryPeriodicSync(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) {
-	startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus, nil)
+func startConfiguredSourceRepositoryPeriodicSync(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+) {
+	startConfiguredSourceRepositoryPeriodicSyncWithStatus(
+		ctx,
+		repos,
+		logger,
+		configuredSourceRepositorySyncCheckoutStatus,
+		nil,
+	)
 }
 
-func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) {
+func startConfiguredSourceRepositoryPeriodicSyncWithStatus(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+	statusFn sourceRepositorySyncStatusFunc,
+	metrics sourceRepositorySyncMetrics,
+) {
 	interval := config.SourceSyncConfiguredRepositoriesInterval()
 	if interval <= 0 {
 		return
@@ -104,7 +145,8 @@ func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, 
 	}
 
 	if logger != nil {
-		logger.Info("Configured source repository periodic sync enabled: interval=%s max_concurrency=%d failure_backoff=%s",
+		logger.Info(
+			"Configured source repository periodic sync enabled: interval=%s max_concurrency=%d failure_backoff=%s",
 			interval,
 			config.SourceSyncConfiguredRepositoriesMaxConcurrency(),
 			config.SourceSyncConfiguredRepositoriesFailureBackoff(),
@@ -124,7 +166,14 @@ func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, 
 
 				return
 			case <-ticker.C:
-				if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, logger, statusFn, metrics); err != nil && logger != nil {
+				if err := syncConfiguredSourceRepositoriesPeriodicCycle(
+					ctx,
+					repos,
+					logger,
+					statusFn,
+					metrics,
+				); err != nil &&
+					logger != nil {
 					logger.Warn("Configured source repository periodic sync cycle completed with errors: %v", err)
 				}
 			}
@@ -132,7 +181,11 @@ func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, 
 	}()
 }
 
-func reconcileConfiguredSourceSchedules(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
+func reconcileConfiguredSourceSchedules(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+) error {
 	decls, err := config.SourceScheduleDeclarations()
 	if err != nil {
 		return err
@@ -184,7 +237,13 @@ func reconcileConfiguredSourceSchedules(ctx context.Context, repos *dal.SQLRepos
 	return nil
 }
 
-func syncConfiguredSourceRepositoriesPeriodicCycle(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) error {
+func syncConfiguredSourceRepositoriesPeriodicCycle(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+	statusFn sourceRepositorySyncStatusFunc,
+	metrics sourceRepositorySyncMetrics,
+) error {
 	if statusFn == nil {
 		statusFn = configuredSourceRepositorySyncCheckoutStatus
 	}
@@ -220,10 +279,26 @@ func syncConfiguredSourceRepositoriesPeriodicCycle(ctx context.Context, repos *d
 		eligible = append(eligible, rec)
 	}
 
-	return syncConfiguredSourceRepositoryRecords(ctx, repos, logger, eligible, config.SourceSyncConfiguredRepositoriesMaxConcurrency(), statusFn, metrics)
+	return syncConfiguredSourceRepositoryRecords(
+		ctx,
+		repos,
+		logger,
+		eligible,
+		config.SourceSyncConfiguredRepositoriesMaxConcurrency(),
+		statusFn,
+		metrics,
+	)
 }
 
-func syncConfiguredSourceRepositoryRecords(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, records []dal.SourceRepositoryRecord, maxConcurrency int, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) error {
+func syncConfiguredSourceRepositoryRecords(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+	records []dal.SourceRepositoryRecord,
+	maxConcurrency int,
+	statusFn sourceRepositorySyncStatusFunc,
+	metrics sourceRepositorySyncMetrics,
+) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -262,7 +337,15 @@ func syncConfiguredSourceRepositoryRecords(ctx context.Context, repos *dal.SQLRe
 			}
 			defer syncCancel()
 
-			err := syncConfiguredSourceRepository(syncCtx, repos, logger, rec, statusFn, metrics, observability.SourceSyncTriggerPeriodic)
+			err := syncConfiguredSourceRepository(
+				syncCtx,
+				repos,
+				logger,
+				rec,
+				statusFn,
+				metrics,
+				observability.SourceSyncTriggerPeriodic,
+			)
 			if err != nil && logger != nil {
 				logger.Warn("Configured source repository periodic sync failed: %v", err)
 			}
@@ -293,15 +376,26 @@ func collectConfiguredSourceRepositorySyncErrors(errCh <-chan error, count int, 
 	return fmt.Errorf("%d configured source repository syncs failed: %s", len(errs), strings.Join(errs, "; "))
 }
 
-func configuredSourceRepositorySyncBackoffActive(rec dal.SourceRepositoryRecord, nowUnix int64, backoff time.Duration) bool {
-	if backoff <= 0 || strings.TrimSpace(rec.SyncStatus) != dal.SourceSyncStatusFailed || rec.LastSyncFinishedAtUnix <= 0 {
+func configuredSourceRepositorySyncBackoffActive(
+	rec dal.SourceRepositoryRecord,
+	nowUnix int64,
+	backoff time.Duration,
+) bool {
+	if backoff <= 0 || strings.TrimSpace(rec.SyncStatus) != dal.SourceSyncStatusFailed ||
+		rec.LastSyncFinishedAtUnix <= 0 {
 		return false
 	}
 
 	return time.Unix(rec.LastSyncFinishedAtUnix, 0).Add(backoff).After(time.Unix(nowUnix, 0))
 }
 
-func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) error {
+func syncConfiguredSourceRepositoriesWithStatus(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+	statusFn sourceRepositorySyncStatusFunc,
+	metrics sourceRepositorySyncMetrics,
+) error {
 	if !config.SourceSyncConfiguredRepositoriesOnStartup() {
 		return nil
 	}
@@ -330,7 +424,15 @@ func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.
 			continue
 		}
 
-		if err := syncConfiguredSourceRepository(ctx, repos, logger, rec, statusFn, metrics, observability.SourceSyncTriggerStartup); err != nil {
+		if err := syncConfiguredSourceRepository(
+			ctx,
+			repos,
+			logger,
+			rec,
+			statusFn,
+			metrics,
+			observability.SourceSyncTriggerStartup,
+		); err != nil {
 			return err
 		}
 	}
@@ -338,7 +440,15 @@ func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.
 	return nil
 }
 
-func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, rec dal.SourceRepositoryRecord, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics, trigger string) error {
+func syncConfiguredSourceRepository(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	logger interfaces.Logger,
+	rec dal.SourceRepositoryRecord,
+	statusFn sourceRepositorySyncStatusFunc,
+	metrics sourceRepositorySyncMetrics,
+	trigger string,
+) error {
 	attemptStarted := time.Now()
 	recordSync := func(outcome, reason string) {
 		recordSourceRepositorySyncMetric(ctx, metrics, trigger, rec, outcome, reason, time.Since(attemptStarted))
@@ -406,7 +516,12 @@ func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositor
 	return nil
 }
 
-func configuredSourceScheduleRecord(ctx context.Context, repos *dal.SQLRepositories, decl config.SourceScheduleDeclaration, now time.Time) (dal.CronScheduleRecord, error) {
+func configuredSourceScheduleRecord(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	decl config.SourceScheduleDeclaration,
+	now time.Time,
+) (dal.CronScheduleRecord, error) {
 	enabled := true
 	if decl.Enabled != nil {
 		enabled = *decl.Enabled
@@ -414,16 +529,29 @@ func configuredSourceScheduleRecord(ctx context.Context, repos *dal.SQLRepositor
 
 	repo, err := repos.Sources().GetRepository(ctx, decl.RepositoryID)
 	if err != nil {
-		return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q repository %q: %w", decl.ScheduleID, decl.RepositoryID, err)
+		return dal.CronScheduleRecord{}, fmt.Errorf(
+			"configured source schedule %q repository %q: %w",
+			decl.ScheduleID,
+			decl.RepositoryID,
+			err,
+		)
 	}
 
 	if enabled && !repo.Enabled {
-		return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q references disabled repository %q", decl.ScheduleID, decl.RepositoryID)
+		return dal.CronScheduleRecord{}, fmt.Errorf(
+			"configured source schedule %q references disabled repository %q",
+			decl.ScheduleID,
+			decl.RepositoryID,
+		)
 	}
 
 	if strings.TrimSpace(decl.Path) == "" {
 		if _, err := sourcepkg.DefinitionPathForJobID(decl.JobID); err != nil {
-			return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q job_id: %w", decl.ScheduleID, err)
+			return dal.CronScheduleRecord{}, fmt.Errorf(
+				"configured source schedule %q job_id: %w",
+				decl.ScheduleID,
+				err,
+			)
 		}
 	}
 
@@ -478,7 +606,11 @@ func logConfiguredSourceSchedule(logger interfaces.Logger, action string, rec da
 	)
 }
 
-func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLRepositories, decl config.SourceRepositoryDeclaration) (dal.SourceRepositoryRecord, string, error) {
+func configuredSourceRepositoryRecord(
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	decl config.SourceRepositoryDeclaration,
+) (dal.SourceRepositoryRecord, string, error) {
 	namespacePath := strings.TrimSpace(decl.Namespace)
 	if namespacePath == "" {
 		namespacePath = "/"
@@ -486,7 +618,12 @@ func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLReposit
 
 	ns, err := repos.Namespaces().GetByPath(ctx, namespacePath)
 	if err != nil {
-		return dal.SourceRepositoryRecord{}, "", fmt.Errorf("configured source repository %q namespace %q: %w", decl.RepositoryID, namespacePath, err)
+		return dal.SourceRepositoryRecord{}, "", fmt.Errorf(
+			"configured source repository %q namespace %q: %w",
+			decl.RepositoryID,
+			namespacePath,
+			err,
+		)
 	}
 
 	sourceKind := strings.TrimSpace(decl.SourceKind)
@@ -513,12 +650,20 @@ func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLReposit
 	if checkoutPath == "" && checkoutMode == dal.SourceCheckoutModeManaged {
 		store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(platform.DataHome()))
 		if err != nil {
-			return dal.SourceRepositoryRecord{}, "", fmt.Errorf("configured source repository %q checkout root: %w", decl.RepositoryID, err)
+			return dal.SourceRepositoryRecord{}, "", fmt.Errorf(
+				"configured source repository %q checkout root: %w",
+				decl.RepositoryID,
+				err,
+			)
 		}
 
 		checkoutPath, err = store.Path(decl.RepositoryID)
 		if err != nil {
-			return dal.SourceRepositoryRecord{}, "", fmt.Errorf("configured source repository %q checkout path: %w", decl.RepositoryID, err)
+			return dal.SourceRepositoryRecord{}, "", fmt.Errorf(
+				"configured source repository %q checkout path: %w",
+				decl.RepositoryID,
+				err,
+			)
 		}
 	}
 
@@ -627,7 +772,12 @@ func sameConfiguredSourceRepositoryWarmRefspecs(a, b []string) bool {
 	return true
 }
 
-func logConfiguredSourceRepository(logger interfaces.Logger, action string, rec dal.SourceRepositoryRecord, namespacePath string) {
+func logConfiguredSourceRepository(
+	logger interfaces.Logger,
+	action string,
+	rec dal.SourceRepositoryRecord,
+	namespacePath string,
+) {
 	if logger == nil {
 		return
 	}
@@ -636,7 +786,8 @@ func logConfiguredSourceRepository(logger interfaces.Logger, action string, rec 
 		namespacePath = "-"
 	}
 
-	logger.Info("Configured source repository %s: repository_id=%s namespace=%s checkout_mode=%s worker_cache_mode=%s enabled=%t",
+	logger.Info(
+		"Configured source repository %s: repository_id=%s namespace=%s checkout_mode=%s worker_cache_mode=%s enabled=%t",
 		action,
 		rec.RepositoryID,
 		namespacePath,
@@ -655,17 +806,28 @@ func configuredSourceRepositorySyncRef(rec dal.SourceRepositoryRecord) string {
 	return ref
 }
 
-func configuredSourceRepositorySyncCheckoutStatus(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+func configuredSourceRepositorySyncCheckoutStatus(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	syncRef string,
+) sourcepkg.GitCheckoutStatus {
 	return configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(nil)(ctx, rec, syncRef)
 }
 
-func configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(resolver sourceRepositoryCredentialResolver) sourceRepositorySyncStatusFunc {
+func configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(
+	resolver sourceRepositoryCredentialResolver,
+) sourceRepositorySyncStatusFunc {
 	return func(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
 		return configuredSourceRepositorySyncCheckoutStatusResolved(ctx, rec, syncRef, resolver)
 	}
 }
 
-func configuredSourceRepositorySyncCheckoutStatusResolved(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string, resolver sourceRepositoryCredentialResolver) sourcepkg.GitCheckoutStatus {
+func configuredSourceRepositorySyncCheckoutStatusResolved(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	syncRef string,
+	resolver sourceRepositoryCredentialResolver,
+) sourcepkg.GitCheckoutStatus {
 	if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
 		credentials, err := configuredSourceRepositoryGitCredentials(ctx, rec, resolver)
 		if err != nil {
@@ -689,7 +851,9 @@ func configuredSourceRepositorySyncCheckoutStatusResolved(ctx context.Context, r
 	return sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, syncRef)
 }
 
-func configuredSourceRepositoryRefHydratorWithCredentialResolver(resolver sourceRepositoryCredentialResolver) sourceRepositoryRefHydratorFunc {
+func configuredSourceRepositoryRefHydratorWithCredentialResolver(
+	resolver sourceRepositoryCredentialResolver,
+) sourceRepositoryRefHydratorFunc {
 	return func(ctx context.Context, rec dal.SourceRepositoryRecord, ref, preferredRemote string) sourcepkg.GitCheckoutStatus {
 		if strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
 			return sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, ref)
@@ -715,11 +879,17 @@ func configuredSourceRepositoryRefHydratorWithCredentialResolver(resolver source
 	}
 }
 
-func configuredSourceRepositoryGitCredentials(ctx context.Context, rec dal.SourceRepositoryRecord, resolver sourceRepositoryCredentialResolver) (sourcepkg.GitCredentials, error) {
+func configuredSourceRepositoryGitCredentials(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	resolver sourceRepositoryCredentialResolver,
+) (sourcepkg.GitCredentials, error) {
 	return sourcepkg.RepositoryGitCredentials(ctx, rec, resolver)
 }
 
-func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourceRepositoryCredentialResolver, error) {
+func newConfiguredSourceRepositoryCredentialResolver(
+	logger interfaces.Logger,
+) (sourceRepositoryCredentialResolver, error) {
 	cfg := encryptedfs.ConfigFromViper(viper.GetViper())
 	root := strings.TrimSpace(cfg.Root)
 	keyFile := strings.TrimSpace(cfg.KeyFile)
@@ -728,7 +898,11 @@ func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (
 	}
 
 	if root == "" || keyFile == "" {
-		return nil, fmt.Errorf("source repository credentials require both %s and %s", encryptedfs.ConfigKeyRoot, encryptedfs.ConfigKeyKeyFile)
+		return nil, fmt.Errorf(
+			"source repository credentials require both %s and %s",
+			encryptedfs.ConfigKeyRoot,
+			encryptedfs.ConfigKeyKeyFile,
+		)
 	}
 
 	provider, err := cfg.NewProvider()
@@ -759,7 +933,14 @@ func configuredSourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatu
 	return status.ErrorCode + ": " + status.ErrorMessage
 }
 
-func recordSourceRepositorySyncMetric(ctx context.Context, metrics sourceRepositorySyncMetrics, trigger string, rec dal.SourceRepositoryRecord, outcome, reason string, d time.Duration) {
+func recordSourceRepositorySyncMetric(
+	ctx context.Context,
+	metrics sourceRepositorySyncMetrics,
+	trigger string,
+	rec dal.SourceRepositoryRecord,
+	outcome, reason string,
+	d time.Duration,
+) {
 	if metrics == nil {
 		return
 	}
@@ -767,7 +948,12 @@ func recordSourceRepositorySyncMetric(ctx context.Context, metrics sourceReposit
 	metrics.RecordSourceRepositorySync(ctx, trigger, rec.SourceKind, rec.CheckoutMode, outcome, reason, d)
 }
 
-func recordConfiguredSourceRepositoryObjectStoreMetric(ctx context.Context, metrics sourceRepositorySyncMetrics, rec dal.SourceRepositoryRecord, status sourcepkg.GitCheckoutStatus) {
+func recordConfiguredSourceRepositoryObjectStoreMetric(
+	ctx context.Context,
+	metrics sourceRepositorySyncMetrics,
+	rec dal.SourceRepositoryRecord,
+	status sourcepkg.GitCheckoutStatus,
+) {
 	objectStoreMetrics, ok := metrics.(sourceRepositoryObjectStoreMetrics)
 	if !ok || !status.GitRepository {
 		return
@@ -786,7 +972,9 @@ func recordConfiguredSourceRepositoryObjectStoreMetric(ctx context.Context, metr
 	)
 }
 
-func configuredSourceRepositoryObjectStoreMetricWarnings(warnings []sourcepkg.GitCheckoutObjectStoreWarning) []observability.SourceRepositoryObjectStoreWarning {
+func configuredSourceRepositoryObjectStoreMetricWarnings(
+	warnings []sourcepkg.GitCheckoutObjectStoreWarning,
+) []observability.SourceRepositoryObjectStoreWarning {
 	if len(warnings) == 0 {
 		return nil
 	}

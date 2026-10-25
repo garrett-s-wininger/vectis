@@ -22,7 +22,14 @@ const (
 	pinnedDialBaseDelay = 500 * time.Millisecond
 )
 
-func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*grpc.ClientConn, func(), error) {
+func NewClientWithPinnedAddress(
+	ctx context.Context,
+	comp api.Component,
+	addr string,
+	logger interfaces.Logger,
+	clock interfaces.Clock,
+	retryMetrics backoff.RetryMetrics,
+) (*grpc.ClientConn, func(), error) {
 	if clock == nil {
 		clock = interfaces.SystemClock{}
 	}
@@ -81,7 +88,13 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 
 	if err != nil {
 		if !config.GRPCTLSInsecure() {
-			logger.Warn("resolver: giving up on pinned %s at %s after %d tries: %v - verify grpc_tls.server_name / VECTIS_GRPC_TLS_SERVER_NAME and cert SANs match the dial target", serviceName, addr, pinnedDialMaxTries, err)
+			logger.Warn(
+				"resolver: giving up on pinned %s at %s after %d tries: %v - verify grpc_tls.server_name / VECTIS_GRPC_TLS_SERVER_NAME and cert SANs match the dial target",
+				serviceName,
+				addr,
+				pinnedDialMaxTries,
+				err,
+			)
 		}
 
 		return nil, nil, fmt.Errorf("resolver: failed to connect to %s at %s: %w", serviceName, addr, err)
@@ -90,11 +103,23 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 	return conn, func() { _ = conn.Close() }, nil
 }
 
-func NewRegistryClient(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*registry.Registry, error) {
+func NewRegistryClient(
+	ctx context.Context,
+	addr string,
+	logger interfaces.Logger,
+	clock interfaces.Clock,
+	retryMetrics backoff.RetryMetrics,
+) (*registry.Registry, error) {
 	return registry.New(ctx, addr, logger, clock, retryMetrics)
 }
 
-func NewClientWithRegistry(ctx context.Context, comp api.Component, logger interfaces.Logger, regClient *registry.Registry, retryMetrics backoff.RetryMetrics) (*grpc.ClientConn, func(), error) {
+func NewClientWithRegistry(
+	ctx context.Context,
+	comp api.Component,
+	logger interfaces.Logger,
+	regClient *registry.Registry,
+	retryMetrics backoff.RetryMetrics,
+) (*grpc.ClientConn, func(), error) {
 	if addr := pinnedAddress(comp); addr != "" {
 		return NewClientWithPinnedAddress(ctx, comp, addr, logger, nil, retryMetrics)
 	}
@@ -132,7 +157,13 @@ func grpcDefaultServiceConfigJSON(comp api.Component) string {
 	)
 }
 
-func dialWithResolver(ctx context.Context, comp api.Component, target string, builder resolver.Builder, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
+func dialWithResolver(
+	ctx context.Context,
+	comp api.Component,
+	target string,
+	builder resolver.Builder,
+	logger interfaces.Logger,
+) (*grpc.ClientConn, func(), error) {
 	logger.Debug("resolver: connecting to %s at %s", comp.String(), target)
 
 	tc, err := config.GRPCResolverDialOptions()
@@ -154,7 +185,12 @@ func dialWithResolver(ctx context.Context, comp api.Component, target string, bu
 		_ = conn.Close()
 
 		if !config.GRPCTLSInsecure() {
-			logger.Warn("resolver: %s did not become ready (state=%s): %v - with TLS and registry discovery, set grpc_tls.server_name / VECTIS_GRPC_TLS_SERVER_NAME to match the server cert (vectis-local bootstrap uses localhost)", comp.String(), st, err)
+			logger.Warn(
+				"resolver: %s did not become ready (state=%s): %v - with TLS and registry discovery, set grpc_tls.server_name / VECTIS_GRPC_TLS_SERVER_NAME to match the server cert (vectis-local bootstrap uses localhost)",
+				comp.String(),
+				st,
+				err,
+			)
 		} else {
 			logger.Warn("resolver: %s did not become ready (state=%s): %v", comp.String(), st, err)
 		}

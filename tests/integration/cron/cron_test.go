@@ -33,7 +33,9 @@ func setupCronIntegrationTest(t *testing.T) (*cron.CronService, *sql.DB, *mocks.
 
 func insertCronIntegrationJob(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
 	t.Helper()
-	if err := dal.NewSQLRepositories(db).Jobs().CreateDefinitionSnapshot(context.Background(), jobID, definitionJSON); err != nil {
+	if err := dal.NewSQLRepositories(db).
+		Jobs().
+		CreateDefinitionSnapshot(context.Background(), jobID, definitionJSON); err != nil {
 		t.Fatalf("failed to insert job: %v", err)
 	}
 }
@@ -122,7 +124,8 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 	var dbStatus string
 	var runIndex int
 	var invocationID, payloadHash string
-	err := db.QueryRow("SELECT status, run_index, trigger_invocation_id, execution_payload_hash FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex, &invocationID, &payloadHash)
+	err := db.QueryRow("SELECT status, run_index, trigger_invocation_id, execution_payload_hash FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).
+		Scan(&dbStatus, &runIndex, &invocationID, &payloadHash)
 	if err != nil {
 		t.Fatalf("expected job_runs row for cron-triggered job: %v", err)
 	}
@@ -144,7 +147,8 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 	}
 
 	var triggerType, payloadJSON string
-	if err := db.QueryRow("SELECT trigger_type, requested_cells FROM trigger_invocations WHERE invocation_id = ?", invocationID).Scan(&triggerType, &payloadJSON); err != nil {
+	if err := db.QueryRow("SELECT trigger_type, requested_cells FROM trigger_invocations WHERE invocation_id = ?", invocationID).
+		Scan(&triggerType, &payloadJSON); err != nil {
 		t.Fatalf("query trigger invocation: %v", err)
 	}
 
@@ -157,7 +161,8 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 	}
 
 	var executionPayload string
-	if err := db.QueryRow("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).Scan(&executionPayload); err != nil {
+	if err := db.QueryRow("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).
+		Scan(&executionPayload); err != nil {
 		t.Fatalf("query execution payload: %v", err)
 	}
 

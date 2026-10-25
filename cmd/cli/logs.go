@@ -30,7 +30,12 @@ type jobRunEvent struct {
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
-	return runLogStreamPath(fmt.Sprintf("/api/v1/runs/%s/logs", url.PathEscape(runID)), runID, filterStdout, filterStderr)
+	return runLogStreamPath(
+		fmt.Sprintf("/api/v1/runs/%s/logs", url.PathEscape(runID)),
+		runID,
+		filterStdout,
+		filterStderr,
+	)
 }
 
 func runSourceLogStream(repositoryID, jobID, runID string, filterStdout, filterStderr bool) error {
@@ -245,7 +250,11 @@ func runContinuousLogsForRepository(jobID, repositoryID string, filterStdout, fi
 func runContinuousSourceLogs(repositoryID, jobID string, filterStdout, filterStderr bool) error {
 	return runContinuousLogsPath(
 		"source job "+repositoryID+"/"+jobID,
-		fmt.Sprintf("/api/v1/sse/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)),
+		fmt.Sprintf(
+			"/api/v1/sse/source-repositories/%s/jobs/%s/runs",
+			url.PathEscape(repositoryID),
+			url.PathEscape(jobID),
+		),
 		fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)),
 		func(ev jobRunEvent) error {
 			return runSourceLogStream(repositoryID, jobID, ev.RunID, filterStdout, filterStderr)
@@ -441,7 +450,9 @@ func latestRunForJobInRepository(jobID, repositoryID string) (jobRunEvent, bool,
 }
 
 func latestRunForSourceJob(repositoryID, jobID string) (jobRunEvent, bool, error) {
-	return latestRunForJobPath(fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)))
+	return latestRunForJobPath(
+		fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)),
+	)
 }
 
 func latestRunForJobPath(path string) (jobRunEvent, bool, error) {
@@ -546,9 +557,12 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 		runCLIError(err)
 	}
 
-	repositoryID := stringFlagValue(cmd, "repository")
-	if repositoryID == "" {
-		runCLIError(fmt.Errorf("--repository is required to stream logs for a reusable job; use logs run for a specific run"))
+	repositoryID, err := resolveSourceRepositoryID(
+		stringFlagValue(cmd, "repository"),
+		"stream logs for a reusable job; use logs run for a specific run",
+	)
+	if err != nil {
+		runCLIError(err)
 	}
 
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
@@ -573,7 +587,13 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 
 	if !ok {
 		if repositoryID != "" {
-			runCLIError(fmt.Errorf("no runs found for source job %q/%q; use --follow to wait for future runs", repositoryID, jobID))
+			runCLIError(
+				fmt.Errorf(
+					"no runs found for source job %q/%q; use --follow to wait for future runs",
+					repositoryID,
+					jobID,
+				),
+			)
 		}
 
 		runCLIError(fmt.Errorf("no runs found for job %q; use --follow to wait for future runs", jobID))

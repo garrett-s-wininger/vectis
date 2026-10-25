@@ -29,22 +29,14 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(
-        jsonResponse({
-          data: [
-            {
-              name: "smoke-test",
-              namespace: "/",
-              definition: {
-                description: "Runs smoke tests before deployment.",
-                id: "smoke-test",
-                root: {
-                  id: "root",
-                  uses: "builtins/script"
-                }
-              }
-            }
-          ]
-        })
+        jsonResponse([
+          {
+            repository_id: "vectis-local",
+            namespace: "/",
+            default_ref: "main",
+            enabled: true
+          }
+        ])
       )
       .mockResolvedValueOnce(
         jsonResponse([
@@ -55,6 +47,13 @@ describe("console data source", () => {
             created_at: "2026-05-30T12:00:00Z"
           }
         ])
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          repository_id: "vectis-local",
+          requested_ref: "main",
+          jobs: [{ job_id: "smoke-test", path: ".vectis/jobs/smoke-test.json" }]
+        })
       )
       .mockResolvedValueOnce(
         jsonResponse([
@@ -99,9 +98,10 @@ describe("console data source", () => {
       id: "smoke-test",
       name: "smoke-test",
       namespacePath: "/",
-      description: "Runs smoke tests before deployment.",
-      sourceKind: "db",
-      sourceDetail: "Stored in Vectis",
+      repository: "vectis-local",
+      branch: "main",
+      sourceKind: "repo",
+      sourceDetail: ".vectis/jobs/smoke-test.json",
       triggers: [{ kind: "manual", detail: "On demand" }],
       lastRunStatus: "succeeded"
     });
@@ -135,9 +135,15 @@ describe("console data source", () => {
       status: "active",
       tokens: 0
     });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/source-repositories", expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/users", expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/v1/namespaces/1/bindings", expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/v1/runs?limit=200", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/v1/jobs?limit=200&repository_id=vectis-local&ref=main",
+      expect.any(Object)
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/v1/namespaces/1/bindings", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/v1/runs?limit=200", expect.any(Object));
   });
 
   it("does not invent a latest run status for API jobs with no runs", async () => {
@@ -155,23 +161,21 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(
-        jsonResponse({
-          data: [
-            {
-              name: "test-run",
-              namespace: "/",
-              definition: {
-                id: "test-run",
-                root: {
-                  id: "root",
-                  uses: "builtins/script"
-                }
-              }
-            }
-          ]
-        })
+        jsonResponse([
+          {
+            repository_id: "vectis-local",
+            namespace: "/",
+            default_ref: "main",
+            enabled: true
+          }
+        ])
       )
       .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          jobs: [{ job_id: "test-run", path: ".vectis/jobs/test-run.json" }]
+        })
+      )
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
@@ -736,7 +740,7 @@ describe("console data source", () => {
           owning_cell: "local"
         })
       )
-      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(
         jsonResponse({
           data: [
@@ -764,7 +768,7 @@ describe("console data source", () => {
     const run = await createConsoleDataSource().loadRun("run-inline-1");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/runs/run-inline-1", expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/jobs?limit=200", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/source-repositories", expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/runs/run-inline-1/tasks?limit=200", expect.any(Object));
     expect(run).toMatchObject({
       id: "run-inline-1",

@@ -23,7 +23,10 @@ func NewService(core Core, _ ServiceOptions) *Service {
 	return &Service{core: core}
 }
 
-func (s *Service) DescribeCore(ctx context.Context, _ *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error) {
+func (s *Service) DescribeCore(
+	ctx context.Context,
+	_ *api.DescribeWorkerCoreRequest,
+) (*api.DescribeWorkerCoreResponse, error) {
 	if s == nil || s.core == nil {
 		return nil, status.Error(codes.FailedPrecondition, "worker core is not configured")
 	}
@@ -36,7 +39,10 @@ func (s *Service) DescribeCore(ctx context.Context, _ *api.DescribeWorkerCoreReq
 	return descriptionProto(desc), nil
 }
 
-func (s *Service) ExecuteTask(ctx context.Context, req *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+func (s *Service) ExecuteTask(
+	ctx context.Context,
+	req *api.ExecuteWorkerCoreTaskRequest,
+) (*api.ExecuteWorkerCoreTaskResponse, error) {
 	if s == nil || s.core == nil {
 		return nil, status.Error(codes.FailedPrecondition, "worker core is not configured")
 	}

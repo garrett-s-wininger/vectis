@@ -84,8 +84,15 @@ func TestPolicyRejectsRevokedActions(t *testing.T) {
 	descriptor.StatusReason = "CVE-2026-0001"
 
 	policy := Policy{}
-	err := policy.Validate(parsePolicyRef(t, "examples/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), descriptor)
-	if err == nil || !strings.Contains(err.Error(), `action "examples/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is revoked: CVE-2026-0001`) {
+	err := policy.Validate(
+		parsePolicyRef(t, "examples/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+		descriptor,
+	)
+	if err == nil ||
+		!strings.Contains(
+			err.Error(),
+			`action "examples/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is revoked: CVE-2026-0001`,
+		) {
 		t.Fatalf("Validate revoked error = %v, want revoked status error", err)
 	}
 }
@@ -107,7 +114,7 @@ func TestPolicyResolverListDescriptorsFiltersPolicy(t *testing.T) {
 	t.Parallel()
 
 	resolver := NewPolicyResolver(policyMapResolver{
-		"builtins/script":     policyDescriptorWithSource("builtins/script", SourceBuiltin),
+		"builtins/script":    policyDescriptorWithSource("builtins/script", SourceBuiltin),
 		"examples/cache@v1":  policyDescriptor("examples/cache"),
 		"acme/cache@v1":      policyDescriptor("acme/cache"),
 		"examples/remote@v1": policyDescriptorWithSource("examples/remote", SourceOCI),

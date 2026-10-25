@@ -380,7 +380,8 @@ func resolvePackageFiles(file PackageFile, inputs map[string]string) ([]resolved
 		return nil, fmt.Errorf("file %q destination must be absolute: %s", file.ID, file.Destination)
 	}
 
-	if strings.Contains(destination, "\x00") || strings.Contains(destination, "\n") || strings.Contains(destination, "\t") {
+	if strings.Contains(destination, "\x00") || strings.Contains(destination, "\n") ||
+		strings.Contains(destination, "\t") {
 		return nil, fmt.Errorf("file %q destination contains an unsupported control character", file.ID)
 	}
 

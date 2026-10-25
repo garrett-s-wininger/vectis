@@ -11,13 +11,19 @@ import (
 
 type RepositoryCredentialResolver func(context.Context, dal.SourceRepositoryRecord) (GitCredentials, error)
 
-func RepositoryGitCredentials(ctx context.Context, rec dal.SourceRepositoryRecord, resolver RepositoryCredentialResolver) (GitCredentials, error) {
+func RepositoryGitCredentials(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	resolver RepositoryCredentialResolver,
+) (GitCredentials, error) {
 	if strings.TrimSpace(rec.CredentialRef) == "" {
 		return GitCredentials{}, nil
 	}
 
 	if resolver == nil {
-		return GitCredentials{}, fmt.Errorf("credential_ref is configured but source credential resolver is not configured")
+		return GitCredentials{}, fmt.Errorf(
+			"credential_ref is configured but source credential resolver is not configured",
+		)
 	}
 
 	return resolver(ctx, rec)
@@ -50,7 +56,11 @@ func NewRepositoryCredentialResolverFromSecrets(resolver secrets.Resolver) Repos
 		}
 
 		if len(bundle.Files) != 1 {
-			return GitCredentials{}, fmt.Errorf("resolve source repository credential %q: expected 1 secret, got %d", rec.RepositoryID, len(bundle.Files))
+			return GitCredentials{}, fmt.Errorf(
+				"resolve source repository credential %q: expected 1 secret, got %d",
+				rec.RepositoryID,
+				len(bundle.Files),
+			)
 		}
 
 		credentials, err := ParseGitCredentials(bundle.Files[0].Data)

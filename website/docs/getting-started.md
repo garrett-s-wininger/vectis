@@ -16,8 +16,8 @@ It assumes you are working from a clone of the Vectis repository on a developmen
 | Log service | Stores and streams run output. |
 | Registry | Lets services find one another. |
 | Cron and reconciler | Handle scheduled work and repair missed queue handoffs. |
-| UI | Serves the browser application locally. |
-| Docs | Serves the docs site locally. |
+| UI | Serves the browser application locally after `mage buildFull`. |
+| Docs | Serves the docs site locally after `mage buildFull`. |
 
 The local stack uses SQLite by default and stores data under your user data directory, usually `~/.local/share/vectis` when `XDG_DATA_HOME` is not set.
 
@@ -60,9 +60,9 @@ In one terminal, run:
 ./bin/vectis-local
 ```
 
-Leave this process running. It supervises the local API, cell ingress, queue, worker, worker core, secrets service, log service, artifact service, registry, cron, reconciler, catalog, UI, and docs site.
+Leave this process running. It supervises the local API, cell ingress, queue, worker, worker core, secrets service, log service, artifact service, registry, cron, reconciler, and catalog. After `mage buildFull` or `mage buildFrontend`, it also starts the UI and docs site.
 
-By default, `vectis-local` creates local TLS material. Internal gRPC uses it immediately. The local API and docs use HTTPS automatically when that generated CA is already trusted by the system store, or when you start with `--http-tls=on`. Otherwise they keep using HTTP and log the trust-store setup command.
+By default, `vectis-local` creates local TLS material. Internal gRPC uses it immediately. The local API and docs use HTTPS automatically when that generated CA is already trusted by the system store, or when you start with `--http-tls=on`. Otherwise they keep using HTTP, allow insecure session cookies so API auth can start, and log the trust-store setup command.
 
 To prepare trusted local HTTPS without running the full stack as an elevated user:
 
@@ -79,25 +79,21 @@ When local HTTPS is not enabled, the public API listens on:
 http://localhost:8080
 ```
 
-and the docs site listens on:
+After `mage buildFull` or `mage buildFrontend`, the docs site listens on:
 
 ```text
 http://localhost:8088
 ```
 
-The UI listens on:
+and the UI listens on:
 
 ```text
 http://localhost:8089
 ```
 
-`vectis-local` enables HTTP API authentication by default. On first start with a fresh database, the log prints a local setup bootstrap token and stores it at:
+`vectis-local` enables HTTP API authentication by default and finishes first-admin setup after the API is healthy. With `--setup=off`, the log prints a bootstrap token and stores it at `~/.local/share/vectis/local-bootstrap-token` instead.
 
-```text
-~/.local/share/vectis/local-bootstrap-token
-```
-
-If you built the frontend lane with `mage buildFull` or `mage buildFrontend`, open the UI, enter that bootstrap token, and create the first admin account. `vectis-ui` owns first-load browser routing: it sends unauthenticated browsers to setup or login, then serves the React shell for allowed app routes. The browser receives an HttpOnly UI session cookie; `vectis-ui` keeps the API token server-side when proxying browser API calls. Use `./bin/vectis-local --auth=false` only when you intentionally want an unauthenticated local API.
+If you built the frontend lane with `mage buildFull` or `mage buildFrontend`, open the UI after `vectis-local` finishes setup and sign in with the admin username and password. `vectis-ui` owns first-load browser routing: it sends unauthenticated browsers to setup or login, then serves the React shell for allowed app routes. The browser receives an HttpOnly UI session cookie; `vectis-ui` keeps the API token server-side when proxying browser API calls. The setup screen remains for a stack started with `--setup=off`. Use `./bin/vectis-local --auth=false` only when you intentionally want an unauthenticated local API.
 
 If your browser is on a different machine than the dev shell, start the stack with:
 
@@ -125,21 +121,45 @@ http://localhost:8089
 
 The `8089` origin is the real browser surface. It keeps setup redirects, login redirects, HttpOnly UI session cookies, and browser API proxying active while Vite supplies hot-reloaded React assets. Use the Vite port only for debugging the asset server itself.
 
-## Check Health
+## Create The First Admin
 
-In a second terminal, run:
+`vectis-local` enables API authentication and, by default, finishes first-admin setup after the API is healthy. `health check` and `jobs run` use the CLI token that setup saves.
 
-```sh
-./bin/vectis-cli auth login
+In a terminal, `vectis-local` prompts for the admin username and a password of at least 8 characters. The username defaults to `admin`. Without a terminal, it creates user `admin` and writes the password to:
+
+```text
+~/.local/share/vectis/local-admin-password
 ```
 
-Then check the local stack:
+That path is `$XDG_DATA_HOME/vectis/local-admin-password` when `XDG_DATA_HOME` is set. The CLI token is saved in the user config directory, the same file `auth login` uses. When the UI is running, sign in at `http://localhost:8089` with that username and password. The browser setup form is only shown when setup has not been completed.
+
+Pass `--setup=off` to skip this and finish setup yourself. The bootstrap token is then printed and stored at:
+
+```text
+~/.local/share/vectis/local-bootstrap-token
+```
+
+Create the admin with that token. The password must be at least 8 characters, and the JSON response includes `api_token`:
+
+```sh
+curl -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"bootstrap_token":"<bootstrap-token>","admin_username":"admin","admin_password":"<admin-password>"}' \
+  http://localhost:8080/api/v1/setup/complete
+export VECTIS_API_TOKEN=<api_token>
+```
+
+An operator-supplied `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` also leaves setup for you. Use `auth login` in later shells after the admin exists. `VECTIS_API_TOKEN` overrides the saved token for one shell.
+
+## Check Health
+
+In a second terminal, after the admin credential is available, run:
 
 ```sh
 ./bin/vectis-cli health check
 ```
 
-You should see a list of checks for the API, database schema, queue, reconciler, log service, and related operational signals. A fresh local stack should be healthy enough to accept jobs.
+You should see a list of checks for the API, database schema, queue, reconciler, log service, and related operational signals. A fresh local stack should be healthy enough to accept jobs. Until setup is complete, the check warns that initial setup is incomplete and that no CLI token is configured.
 
 If the command cannot connect, confirm `vectis-local` is still running and that the API is listening on port `8080`.
 
@@ -164,7 +184,7 @@ Running multiple steps in sequence
 
 ## Save And Trigger A Reusable Job
 
-If you want to save a job definition and trigger it later, commit it to a registered source repository:
+If you want to save a job definition and trigger it later, commit it to a managed source repository. `vectis-local` registers `vectis-local` for you: a managed checkout with `local_commit` authoring and default ref `main`. Pass `--source-repository repository_id=checkout_path` when you want to use your own checkouts instead.
 
 ```sh
 ./bin/vectis-cli jobs create examples/sequenced.json --repository vectis-local --branch main --message "Add sequenced job"

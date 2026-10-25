@@ -50,7 +50,9 @@ func TestAuthorizationReferenceMentionsRolePermissionRows(t *testing.T) {
 func readAuthorizationReference(t *testing.T) string {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "website", "docs", "operating", "reference", "authorization-reference.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "..", "website", "docs", "operating", "reference", "authorization-reference.md"),
+	)
 	if err != nil {
 		t.Fatalf("read authorization reference: %v", err)
 	}

@@ -60,7 +60,12 @@ func TestRegistry_InstanceAddress(t *testing.T) {
 	}
 	defer reg.Close()
 
-	if err := reg.RegisterInstance(context.Background(), api.Component_COMPONENT_WORKER, "worker-1", "10.0.0.1:50051"); err != nil {
+	if err := reg.RegisterInstance(
+		context.Background(),
+		api.Component_COMPONENT_WORKER,
+		"worker-1",
+		"10.0.0.1:50051",
+	); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
 
@@ -119,7 +124,12 @@ func TestRegistry_RegisterInstanceOnce(t *testing.T) {
 	}
 	defer reg.Close()
 
-	if err := reg.RegisterInstanceOnce(context.Background(), api.Component_COMPONENT_LOG, "log-1", "127.0.0.1:50051"); err != nil {
+	if err := reg.RegisterInstanceOnce(
+		context.Background(),
+		api.Component_COMPONENT_LOG,
+		"log-1",
+		"127.0.0.1:50051",
+	); err != nil {
 		t.Fatalf("register once failed: %v", err)
 	}
 }
@@ -192,20 +202,36 @@ func TestRegistry_ListRegistrationsFiltersByMetadata(t *testing.T) {
 	}
 	defer reg.Close()
 
-	if err := reg.RegisterInstanceWithMetadata(context.Background(), api.Component_COMPONENT_QUEUE, "ingress", "queue-ingress:50051", QueueIngressMetadata()); err != nil {
+	if err := reg.RegisterInstanceWithMetadata(
+		context.Background(),
+		api.Component_COMPONENT_QUEUE,
+		"ingress",
+		"queue-ingress:50051",
+		QueueIngressMetadata(),
+	); err != nil {
 		t.Fatalf("register ingress queue failed: %v", err)
 	}
 
-	if err := reg.RegisterInstanceWithMetadata(context.Background(), api.Component_COMPONENT_QUEUE, "pool-linux", "queue-linux:50051", map[string]string{
-		MetadataCellID:    DefaultCellID,
-		MetadataQueueRole: QueueRolePool,
-		"pool":            "linux",
-		"trait.os":        "linux",
-	}); err != nil {
+	if err := reg.RegisterInstanceWithMetadata(
+		context.Background(),
+		api.Component_COMPONENT_QUEUE,
+		"pool-linux",
+		"queue-linux:50051",
+		map[string]string{
+			MetadataCellID:    DefaultCellID,
+			MetadataQueueRole: QueueRolePool,
+			"pool":            "linux",
+			"trait.os":        "linux",
+		},
+	); err != nil {
 		t.Fatalf("register pool queue failed: %v", err)
 	}
 
-	got, err := reg.ListRegistrations(context.Background(), api.Component_COMPONENT_QUEUE, map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"})
+	got, err := reg.ListRegistrations(
+		context.Background(),
+		api.Component_COMPONENT_QUEUE,
+		map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"},
+	)
 	if err != nil {
 		t.Fatalf("list registrations failed: %v", err)
 	}
@@ -371,12 +397,24 @@ func TestStartRegistrationHeartbeatWithMetadata(t *testing.T) {
 	}
 	defer reg.Close()
 
-	stop := StartRegistrationHeartbeatWithMetadata(context.Background(), reg, api.Component_COMPONENT_QUEUE, ":50051", QueueIngressMetadata(), 50*time.Millisecond, logger)
+	stop := StartRegistrationHeartbeatWithMetadata(
+		context.Background(),
+		reg,
+		api.Component_COMPONENT_QUEUE,
+		":50051",
+		QueueIngressMetadata(),
+		50*time.Millisecond,
+		logger,
+	)
 	defer stop()
 
 	time.Sleep(150 * time.Millisecond)
 
-	got, err := reg.ListRegistrations(context.Background(), api.Component_COMPONENT_QUEUE, map[string]string{MetadataQueueRole: QueueRoleIngress})
+	got, err := reg.ListRegistrations(
+		context.Background(),
+		api.Component_COMPONENT_QUEUE,
+		map[string]string{MetadataQueueRole: QueueRoleIngress},
+	)
 	if err != nil {
 		t.Fatalf("list registrations failed: %v", err)
 	}
@@ -397,7 +435,14 @@ func TestStartRegistrationHeartbeat(t *testing.T) {
 	}
 	defer reg.Close()
 
-	stop := StartRegistrationHeartbeat(context.Background(), reg, api.Component_COMPONENT_QUEUE, ":50051", 50*time.Millisecond, logger)
+	stop := StartRegistrationHeartbeat(
+		context.Background(),
+		reg,
+		api.Component_COMPONENT_QUEUE,
+		":50051",
+		50*time.Millisecond,
+		logger,
+	)
 	defer stop()
 
 	// Wait for at least one heartbeat
@@ -424,7 +469,15 @@ func TestStartInstanceRegistrationHeartbeat(t *testing.T) {
 	}
 	defer reg.Close()
 
-	stop := StartInstanceRegistrationHeartbeat(context.Background(), reg, api.Component_COMPONENT_WORKER, "worker-1", "10.0.0.1:50051", 50*time.Millisecond, logger)
+	stop := StartInstanceRegistrationHeartbeat(
+		context.Background(),
+		reg,
+		api.Component_COMPONENT_WORKER,
+		"worker-1",
+		"10.0.0.1:50051",
+		50*time.Millisecond,
+		logger,
+	)
 	defer stop()
 
 	// Wait for at least one heartbeat.
@@ -448,7 +501,9 @@ func TestRegisterWithHeartbeatUsesSponsorPrimaryOnly(t *testing.T) {
 	instanceID := "queue-1"
 	publishAddress := "queue-1:8081"
 	metadata := QueueIngressMetadata()
-	ordered := splitRegistryAddresses(sponsorOrderedRegistryAddress(addr1+","+addr2, component, instanceID, publishAddress))
+	ordered := splitRegistryAddresses(
+		sponsorOrderedRegistryAddress(addr1+","+addr2, component, instanceID, publishAddress),
+	)
 	if len(ordered) != 2 {
 		t.Fatalf("expected two ordered registry addresses, got %+v", ordered)
 	}
@@ -493,7 +548,14 @@ func TestRegisterWithHeartbeatSucceedsWhenARegistryTargetFails(t *testing.T) {
 	}
 	defer stop()
 
-	waitForRegistryRegistration(t, liveAddr, api.Component_COMPONENT_LOG, DefaultServiceMetadata(), "log-1", "log-1:8083")
+	waitForRegistryRegistration(
+		t,
+		liveAddr,
+		api.Component_COMPONENT_LOG,
+		DefaultServiceMetadata(),
+		"log-1",
+		"log-1:8083",
+	)
 }
 
 func TestRegisterWithDynamicMetadataHeartbeatRefreshesMetadata(t *testing.T) {
@@ -523,13 +585,33 @@ func TestRegisterWithDynamicMetadataHeartbeatRefreshesMetadata(t *testing.T) {
 	}
 	defer stop()
 
-	waitForRegistryRegistration(t, addr, api.Component_COMPONENT_LOG, map[string]string{MetadataLogWriteState: LogWriteStateWritable}, "log-1", "log-1:8083")
+	waitForRegistryRegistration(
+		t,
+		addr,
+		api.Component_COMPONENT_LOG,
+		map[string]string{MetadataLogWriteState: LogWriteStateWritable},
+		"log-1",
+		"log-1:8083",
+	)
 
 	state.Store(LogWriteStateReadOnly)
-	waitForRegistryRegistration(t, addr, api.Component_COMPONENT_LOG, map[string]string{MetadataLogWriteState: LogWriteStateReadOnly}, "log-1", "log-1:8083")
+	waitForRegistryRegistration(
+		t,
+		addr,
+		api.Component_COMPONENT_LOG,
+		map[string]string{MetadataLogWriteState: LogWriteStateReadOnly},
+		"log-1",
+		"log-1:8083",
+	)
 }
 
-func assertRegistryRegistrationAbsent(t *testing.T, registryAddr string, component api.Component, metadata map[string]string, wantInstanceID, wantAddress string) {
+func assertRegistryRegistrationAbsent(
+	t *testing.T,
+	registryAddr string,
+	component api.Component,
+	metadata map[string]string,
+	wantInstanceID, wantAddress string,
+) {
 	t.Helper()
 
 	client := newRegistryTestClient(t, registryAddr)
@@ -544,7 +626,13 @@ func assertRegistryRegistrationAbsent(t *testing.T, registryAddr string, compone
 
 	for _, entry := range got {
 		if entry.GetInstanceId() == wantInstanceID && entry.GetAddress() == wantAddress {
-			t.Fatalf("registry %s unexpectedly listed %s/%q at %q", registryAddr, component.String(), wantInstanceID, wantAddress)
+			t.Fatalf(
+				"registry %s unexpectedly listed %s/%q at %q",
+				registryAddr,
+				component.String(),
+				wantInstanceID,
+				wantAddress,
+			)
 		}
 	}
 }

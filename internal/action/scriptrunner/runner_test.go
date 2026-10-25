@@ -20,14 +20,70 @@ func TestResolveRunners(t *testing.T) {
 		wantInline []string
 		wantFile   []string
 	}{
-		{raw: "sh", wantName: "sh", wantPath: "sh", wantExt: ".sh", wantInline: []string{"-c", "echo hi"}, wantFile: []string{"script.sh"}},
-		{raw: "bash", wantName: "bash", wantPath: "bash", wantExt: ".sh", wantInline: []string{"-c", "echo hi"}, wantFile: []string{"script.sh"}},
-		{raw: "batch", wantName: "cmd", wantPath: "cmd", wantExt: ".cmd", wantInline: []string{"/D", "/S", "/C", "echo hi"}, wantFile: []string{"/D", "/S", "/C", "call", "script.cmd"}},
-		{raw: "powershell", wantName: "powershell", wantPath: "powershell", wantExt: ".ps1", wantInline: []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "echo hi"}, wantFile: []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "script.ps1"}},
-		{raw: "pwsh", wantName: "pwsh", wantPath: "pwsh", wantExt: ".ps1", wantInline: []string{"-NoProfile", "-NonInteractive", "-Command", "echo hi"}, wantFile: []string{"-NoProfile", "-NonInteractive", "-File", "script.ps1"}},
-		{raw: "python", wantName: "python", wantPath: "python", wantExt: ".py", wantInline: []string{"-c", "echo hi"}, wantFile: []string{"script.py"}},
-		{raw: "python3", wantName: "python3", wantPath: "python3", wantExt: ".py", wantInline: []string{"-c", "echo hi"}, wantFile: []string{"script.py"}},
-		{raw: "node", wantName: "node", wantPath: "node", wantExt: ".js", wantInline: []string{"-e", "echo hi"}, wantFile: []string{"script.js"}},
+		{
+			raw:        "sh",
+			wantName:   "sh",
+			wantPath:   "sh",
+			wantExt:    ".sh",
+			wantInline: []string{"-c", "echo hi"},
+			wantFile:   []string{"script.sh"},
+		},
+		{
+			raw:        "bash",
+			wantName:   "bash",
+			wantPath:   "bash",
+			wantExt:    ".sh",
+			wantInline: []string{"-c", "echo hi"},
+			wantFile:   []string{"script.sh"},
+		},
+		{
+			raw:        "batch",
+			wantName:   "cmd",
+			wantPath:   "cmd",
+			wantExt:    ".cmd",
+			wantInline: []string{"/D", "/S", "/C", "echo hi"},
+			wantFile:   []string{"/D", "/S", "/C", "call", "script.cmd"},
+		},
+		{
+			raw:        "powershell",
+			wantName:   "powershell",
+			wantPath:   "powershell",
+			wantExt:    ".ps1",
+			wantInline: []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "echo hi"},
+			wantFile:   []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "script.ps1"},
+		},
+		{
+			raw:        "pwsh",
+			wantName:   "pwsh",
+			wantPath:   "pwsh",
+			wantExt:    ".ps1",
+			wantInline: []string{"-NoProfile", "-NonInteractive", "-Command", "echo hi"},
+			wantFile:   []string{"-NoProfile", "-NonInteractive", "-File", "script.ps1"},
+		},
+		{
+			raw:        "python",
+			wantName:   "python",
+			wantPath:   "python",
+			wantExt:    ".py",
+			wantInline: []string{"-c", "echo hi"},
+			wantFile:   []string{"script.py"},
+		},
+		{
+			raw:        "python3",
+			wantName:   "python3",
+			wantPath:   "python3",
+			wantExt:    ".py",
+			wantInline: []string{"-c", "echo hi"},
+			wantFile:   []string{"script.py"},
+		},
+		{
+			raw:        "node",
+			wantName:   "node",
+			wantPath:   "node",
+			wantExt:    ".js",
+			wantInline: []string{"-e", "echo hi"},
+			wantFile:   []string{"script.js"},
+		},
 	}
 
 	for _, tt := range tests {

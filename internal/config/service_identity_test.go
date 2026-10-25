@@ -149,7 +149,12 @@ func TestAuthorizeGRPCPeerIdentity(t *testing.T) {
 	t.Run("rejects missing peer", func(t *testing.T) {
 		err := authorizeGRPCPeerIdentity(context.Background(), ServiceIdentityRoleQueue, allowed)
 		if status.Code(err) != codes.Unauthenticated {
-			t.Fatalf("authorizeGRPCPeerIdentity status = %v, want %v; err=%v", status.Code(err), codes.Unauthenticated, err)
+			t.Fatalf(
+				"authorizeGRPCPeerIdentity status = %v, want %v; err=%v",
+				status.Code(err),
+				codes.Unauthenticated,
+				err,
+			)
 		}
 	})
 
@@ -162,7 +167,12 @@ func TestAuthorizeGRPCPeerIdentity(t *testing.T) {
 
 		err := authorizeGRPCPeerIdentity(ctx, ServiceIdentityRoleQueue, allowed)
 		if status.Code(err) != codes.Unauthenticated {
-			t.Fatalf("authorizeGRPCPeerIdentity status = %v, want %v; err=%v", status.Code(err), codes.Unauthenticated, err)
+			t.Fatalf(
+				"authorizeGRPCPeerIdentity status = %v, want %v; err=%v",
+				status.Code(err),
+				codes.Unauthenticated,
+				err,
+			)
 		}
 	})
 
@@ -170,7 +180,12 @@ func TestAuthorizeGRPCPeerIdentity(t *testing.T) {
 		ctx := grpcPeerContextWithURI(t, "spiffe://vectis.internal/service/worker")
 		err := authorizeGRPCPeerIdentity(ctx, ServiceIdentityRoleQueue, allowed)
 		if status.Code(err) != codes.PermissionDenied {
-			t.Fatalf("authorizeGRPCPeerIdentity status = %v, want %v; err=%v", status.Code(err), codes.PermissionDenied, err)
+			t.Fatalf(
+				"authorizeGRPCPeerIdentity status = %v, want %v; err=%v",
+				status.Code(err),
+				codes.PermissionDenied,
+				err,
+			)
 		}
 	})
 }

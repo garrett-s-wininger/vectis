@@ -234,12 +234,19 @@ func (s *Service) ListPending(ctx context.Context, runID string, limit int) ([]d
 	return value.([]dal.TaskExecutionRecord), nil
 }
 
-func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (s *Service) ClaimExecution(
+	ctx context.Context,
+	runID, executionID, owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	runID = strings.TrimSpace(runID)
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
 	if runID == "" || executionID == "" || owner == "" {
-		return dal.ExecutionClaimResult{}, fmt.Errorf("%w: run_id, execution_id, and owner are required", dal.ErrConflict)
+		return dal.ExecutionClaimResult{}, fmt.Errorf(
+			"%w: run_id, execution_id, and owner are required",
+			dal.ErrConflict,
+		)
 	}
 
 	now := s.clock.Now()
@@ -300,7 +307,11 @@ func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner 
 	return value.(dal.ExecutionClaimResult), nil
 }
 
-func (s *Service) RenewExecutionLease(ctx context.Context, runID, executionID, owner, claimToken string, leaseUntil time.Time) error {
+func (s *Service) RenewExecutionLease(
+	ctx context.Context,
+	runID, executionID, owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	runID = strings.TrimSpace(runID)
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
@@ -321,7 +332,12 @@ func (s *Service) RenewExecutionLease(ctx context.Context, runID, executionID, o
 		}
 
 		if !task.hasActiveClaim(owner, claimToken, s.clock.Now()) {
-			return nil, fmt.Errorf("%w: execution %s claim is not active for owner %q", dal.ErrConflict, executionID, owner)
+			return nil, fmt.Errorf(
+				"%w: execution %s claim is not active for owner %q",
+				dal.ErrConflict,
+				executionID,
+				owner,
+			)
 		}
 
 		task.leaseUntil = leaseUntil
@@ -331,7 +347,10 @@ func (s *Service) RenewExecutionLease(ctx context.Context, runID, executionID, o
 	return err
 }
 
-func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (s *Service) CompleteExecutionByClaim(
+	ctx context.Context,
+	runID, executionID, owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	runID = strings.TrimSpace(runID)
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
@@ -339,11 +358,18 @@ func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, execution
 	status = strings.TrimSpace(status)
 
 	if runID == "" || executionID == "" || owner == "" || claimToken == "" {
-		return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: run_id, execution_id, owner, and claim_token are required", dal.ErrConflict)
+		return dal.ExecutionFinalizationResult{}, fmt.Errorf(
+			"%w: run_id, execution_id, owner, and claim_token are required",
+			dal.ErrConflict,
+		)
 	}
 
 	if !isTerminalExecutionStatus(status) {
-		return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: unsupported terminal execution status %s", dal.ErrConflict, status)
+		return dal.ExecutionFinalizationResult{}, fmt.Errorf(
+			"%w: unsupported terminal execution status %s",
+			dal.ErrConflict,
+			status,
+		)
 	}
 
 	now := s.clock.Now()
@@ -359,7 +385,12 @@ func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, execution
 		}
 
 		if task.status != dal.ExecutionStatusRunning || !task.hasActiveClaim(owner, claimToken, now) {
-			return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: execution %s claim is not active for owner %q", dal.ErrConflict, executionID, owner)
+			return dal.ExecutionFinalizationResult{}, fmt.Errorf(
+				"%w: execution %s claim is not active for owner %q",
+				dal.ErrConflict,
+				executionID,
+				owner,
+			)
 		}
 
 		task.status = status
@@ -427,7 +458,12 @@ func (s *Service) GetRunTaskCompletion(ctx context.Context, runID string) (dal.R
 	return value.(dal.RunTaskCompletion), nil
 }
 
-func (s *Service) GetRunTaskSnapshot(ctx context.Context, runID string, cursor int64, limit int) (RunTaskSnapshot, error) {
+func (s *Service) GetRunTaskSnapshot(
+	ctx context.Context,
+	runID string,
+	cursor int64,
+	limit int,
+) (RunTaskSnapshot, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return RunTaskSnapshot{}, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
@@ -743,7 +779,12 @@ func matchSnapshotAttempt(record dal.TaskExecutionRecord, expectedTaskID string)
 	}
 
 	if !strings.HasPrefix(attemptID, taskID+":attempt:") {
-		return fmt.Errorf("%w: snapshot task_attempt_id %q does not belong to task_id %q", dal.ErrConflict, attemptID, taskID)
+		return fmt.Errorf(
+			"%w: snapshot task_attempt_id %q does not belong to task_id %q",
+			dal.ErrConflict,
+			attemptID,
+			taskID,
+		)
 	}
 
 	if record.Attempt <= 0 {
@@ -752,7 +793,12 @@ func matchSnapshotAttempt(record dal.TaskExecutionRecord, expectedTaskID string)
 
 	wantSuffix := fmt.Sprintf(":attempt:%d", record.Attempt)
 	if !strings.HasSuffix(attemptID, wantSuffix) {
-		return fmt.Errorf("%w: snapshot task_attempt_id %q does not match attempt %d", dal.ErrConflict, attemptID, record.Attempt)
+		return fmt.Errorf(
+			"%w: snapshot task_attempt_id %q does not match attempt %d",
+			dal.ErrConflict,
+			attemptID,
+			record.Attempt,
+		)
 	}
 
 	return nil
@@ -939,7 +985,10 @@ func executionStatusRank(status string) int {
 		return 2
 	case dal.ExecutionStatusRunning:
 		return 3
-	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+	case dal.ExecutionStatusSucceeded,
+		dal.ExecutionStatusFailed,
+		dal.ExecutionStatusCancelled,
+		dal.ExecutionStatusAborted:
 		return 4
 	default:
 		return -1
@@ -1010,7 +1059,11 @@ func (r *runState) activateReadyTasks() ([]dal.TaskExecutionRecord, int, error) 
 			activated++
 		case dal.ExecutionStatusPending:
 			children = append(children, task.record)
-		case dal.ExecutionStatusRunning, dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+		case dal.ExecutionStatusRunning,
+			dal.ExecutionStatusSucceeded,
+			dal.ExecutionStatusFailed,
+			dal.ExecutionStatusCancelled,
+			dal.ExecutionStatusAborted:
 			continue
 		default:
 			return nil, 0, fmt.Errorf("%w: task %s status %s cannot activate", dal.ErrConflict, taskKey, task.status)
@@ -1080,7 +1133,10 @@ func usesSequence(uses string) bool {
 	return taskgraph.NormalizeUses(uses) == "builtins/sequence"
 }
 
-func (r *runState) finalizationOutcome(status string, children []dal.TaskExecutionRecord) dal.ExecutionFinalizationOutcome {
+func (r *runState) finalizationOutcome(
+	status string,
+	children []dal.TaskExecutionRecord,
+) dal.ExecutionFinalizationOutcome {
 	if r.summary.TerminalFailed > 0 {
 		if status == dal.ExecutionStatusCancelled || status == dal.ExecutionStatusAborted {
 			return dal.ExecutionFinalizationOutcomeRunCancelled
@@ -1129,7 +1185,9 @@ func (r *runState) clearExecutionClaims() {
 
 func isTerminalFinalizationOutcome(outcome dal.ExecutionFinalizationOutcome) bool {
 	switch outcome {
-	case dal.ExecutionFinalizationOutcomeRunSucceeded, dal.ExecutionFinalizationOutcomeRunFailed, dal.ExecutionFinalizationOutcomeRunCancelled:
+	case dal.ExecutionFinalizationOutcomeRunSucceeded,
+		dal.ExecutionFinalizationOutcomeRunFailed,
+		dal.ExecutionFinalizationOutcomeRunCancelled:
 		return true
 	default:
 		return false
@@ -1169,7 +1227,12 @@ func rootTaskExecutionRecord(runID, cellID string, in dal.TaskExecutionRecord) (
 	if in.RunID == "" {
 		in.RunID = runID
 	} else if in.RunID != runID {
-		return dal.TaskExecutionRecord{}, fmt.Errorf("%w: root run_id %q does not match run %q", dal.ErrConflict, in.RunID, runID)
+		return dal.TaskExecutionRecord{}, fmt.Errorf(
+			"%w: root run_id %q does not match run %q",
+			dal.ErrConflict,
+			in.RunID,
+			runID,
+		)
 	}
 
 	if in.TaskID == "" {
@@ -1215,7 +1278,10 @@ func rootTaskExecutionRecord(runID, cellID string, in dal.TaskExecutionRecord) (
 
 func isTerminalExecutionStatus(status string) bool {
 	switch status {
-	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+	case dal.ExecutionStatusSucceeded,
+		dal.ExecutionStatusFailed,
+		dal.ExecutionStatusCancelled,
+		dal.ExecutionStatusAborted:
 		return true
 	default:
 		return false

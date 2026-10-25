@@ -178,7 +178,13 @@ func TestClassifyMaterial_renewsWhenLeafMissingServiceIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := writeLeafWithoutServiceIdentity(caCertPath, caKeyPath, srvCertPath, srvKeyPath, time.Now().Add(serverCertLifetime)); err != nil {
+	if err := writeLeafWithoutServiceIdentity(
+		caCertPath,
+		caKeyPath,
+		srvCertPath,
+		srvKeyPath,
+		time.Now().Add(serverCertLifetime),
+	); err != nil {
 		t.Fatal(err)
 	}
 

@@ -66,7 +66,10 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 	}
 
 	if !exists {
-		return VMSmokeResult{}, fmt.Errorf("deploy smoke VM %q does not exist; run mage vmDeploySmokePrepare", opts.Instance)
+		return VMSmokeResult{}, fmt.Errorf(
+			"deploy smoke VM %q does not exist; run mage vmDeploySmokePrepare",
+			opts.Instance,
+		)
 	}
 
 	vmSmokeLogf(opts.Stdout, "starting %s instance %s", manager.Provider(), opts.Instance)
@@ -127,7 +130,11 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 
 	if err := installAndVerifyVMSmokeGuest(ctx, opts, installPlan, stubBinaries); err != nil {
 		if cleanupErr := cleanGuest(); cleanupErr != nil {
-			return VMSmokeResult{}, fmt.Errorf("verify Linux systemd artifacts: %w; cleanup failed: %w", err, cleanupErr)
+			return VMSmokeResult{}, fmt.Errorf(
+				"verify Linux systemd artifacts: %w; cleanup failed: %w",
+				err,
+				cleanupErr,
+			)
 		}
 
 		return VMSmokeResult{}, err
@@ -179,7 +186,12 @@ func RunVMSmokeClean(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, e
 		return VMSmokeResult{}, err
 	}
 
-	return VMSmokeResult{Status: "cleaned", Provider: manager.Provider(), Instance: opts.Instance, GuestCleaned: true}, nil
+	return VMSmokeResult{
+		Status:       "cleaned",
+		Provider:     manager.Provider(),
+		Instance:     opts.Instance,
+		GuestCleaned: true,
+	}, nil
 }
 
 func RunVMSmokeDown(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, error) {
@@ -289,7 +301,11 @@ func verifyPreparedVMSmokeGuest(ctx context.Context, opts VMSmokeOptions) error 
 
 	for _, check := range checks {
 		if err := opts.Manager.Shell(ctx, opts.Instance, nil, check...); err != nil {
-			return fmt.Errorf("deploy smoke VM %q is not prepared; run mage vmDeploySmokePrepare: %w", opts.Instance, err)
+			return fmt.Errorf(
+				"deploy smoke VM %q is not prepared; run mage vmDeploySmokePrepare: %w",
+				opts.Instance,
+				err,
+			)
 		}
 	}
 
@@ -375,8 +391,24 @@ func writeVMSmokeLocalFiles(root string, stubBinaries []string) error {
 	return nil
 }
 
-func installAndVerifyVMSmokeGuest(ctx context.Context, opts VMSmokeOptions, installPlan []InstallEntry, stubBinaries []string) error {
-	if err := runVMSmokeGuest(ctx, opts, "sudo", "install", "-d", "-m", "0755", "/usr/lib/sysusers.d", "/usr/lib/tmpfiles.d", "/usr/bin"); err != nil {
+func installAndVerifyVMSmokeGuest(
+	ctx context.Context,
+	opts VMSmokeOptions,
+	installPlan []InstallEntry,
+	stubBinaries []string,
+) error {
+	if err := runVMSmokeGuest(
+		ctx,
+		opts,
+		"sudo",
+		"install",
+		"-d",
+		"-m",
+		"0755",
+		"/usr/lib/sysusers.d",
+		"/usr/lib/tmpfiles.d",
+		"/usr/bin",
+	); err != nil {
 		return err
 	}
 
@@ -395,11 +427,26 @@ func installAndVerifyVMSmokeGuest(ctx context.Context, opts VMSmokeOptions, inst
 		return err
 	}
 
-	if err := runVMSmokeGuest(ctx, opts, "sudo", "systemd-tmpfiles", "--create", "/usr/lib/tmpfiles.d/vectis.conf"); err != nil {
+	if err := runVMSmokeGuest(
+		ctx,
+		opts,
+		"sudo",
+		"systemd-tmpfiles",
+		"--create",
+		"/usr/lib/tmpfiles.d/vectis.conf",
+	); err != nil {
 		return err
 	}
 
-	if err := installVMSmokeGuestFile(ctx, opts, vmSmokeMarkerSource, vmSmokeMarkerDestination, "0640", "root", "vectis"); err != nil {
+	if err := installVMSmokeGuestFile(
+		ctx,
+		opts,
+		vmSmokeMarkerSource,
+		vmSmokeMarkerDestination,
+		"0640",
+		"root",
+		"vectis",
+	); err != nil {
 		return err
 	}
 
@@ -424,13 +471,19 @@ func installAndVerifyVMSmokeGuest(ctx context.Context, opts VMSmokeOptions, inst
 	}
 
 	systemdUnits := installDestinationsByKind(installPlan, "systemd")
-	if err := runVMSmokeGuest(ctx, opts, append([]string{"sudo", "systemd-analyze", "verify"}, systemdUnits...)...); err != nil {
+	if err := runVMSmokeGuest(
+		ctx,
+		opts,
+		append([]string{"sudo", "systemd-analyze", "verify"}, systemdUnits...)...); err != nil {
 		return err
 	}
 
 	targetMemberUnits := vmSmokeTargetMemberUnits(installPlan)
 	if len(targetMemberUnits) > 0 {
-		if err := runVMSmokeGuest(ctx, opts, append([]string{"sudo", "systemctl", "enable"}, targetMemberUnits...)...); err != nil {
+		if err := runVMSmokeGuest(
+			ctx,
+			opts,
+			append([]string{"sudo", "systemctl", "enable"}, targetMemberUnits...)...); err != nil {
 			return err
 		}
 	}
@@ -451,7 +504,11 @@ func installVMSmokeGuestEntry(ctx context.Context, opts VMSmokeOptions, entry In
 	return installVMSmokeGuestFile(ctx, opts, entry.Source, entry.Destination, entry.Mode, entry.Owner, entry.Group)
 }
 
-func installVMSmokeGuestFile(ctx context.Context, opts VMSmokeOptions, source, destination, mode, owner, group string) error {
+func installVMSmokeGuestFile(
+	ctx context.Context,
+	opts VMSmokeOptions,
+	source, destination, mode, owner, group string,
+) error {
 	return runVMSmokeGuest(ctx, opts,
 		"sudo", "install", "-D",
 		"-m", mode,
@@ -478,7 +535,12 @@ func installVMSmokeStub(ctx context.Context, opts VMSmokeOptions, binary string)
 	return installVMSmokeGuestFile(ctx, opts, path.Join(vmSmokeBinDir, binary), destination, "0755", "root", "root")
 }
 
-func runVMSmokeGuestClean(ctx context.Context, opts VMSmokeOptions, installPlan []InstallEntry, stubBinaries []string) error {
+func runVMSmokeGuestClean(
+	ctx context.Context,
+	opts VMSmokeOptions,
+	installPlan []InstallEntry,
+	stubBinaries []string,
+) error {
 	exists, err := vmSmokeGuestPathExists(ctx, opts, vmSmokeMarkerDestination)
 	if err != nil {
 		return err

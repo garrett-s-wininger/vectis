@@ -11,11 +11,19 @@ type SQLDispatchEventsRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLDispatchEventsRepository) Record(ctx context.Context, runID, source, eventType string, message *string) error {
+func (r *SQLDispatchEventsRepository) Record(
+	ctx context.Context,
+	runID, source, eventType string,
+	message *string,
+) error {
 	return r.RecordWithInstance(ctx, runID, source, "", eventType, message)
 }
 
-func (r *SQLDispatchEventsRepository) RecordWithInstance(ctx context.Context, runID, source, sourceInstance, eventType string, message *string) error {
+func (r *SQLDispatchEventsRepository) RecordWithInstance(
+	ctx context.Context,
+	runID, source, sourceInstance, eventType string,
+	message *string,
+) error {
 	_, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`
 			INSERT INTO run_dispatch_events (run_id, source, source_instance, event_type, message, created_at)
@@ -54,7 +62,11 @@ func (r *SQLDispatchEventsRepository) RecordDispatchSuccess(ctx context.Context,
 	return normalizeSQLError(err)
 }
 
-func (r *SQLDispatchEventsRepository) RecordDispatchAttemptOutcome(ctx context.Context, runID, source, outcomeEventType string, message *string) error {
+func (r *SQLDispatchEventsRepository) RecordDispatchAttemptOutcome(
+	ctx context.Context,
+	runID, source, outcomeEventType string,
+	message *string,
+) error {
 	now := time.Now().Unix()
 	if outcomeEventType == DispatchEventSuccess {
 		_, err := r.db.ExecContext(ctx,
@@ -119,7 +131,15 @@ func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID strin
 	for rows.Next() {
 		var rec DispatchEvent
 		var message sql.NullString
-		if err := rows.Scan(&rec.ID, &rec.RunID, &rec.Source, &rec.SourceInstance, &rec.EventType, &message, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.RunID,
+			&rec.Source,
+			&rec.SourceInstance,
+			&rec.EventType,
+			&message,
+			&rec.CreatedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 

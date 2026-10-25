@@ -124,7 +124,7 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 	if err != nil {
 		t.Fatalf("expected blob in artifact store: %v", err)
 	}
-	
+
 	if err := rc.Close(); err != nil {
 		t.Fatalf("close artifact blob: %v", err)
 	}
@@ -215,7 +215,8 @@ func TestWorkerArtifactPublisherMaterializesSparseChildTaskPath(t *testing.T) {
 	}
 
 	var rowsBefore int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).Scan(&rowsBefore); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).
+		Scan(&rowsBefore); err != nil {
 		t.Fatalf("count child rows before: %v", err)
 	}
 
@@ -403,7 +404,13 @@ func TestWorkerArtifactPublisherAppliesRunQuota(t *testing.T) {
 		t.Fatalf("expected no artifact manifest after run quota failure, got %v", err)
 	}
 
-	if _, err := store.Stat(ctx, artifact.BlobKeySHA256(artifactTestSHA256(content))); !errors.Is(err, artifact.ErrBlobNotFound) {
+	if _, err := store.Stat(
+		ctx,
+		artifact.BlobKeySHA256(artifactTestSHA256(content)),
+	); !errors.Is(
+		err,
+		artifact.ErrBlobNotFound,
+	) {
 		t.Fatalf("run quota failure should not upload blob, got %v", err)
 	}
 }
@@ -480,9 +487,18 @@ func TestWorkerUploadArtifactActionPublishesDownloadableBlob(t *testing.T) {
 	executor := jobexec.NewExecutor()
 	logClient := mocks.NewMockLogClient()
 	logger := mocks.NewMockLogger()
-	err = executeJobInWorkspaceWithOptionsAndWait(t, ctx, executor, job, logClient, logger, workspace, jobexec.ExecuteOptions{
-		ArtifactPublisher: publisher,
-	})
+	err = executeJobInWorkspaceWithOptionsAndWait(
+		t,
+		ctx,
+		executor,
+		job,
+		logClient,
+		logger,
+		workspace,
+		jobexec.ExecuteOptions{
+			ArtifactPublisher: publisher,
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("execute upload-artifact job: %v", err)
@@ -544,7 +560,8 @@ func TestWorkerUploadArtifactActionPublishesDownloadableBlob(t *testing.T) {
 		t.Fatalf("blob content = %q, want %q", gotContent, wantContent)
 	}
 
-	if desc.Key != rec.BlobKey || desc.Algorithm != rec.BlobAlgorithm || desc.Digest != rec.BlobDigest || desc.Size != rec.SizeBytes {
+	if desc.Key != rec.BlobKey || desc.Algorithm != rec.BlobAlgorithm || desc.Digest != rec.BlobDigest ||
+		desc.Size != rec.SizeBytes {
 		t.Fatalf("blob descriptor = %+v, manifest = %+v", desc, rec)
 	}
 
@@ -565,7 +582,16 @@ func TestWorkerNewArtifactPublisherRequiresManifestRepository(t *testing.T) {
 	}
 }
 
-func executeJobInWorkspaceWithOptionsAndWait(t *testing.T, ctx context.Context, executor *jobexec.Executor, testJob *api.Job, logClient *mocks.MockLogClient, logger *mocks.MockLogger, workspace string, opts jobexec.ExecuteOptions) error {
+func executeJobInWorkspaceWithOptionsAndWait(
+	t *testing.T,
+	ctx context.Context,
+	executor *jobexec.Executor,
+	testJob *api.Job,
+	logClient *mocks.MockLogClient,
+	logger *mocks.MockLogger,
+	workspace string,
+	opts jobexec.ExecuteOptions,
+) error {
 	t.Helper()
 
 	streamCh := make(chan jobexec.LogStreamWaiter, 1)

@@ -118,7 +118,10 @@ func newCallbackArtifactPublisher(sessionID, shellEndpoint string) *callbackArti
 	}
 }
 
-func (p *callbackArtifactPublisher) PublishArtifact(ctx context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+func (p *callbackArtifactPublisher) PublishArtifact(
+	ctx context.Context,
+	req action.ArtifactPublishRequest,
+) (action.ArtifactPublishResult, error) {
 	conn, err := dialUnixShell(ctx, p.shellEndpoint)
 	if err != nil {
 		return action.ArtifactPublishResult{}, err

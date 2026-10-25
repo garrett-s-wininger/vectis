@@ -100,7 +100,10 @@ func validateGitHTTPCredentials(creds GitCredentials) (GitCredentials, error) {
 		return GitCredentials{}, fmt.Errorf("%w: git credential password or token is required", ErrInvalidReference)
 	}
 	if strings.ContainsAny(creds.Username, "\x00\n\r") || strings.ContainsAny(creds.Password, "\x00\n\r") {
-		return GitCredentials{}, fmt.Errorf("%w: git credential contains unsafe control characters", ErrInvalidReference)
+		return GitCredentials{}, fmt.Errorf(
+			"%w: git credential contains unsafe control characters",
+			ErrInvalidReference,
+		)
 	}
 
 	return creds, nil
@@ -110,7 +113,10 @@ func validateGitSSHCredentials(creds GitCredentials) (GitCredentials, error) {
 	creds.Username = strings.TrimSpace(creds.Username)
 	creds.Password = strings.TrimSpace(creds.Password)
 	if creds.Username != "" || creds.Password != "" {
-		return GitCredentials{}, fmt.Errorf("%w: git credential cannot mix SSH key and HTTP credentials", ErrInvalidReference)
+		return GitCredentials{}, fmt.Errorf(
+			"%w: git credential cannot mix SSH key and HTTP credentials",
+			ErrInvalidReference,
+		)
 	}
 
 	if creds.SSHPrivateKey == "" {
@@ -223,7 +229,11 @@ func gitSSHCredentialEnvironment(creds GitCredentials) ([]string, func(), error)
 			knownHostsData += "\n"
 		}
 
-		knownHostsPath, knownHostsCleanup, err := writeGitCredentialTempFile("vectis-git-known-hosts-*", []byte(knownHostsData), 0o600)
+		knownHostsPath, knownHostsCleanup, err := writeGitCredentialTempFile(
+			"vectis-git-known-hosts-*",
+			[]byte(knownHostsData),
+			0o600,
+		)
 		if err != nil {
 			keyCleanup()
 			return nil, nil, err

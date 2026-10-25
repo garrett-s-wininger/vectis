@@ -132,7 +132,10 @@ func TestDescriptorMatchReference(t *testing.T) {
 		t.Fatalf("ParseReference mismatch: %v", err)
 	}
 
-	if err := descriptor.MatchReference(ref); err == nil || !strings.Contains(err.Error(), "does not match resolved version") {
+	if err := descriptor.MatchReference(
+		ref,
+	); err == nil ||
+		!strings.Contains(err.Error(), "does not match resolved version") {
 		t.Fatalf("expected version mismatch, got %v", err)
 	}
 }

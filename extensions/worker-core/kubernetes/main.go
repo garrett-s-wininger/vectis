@@ -48,13 +48,37 @@ const (
 var scpURLRe = regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./~-]+$`)
 
 func main() {
-	socketPath := flag.String("socket", envDefault("VECTIS_WORKER_CORE_SOCKET", defaultSocketPath), "Unix socket served by the Kubernetes worker core")
-	namespace := flag.String("namespace", envDefault("KUBERNETES_NAMESPACE", defaultNamespace), "Kubernetes namespace for task Jobs")
-	image := flag.String("image", envDefault("VECTIS_KUBERNETES_WORKER_CORE_IMAGE", defaultTaskImage), "Container image used for script task Jobs")
+	socketPath := flag.String(
+		"socket",
+		envDefault("VECTIS_WORKER_CORE_SOCKET", defaultSocketPath),
+		"Unix socket served by the Kubernetes worker core",
+	)
+	namespace := flag.String(
+		"namespace",
+		envDefault("KUBERNETES_NAMESPACE", defaultNamespace),
+		"Kubernetes namespace for task Jobs",
+	)
+	image := flag.String(
+		"image",
+		envDefault("VECTIS_KUBERNETES_WORKER_CORE_IMAGE", defaultTaskImage),
+		"Container image used for script task Jobs",
+	)
 	kubectl := flag.String("kubectl", envDefault("KUBECTL", defaultKubectl), "kubectl executable")
-	waitTimeout := flag.Duration("wait-timeout", envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_WAIT_TIMEOUT", defaultWaitTimeout), "Maximum time to wait for a Kubernetes Job to complete")
-	pollInterval := flag.Duration("poll-interval", envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_POLL_INTERVAL", defaultPollInterval), "Kubernetes Job status poll interval")
-	deleteAfter := flag.Bool("delete-after", envBoolDefault("VECTIS_KUBERNETES_WORKER_CORE_DELETE_AFTER", false), "Delete task Jobs after terminal completion")
+	waitTimeout := flag.Duration(
+		"wait-timeout",
+		envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_WAIT_TIMEOUT", defaultWaitTimeout),
+		"Maximum time to wait for a Kubernetes Job to complete",
+	)
+	pollInterval := flag.Duration(
+		"poll-interval",
+		envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_POLL_INTERVAL", defaultPollInterval),
+		"Kubernetes Job status poll interval",
+	)
+	deleteAfter := flag.Bool(
+		"delete-after",
+		envBoolDefault("VECTIS_KUBERNETES_WORKER_CORE_DELETE_AFTER", false),
+		"Delete task Jobs after terminal completion",
+	)
 	flag.Parse()
 
 	core := newKubernetesCore(coreConfig{
@@ -183,7 +207,11 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 	}
 
 	c.clearCancel(task.Session.ID())
-	if err := sendLog(ctx, task, fmt.Sprintf("kubernetes worker core applying job %s/%s\n", c.cfg.Namespace, jobName)); err != nil {
+	if err := sendLog(
+		ctx,
+		task,
+		fmt.Sprintf("kubernetes worker core applying job %s/%s\n", c.cfg.Namespace, jobName),
+	); err != nil {
 		return sdk.Result{}, err
 	}
 
@@ -192,7 +220,9 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 			return sdk.Cancelled(ctx.Err().Error()), nil
 		}
 
-		return sdk.ExternalUnavailable(fmt.Sprintf("apply Kubernetes Job %s/%s: %v", c.cfg.Namespace, jobName, err)), nil
+		return sdk.ExternalUnavailable(
+			fmt.Sprintf("apply Kubernetes Job %s/%s: %v", c.cfg.Namespace, jobName, err),
+		), nil
 	}
 
 	logCtx, stopLogs := context.WithCancel(ctx)
@@ -222,7 +252,9 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 
 	if waitErr == nil && outcome.Phase != jobRunning && task.Session.LogsEnabled() {
 		if err := c.drainTerminalLogs(ctx, task, jobName, deliveredLogs); err != nil {
-			return sdk.ExternalUnavailable(fmt.Sprintf("read Kubernetes Job logs for %s/%s: %v", c.cfg.Namespace, jobName, err)), nil
+			return sdk.ExternalUnavailable(
+				fmt.Sprintf("read Kubernetes Job logs for %s/%s: %v", c.cfg.Namespace, jobName, err),
+			), nil
 		}
 	}
 
@@ -241,12 +273,18 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 			return sdk.Cancelled(ctx.Err().Error()), nil
 		}
 
-		return sdk.ExternalUnavailable(fmt.Sprintf("watch Kubernetes Job %s/%s: %v", c.cfg.Namespace, jobName, waitErr)), nil
+		return sdk.ExternalUnavailable(
+			fmt.Sprintf("watch Kubernetes Job %s/%s: %v", c.cfg.Namespace, jobName, waitErr),
+		), nil
 	}
 
 	switch outcome.Phase {
 	case jobSucceeded:
-		if err := sendLog(ctx, task, fmt.Sprintf("kubernetes worker core job %s/%s succeeded\n", c.cfg.Namespace, jobName)); err != nil {
+		if err := sendLog(
+			ctx,
+			task,
+			fmt.Sprintf("kubernetes worker core job %s/%s succeeded\n", c.cfg.Namespace, jobName),
+		); err != nil {
 			return sdk.Result{}, err
 		}
 
@@ -256,7 +294,10 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 	case jobCancelled:
 		return sdk.Cancelled(outcome.MessageOrDefault("Kubernetes Job was cancelled")), nil
 	default:
-		return sdk.UnknownWithReason(reasonJobUnknown, outcome.MessageOrDefault("Kubernetes Job reached an unknown state")), nil
+		return sdk.UnknownWithReason(
+			reasonJobUnknown,
+			outcome.MessageOrDefault("Kubernetes Job reached an unknown state"),
+		), nil
 	}
 }
 
@@ -310,7 +351,10 @@ func executableTaskSpec(task sdk.Task) (executableSpec, error) {
 	}
 
 	if strings.HasPrefix(uses, "builtins/") {
-		return executableSpec{}, fmt.Errorf("Kubernetes worker core example supports builtins/script and frozen custom process actions only, got %q", uses)
+		return executableSpec{}, fmt.Errorf(
+			"Kubernetes worker core example supports builtins/script and frozen custom process actions only, got %q",
+			uses,
+		)
 	}
 
 	return customProcessTaskSpec(task, node, uses)
@@ -318,7 +362,10 @@ func executableTaskSpec(task sdk.Task) (executableSpec, error) {
 
 func scriptTaskSpec(task sdk.Task, node *api.Node) (executableSpec, error) {
 	if hasChildTasks(node) {
-		return executableSpec{}, fmt.Errorf("builtins/script task %q must be a leaf task for Kubernetes execution", task.TaskKey)
+		return executableSpec{}, fmt.Errorf(
+			"builtins/script task %q must be a leaf task for Kubernetes execution",
+			task.TaskKey,
+		)
 	}
 
 	command := strings.TrimSpace(node.GetWith()["script"])
@@ -331,11 +378,17 @@ func scriptTaskSpec(task sdk.Task, node *api.Node) (executableSpec, error) {
 
 func customProcessTaskSpec(task sdk.Task, node *api.Node, uses string) (executableSpec, error) {
 	if hasChildTasks(node) {
-		return executableSpec{}, fmt.Errorf("custom process action %q must be a leaf task for Kubernetes execution", uses)
+		return executableSpec{}, fmt.Errorf(
+			"custom process action %q must be a leaf task for Kubernetes execution",
+			uses,
+		)
 	}
 
 	if len(node.GetInputs()) > 0 {
-		return executableSpec{}, fmt.Errorf("custom process action %q uses dataflow-bound inputs, which this Kubernetes example does not support", uses)
+		return executableSpec{}, fmt.Errorf(
+			"custom process action %q uses dataflow-bound inputs, which this Kubernetes example does not support",
+			uses,
+		)
 	}
 
 	lock, err := actionLockForTask(task, node, uses)
@@ -353,11 +406,21 @@ func customProcessTaskSpec(task sdk.Task, node *api.Node, uses string) (executab
 	}
 
 	if runtime := strings.TrimSpace(descriptor.GetRuntime()); runtime != "process" {
-		return executableSpec{}, fmt.Errorf("custom action %q runtime %q is not supported by this Kubernetes example", uses, runtime)
+		return executableSpec{}, fmt.Errorf(
+			"custom action %q runtime %q is not supported by this Kubernetes example",
+			uses,
+			runtime,
+		)
 	}
 
-	if workingDirectory := strings.TrimSpace(descriptor.GetRuntimeConfig()["working_directory"]); workingDirectory != "" {
-		return executableSpec{}, fmt.Errorf("custom process action %q configures working_directory %q, which this Kubernetes example does not mount", uses, workingDirectory)
+	if workingDirectory := strings.TrimSpace(
+		descriptor.GetRuntimeConfig()["working_directory"],
+	); workingDirectory != "" {
+		return executableSpec{}, fmt.Errorf(
+			"custom process action %q configures working_directory %q, which this Kubernetes example does not mount",
+			uses,
+			workingDirectory,
+		)
 	}
 
 	command := processCommand(descriptor.GetRuntimeConfig())
@@ -416,7 +479,11 @@ func actionLockForTask(task sdk.Task, node *api.Node, uses string) (*api.WorkerC
 		return matching[0], nil
 	}
 
-	return nil, fmt.Errorf("custom action %q has multiple frozen descriptors and none match task %q", uses, task.TaskKey)
+	return nil, fmt.Errorf(
+		"custom action %q has multiple frozen descriptors and none match task %q",
+		uses,
+		task.TaskKey,
+	)
 }
 
 func processCommand(config map[string]string) string {
@@ -650,7 +717,12 @@ func (b *deliveredLogBuffer) remaining(logs []byte) []byte {
 	return logs
 }
 
-func (c *kubernetesCore) drainTerminalLogs(ctx context.Context, task sdk.Task, jobName string, delivered *deliveredLogBuffer) error {
+func (c *kubernetesCore) drainTerminalLogs(
+	ctx context.Context,
+	task sdk.Task,
+	jobName string,
+	delivered *deliveredLogBuffer,
+) error {
 	deadline := time.NewTimer(logReadTimeout)
 	defer deadline.Stop()
 
@@ -799,7 +871,11 @@ func (r kubectlRunner) ReadLogs(ctx context.Context, namespace, name string) ([]
 	return r.run(ctx, namespace, nil, "logs", "job/"+name, "--container", "task")
 }
 
-func (r kubectlRunner) WaitJob(ctx context.Context, namespace, name string, timeout, pollInterval time.Duration) (jobOutcome, error) {
+func (r kubectlRunner) WaitJob(
+	ctx context.Context,
+	namespace, name string,
+	timeout, pollInterval time.Duration,
+) (jobOutcome, error) {
 	if timeout <= 0 {
 		timeout = defaultWaitTimeout
 	}
@@ -828,7 +904,11 @@ func (r kubectlRunner) WaitJob(ctx context.Context, namespace, name string, time
 		case <-ctx.Done():
 			return jobOutcome{Phase: jobCancelled, Message: ctx.Err().Error()}, nil
 		case <-deadline.C:
-			return jobOutcome{Phase: jobUnknown, Reason: "wait_timeout", Message: fmt.Sprintf("timed out after %s", timeout)}, nil
+			return jobOutcome{
+				Phase:   jobUnknown,
+				Reason:  "wait_timeout",
+				Message: fmt.Sprintf("timed out after %s", timeout),
+			}, nil
 		case <-ticker.C:
 		}
 	}
@@ -882,7 +962,11 @@ func (r kubectlRunner) inspectJob(ctx context.Context, namespace, name string) (
 	return jobOutcome{Phase: jobRunning}, false, nil
 }
 
-func (r kubectlRunner) streamLogsOnce(ctx context.Context, namespace, name string, send func([]byte) error) (bool, error) {
+func (r kubectlRunner) streamLogsOnce(
+	ctx context.Context,
+	namespace, name string,
+	send func([]byte) error,
+) (bool, error) {
 	args := r.args(namespace, "logs", "-f", "job/"+name, "--container", "task")
 	cmd := exec.CommandContext(ctx, r.kubectl, args...)
 	stdout, err := cmd.StdoutPipe()

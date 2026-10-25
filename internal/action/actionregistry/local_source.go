@@ -124,7 +124,8 @@ func (s *LocalManifestSource) ListDescriptors() ([]Descriptor, error) {
 
 	descriptors := []Descriptor{}
 	for _, namespaceEntry := range namespaces {
-		if !namespaceEntry.IsDir() || namespaceEntry.Name() == "builtins" || !validReferencePart(namespaceEntry.Name()) {
+		if !namespaceEntry.IsDir() || namespaceEntry.Name() == "builtins" ||
+			!validReferencePart(namespaceEntry.Name()) {
 			continue
 		}
 
@@ -400,7 +401,11 @@ func (m LocalManifest) validate(ref Reference) error {
 	}
 
 	if strings.TrimSpace(m.Name) != ref.CanonicalName() {
-		return fmt.Errorf("local action manifest name %q does not match reference %q", strings.TrimSpace(m.Name), ref.CanonicalName())
+		return fmt.Errorf(
+			"local action manifest name %q does not match reference %q",
+			strings.TrimSpace(m.Name),
+			ref.CanonicalName(),
+		)
 	}
 
 	version := strings.TrimSpace(m.Version)

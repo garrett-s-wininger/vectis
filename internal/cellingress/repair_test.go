@@ -220,7 +220,12 @@ func TestExecutionRepairService_EnqueuedReceiptIsSkippedByRepairLoop(t *testing.
 	}
 
 	repairQueue := mocks.NewMockQueueService()
-	repair := NewExecutionRepairService(repos.CellExecutionAcceptances(), repairQueue, mocks.NewMockLogger(), mocks.NewMockClock())
+	repair := NewExecutionRepairService(
+		repos.CellExecutionAcceptances(),
+		repairQueue,
+		mocks.NewMockLogger(),
+		mocks.NewMockClock(),
+	)
 	repair.SetMinAttemptGap(0)
 
 	if err := repair.Process(ctx); err != nil {
@@ -324,7 +329,8 @@ func assertReceiptEnqueued(t *testing.T, db *sql.DB, executionID string) {
 	t.Helper()
 
 	var enqueuedAt sql.NullInt64
-	if err := db.QueryRow("SELECT enqueued_at FROM cell_execution_acceptances WHERE execution_id = ?", executionID).Scan(&enqueuedAt); err != nil {
+	if err := db.QueryRow("SELECT enqueued_at FROM cell_execution_acceptances WHERE execution_id = ?", executionID).
+		Scan(&enqueuedAt); err != nil {
 		t.Fatalf("query enqueued_at: %v", err)
 	}
 
@@ -337,7 +343,8 @@ func assertReceiptPending(t *testing.T, db *sql.DB, executionID string) {
 	t.Helper()
 
 	var enqueuedAt sql.NullInt64
-	if err := db.QueryRow("SELECT enqueued_at FROM cell_execution_acceptances WHERE execution_id = ?", executionID).Scan(&enqueuedAt); err != nil {
+	if err := db.QueryRow("SELECT enqueued_at FROM cell_execution_acceptances WHERE execution_id = ?", executionID).
+		Scan(&enqueuedAt); err != nil {
 		t.Fatalf("query enqueued_at: %v", err)
 	}
 
@@ -352,7 +359,11 @@ type failOnceMarkEnqueuedAcceptancesRepository struct {
 	failed bool
 }
 
-func (r *failOnceMarkEnqueuedAcceptancesRepository) MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error {
+func (r *failOnceMarkEnqueuedAcceptancesRepository) MarkEnqueued(
+	ctx context.Context,
+	executionID string,
+	enqueuedAtUnixNano int64,
+) error {
 	if !r.failed {
 		r.failed = true
 		return r.err

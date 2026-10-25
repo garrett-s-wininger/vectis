@@ -78,7 +78,10 @@ func TestRunValidateAppliesWaitsAndRunsSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if text := string(manifest); !strings.Contains(text, `name: "ci-vectis"`) || !strings.Contains(text, "image: localhost/vectis-api:dev") {
+	if text := string(
+		manifest,
+	); !strings.Contains(text, `name: "ci-vectis"`) ||
+		!strings.Contains(text, "image: localhost/vectis-api:dev") {
 		t.Fatalf("rendered manifest does not contain validation settings:\n%s", text)
 	}
 
@@ -86,7 +89,8 @@ func TestRunValidateAppliesWaitsAndRunsSmoke(t *testing.T) {
 		t.Fatalf("unexpected kubectl call count: %d calls=%+v", len(calls), calls)
 	}
 
-	if calls[0].scope != validateKubectlCluster || !reflect.DeepEqual(calls[0].args, []string{"apply", "-f", outputPath}) {
+	if calls[0].scope != validateKubectlCluster ||
+		!reflect.DeepEqual(calls[0].args, []string{"apply", "-f", outputPath}) {
 		t.Fatalf("unexpected apply call: %+v", calls[0])
 	}
 
@@ -97,7 +101,9 @@ func TestRunValidateAppliesWaitsAndRunsSmoke(t *testing.T) {
 			t.Fatalf("workload call should be namespaced: %+v", call)
 		}
 
-		if len(call.args) != 5 || call.args[0] != "rollout" || call.args[1] != "status" || call.args[3] != "--timeout" || call.args[4] != time.Minute.String() {
+		if len(call.args) != 5 || call.args[0] != "rollout" || call.args[1] != "status" ||
+			call.args[3] != "--timeout" ||
+			call.args[4] != time.Minute.String() {
 			t.Fatalf("unexpected rollout args: %+v", call.args)
 		}
 
@@ -112,12 +118,16 @@ func TestRunValidateAppliesWaitsAndRunsSmoke(t *testing.T) {
 		t.Fatalf("workloads mismatch\ngot:  %+v\nwant: %+v", result.Workloads, workloads)
 	}
 
-	if !validateWorkloadsContain(result.Workloads, ValidateWorkload{Kind: "deployment", Name: "vectis-scm-gerrit-stream"}) {
+	if !validateWorkloadsContain(
+		result.Workloads,
+		ValidateWorkload{Kind: "deployment", Name: "vectis-scm-gerrit-stream"},
+	) {
 		t.Fatalf("default validation workloads should include the Gerrit stream bridge: %+v", result.Workloads)
 	}
 
 	getPods := calls[len(calls)-2]
-	if getPods.scope != validateKubectlNamespaced || !reflect.DeepEqual(getPods.args, []string{"get", "pods", "-o", "wide"}) {
+	if getPods.scope != validateKubectlNamespaced ||
+		!reflect.DeepEqual(getPods.args, []string{"get", "pods", "-o", "wide"}) {
 		t.Fatalf("unexpected get pods call: %+v", getPods)
 	}
 
@@ -135,11 +145,13 @@ func TestRunValidateAppliesWaitsAndRunsSmoke(t *testing.T) {
 		t.Fatalf("unexpected wait pods call: %+v", waitPods)
 	}
 
-	if smokeOpts.Kubectl != "kubectl-test" || smokeOpts.Context != "kind-ci" || smokeOpts.Namespace != "ci-vectis" || smokeOpts.Wait != time.Minute {
+	if smokeOpts.Kubectl != "kubectl-test" || smokeOpts.Context != "kind-ci" || smokeOpts.Namespace != "ci-vectis" ||
+		smokeOpts.Wait != time.Minute {
 		t.Fatalf("smoke did not inherit validation options: %+v", smokeOpts)
 	}
 
-	if smokeOpts.APILocalPort != 19090 || smokeOpts.APIToken != "token-test" || smokeOpts.SeedSecret == nil || *smokeOpts.SeedSecret {
+	if smokeOpts.APILocalPort != 19090 || smokeOpts.APIToken != "token-test" || smokeOpts.SeedSecret == nil ||
+		*smokeOpts.SeedSecret {
 		t.Fatalf("smoke-specific options were not preserved: %+v", smokeOpts)
 	}
 }

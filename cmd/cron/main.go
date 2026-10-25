@@ -77,7 +77,8 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_CRON_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
 	rootCmd.PersistentFlags().String("instance-id", "", "Stable cron instance identifier used in schedule claim tokens")
-	rootCmd.PersistentFlags().Duration("claim-ttl", config.CronClaimTTL(), "How long a cron instance owns a due schedule claim")
+	rootCmd.PersistentFlags().
+		Duration("claim-ttl", config.CronClaimTTL(), "How long a cron instance owns a due schedule claim")
 	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))
 	_ = viper.BindPFlag("claim_ttl", rootCmd.PersistentFlags().Lookup("claim-ttl"))
 	viper.SetDefault("claim_ttl", config.CronClaimTTL())

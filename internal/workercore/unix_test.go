@@ -229,7 +229,10 @@ type fakeWorkerCoreServer struct {
 	execute  func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error)
 }
 
-func (s fakeWorkerCoreServer) DescribeCore(ctx context.Context, req *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error) {
+func (s fakeWorkerCoreServer) DescribeCore(
+	ctx context.Context,
+	req *api.DescribeWorkerCoreRequest,
+) (*api.DescribeWorkerCoreResponse, error) {
 	if s.describe != nil {
 		return s.describe(ctx, req)
 	}
@@ -237,7 +240,10 @@ func (s fakeWorkerCoreServer) DescribeCore(ctx context.Context, req *api.Describ
 	return CoreDescriptionProto(CoreDescription{}), nil
 }
 
-func (s fakeWorkerCoreServer) ExecuteTask(ctx context.Context, req *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+func (s fakeWorkerCoreServer) ExecuteTask(
+	ctx context.Context,
+	req *api.ExecuteWorkerCoreTaskRequest,
+) (*api.ExecuteWorkerCoreTaskResponse, error) {
 	if s.execute != nil {
 		return s.execute(ctx, req)
 	}

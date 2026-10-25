@@ -41,9 +41,13 @@ func NewQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("vectis_queue_expired_requeued_total: %w", err)
 	}
 
-	expiredDropped, err := m.Int64Counter("vectis_queue_expired_dropped_total",
-		metric.WithDescription("Total pending jobs or in-flight deliveries dropped after dispatch start deadline expiry"),
-		metric.WithUnit("{job}"))
+	expiredDropped, err := m.Int64Counter(
+		"vectis_queue_expired_dropped_total",
+		metric.WithDescription(
+			"Total pending jobs or in-flight deliveries dropped after dispatch start deadline expiry",
+		),
+		metric.WithUnit("{job}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_queue_expired_dropped_total: %w", err)
 	}

@@ -24,7 +24,11 @@ type LogSpoolForwarder struct {
 	interval  time.Duration
 }
 
-func NewLogSpoolForwarder(logClient interfaces.LogClient, logger interfaces.Logger, interval time.Duration) *LogSpoolForwarder {
+func NewLogSpoolForwarder(
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	interval time.Duration,
+) *LogSpoolForwarder {
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
@@ -273,7 +277,12 @@ func ForwardSpoolFile(path string, logClient interfaces.LogClient, logger interf
 
 // ForwardSpoolFileContext sends a single spool file to the log service.
 // It is used by both the forwarder and direct recovery paths.
-func ForwardSpoolFileContext(ctx context.Context, path string, logClient interfaces.LogClient, logger interfaces.Logger) error {
+func ForwardSpoolFileContext(
+	ctx context.Context,
+	path string,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+) error {
 	f := &LogSpoolForwarder{logClient: logClient, logger: logger}
 	return f.forwardFile(ctx, path)
 }

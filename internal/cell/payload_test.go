@@ -32,7 +32,11 @@ func TestRecordExecutionHandoffPayloadReturnsRecordedPayload(t *testing.T) {
 	}
 
 	if env.ExecutionID != "execution-recorded" || env.CreatedAtUnixNano != 42 {
-		t.Fatalf("expected frozen recorded payload, got execution=%q created=%d", env.ExecutionID, env.CreatedAtUnixNano)
+		t.Fatalf(
+			"expected frozen recorded payload, got execution=%q created=%d",
+			env.ExecutionID,
+			env.CreatedAtUnixNano,
+		)
 	}
 }
 
@@ -41,14 +45,24 @@ func TestRecordExecutionHandoffPayloadRejectsRecordedRunMismatch(t *testing.T) {
 	hash := "sha256:abc123"
 	runs := mocks.NewMockRunsRepository()
 	runs.RecordedPayloads = map[string]string{}
-	runs.RecordedPayloads["run-1"] = marshalPayloadJobRequest(t, validPayloadJobRequest(t, "run-other", hash, "execution-other", 42))
+	runs.RecordedPayloads["run-1"] = marshalPayloadJobRequest(
+		t,
+		validPayloadJobRequest(t, "run-other", hash, "execution-other", 42),
+	)
 
-	_, err := RecordExecutionHandoffPayload(ctx, runs, "run-1", validPayloadJobRequest(t, "run-1", hash, "execution-current", 99), hash)
+	_, err := RecordExecutionHandoffPayload(
+		ctx,
+		runs,
+		"run-1",
+		validPayloadJobRequest(t, "run-1", hash, "execution-current", 99),
+		hash,
+	)
 	if err == nil {
 		t.Fatal("RecordExecutionHandoffPayload succeeded, want recorded payload run mismatch")
 	}
 
-	if !strings.Contains(err.Error(), "validate recorded execution payload") || !strings.Contains(err.Error(), "run_id") {
+	if !strings.Contains(err.Error(), "validate recorded execution payload") ||
+		!strings.Contains(err.Error(), "run_id") {
 		t.Fatalf("RecordExecutionHandoffPayload error %q does not contain recorded run mismatch", err.Error())
 	}
 }
@@ -58,15 +72,28 @@ func TestRecordExecutionHandoffPayloadRejectsRecordedDefinitionHashMismatch(t *t
 	hash := "sha256:abc123"
 	runs := mocks.NewMockRunsRepository()
 	runs.RecordedPayloads = map[string]string{}
-	runs.RecordedPayloads["run-1"] = marshalPayloadJobRequest(t, validPayloadJobRequest(t, "run-1", "sha256:other", "execution-recorded", 42))
+	runs.RecordedPayloads["run-1"] = marshalPayloadJobRequest(
+		t,
+		validPayloadJobRequest(t, "run-1", "sha256:other", "execution-recorded", 42),
+	)
 
-	_, err := RecordExecutionHandoffPayload(ctx, runs, "run-1", validPayloadJobRequest(t, "run-1", hash, "execution-current", 99), hash)
+	_, err := RecordExecutionHandoffPayload(
+		ctx,
+		runs,
+		"run-1",
+		validPayloadJobRequest(t, "run-1", hash, "execution-current", 99),
+		hash,
+	)
 	if err == nil {
 		t.Fatal("RecordExecutionHandoffPayload succeeded, want recorded payload definition hash mismatch")
 	}
 
-	if !strings.Contains(err.Error(), "validate recorded execution payload") || !strings.Contains(err.Error(), "definition_hash") {
-		t.Fatalf("RecordExecutionHandoffPayload error %q does not contain recorded definition hash mismatch", err.Error())
+	if !strings.Contains(err.Error(), "validate recorded execution payload") ||
+		!strings.Contains(err.Error(), "definition_hash") {
+		t.Fatalf(
+			"RecordExecutionHandoffPayload error %q does not contain recorded definition hash mismatch",
+			err.Error(),
+		)
 	}
 }
 
@@ -85,7 +112,11 @@ func TestRecordExecutionHandoffPayloadRejectsInvalidNewPayloadBeforeRecord(t *te
 	}
 }
 
-func validPayloadJobRequest(t *testing.T, runID, definitionHash, executionID string, createdAtUnixNano int64) *api.JobRequest {
+func validPayloadJobRequest(
+	t *testing.T,
+	runID, definitionHash, executionID string,
+	createdAtUnixNano int64,
+) *api.JobRequest {
 	t.Helper()
 
 	jobID := "job-1"

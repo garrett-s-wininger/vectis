@@ -80,7 +80,14 @@ func runUI(cmd *cobra.Command, args []string) {
 	}
 
 	logger.Info("UI listening on http://%s (%s)", addr, source)
-	if err := cli.ServeHTTP(cmd.Context(), srv, srv.ListenAndServe, defaultShutdownTimeout, "UI HTTP", logger); err != nil {
+	if err := cli.ServeHTTP(
+		cmd.Context(),
+		srv,
+		srv.ListenAndServe,
+		defaultShutdownTimeout,
+		"UI HTTP",
+		logger,
+	); err != nil {
 		logger.Fatal("UI server failed: %v", err)
 	}
 }

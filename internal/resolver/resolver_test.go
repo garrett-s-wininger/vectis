@@ -111,7 +111,15 @@ func (m *mockRegistry) Address(context.Context, api.Component) (string, error) {
 func TestRegistryResolver_ResolveAndFallback(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "first:1", err: nil}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(
+		cc,
+		reg,
+		api.Component_COMPONENT_QUEUE,
+		mocks.NopLogger{},
+		time.Hour,
+		5*time.Second,
+		time.Second,
+	)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	if len(cc.states) == 0 {
@@ -132,7 +140,15 @@ func TestRegistryResolver_ResolveAndFallback(t *testing.T) {
 func TestRegistryResolver_LastGoodPersistsAfterInitialSuccess(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "stable:1", err: nil}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(
+		cc,
+		reg,
+		api.Component_COMPONENT_QUEUE,
+		mocks.NopLogger{},
+		time.Hour,
+		5*time.Second,
+		time.Second,
+	)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	if len(cc.states) == 0 || cc.states[0].Addresses[0].Addr != "stable:1" {
@@ -155,7 +171,15 @@ func TestRegistryResolver_LastGoodPersistsAfterInitialSuccess(t *testing.T) {
 func TestRegistryResolver_ReportErrorOnFailure(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "", err: errors.New("registry down")}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(
+		cc,
+		reg,
+		api.Component_COMPONENT_QUEUE,
+		mocks.NopLogger{},
+		time.Hour,
+		5*time.Second,
+		time.Second,
+	)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	if len(cc.reportErrs) == 0 {
@@ -188,7 +212,15 @@ func TestRegistryResolver_LogsWarnOnceThenDebug(t *testing.T) {
 func TestRegistryResolver_NoReportErrorWhenFallingBackToLastGood(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "live:1", err: nil}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(
+		cc,
+		reg,
+		api.Component_COMPONENT_QUEUE,
+		mocks.NopLogger{},
+		time.Hour,
+		5*time.Second,
+		time.Second,
+	)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	reg.err = errors.New("registry down")

@@ -138,11 +138,19 @@ func newCellIngressBenchmarkDBAndRepos(b *testing.B, cellID string) (*sql.DB, *d
 	return db, dal.NewSQLRepositoriesWithCellID(db, cellID)
 }
 
-func seedCellIngressBenchmarkAcceptances(b *testing.B, ctx context.Context, acceptances dal.CellExecutionAcceptancesRepository, count int) {
+func seedCellIngressBenchmarkAcceptances(
+	b *testing.B,
+	ctx context.Context,
+	acceptances dal.CellExecutionAcceptancesRepository,
+	count int,
+) {
 	b.Helper()
 
 	for i := 0; i < count; i++ {
-		if created, err := acceptances.AcceptExecution(ctx, cellIngressBenchmarkAcceptance(cellIngressBenchmarkJobID, i)); err != nil {
+		if created, err := acceptances.AcceptExecution(
+			ctx,
+			cellIngressBenchmarkAcceptance(cellIngressBenchmarkJobID, i),
+		); err != nil {
 			b.Fatalf("seed accepted execution %d: %v", i, err)
 		} else if !created {
 			b.Fatalf("seed accepted execution %d was not created", i)
@@ -158,22 +166,27 @@ func cellIngressBenchmarkAcceptance(jobID string, i int) dal.CellExecutionAccept
 	executionID := fmt.Sprintf("execution-%06d", i)
 
 	return dal.CellExecutionAcceptance{
-		ExecutionID:        executionID,
-		RunID:              runID,
-		JobID:              jobID,
-		RunIndex:           i + 1,
-		TaskID:             taskID,
-		TaskKey:            dal.RootTaskKey,
-		TaskName:           dal.RootTaskKey,
-		TaskAttemptID:      fmt.Sprintf("%s:attempt:%d", taskID, attempt),
-		SegmentID:          fmt.Sprintf("segment-%06d", i),
-		SegmentName:        dal.RootTaskKey,
-		CellID:             "iad-a",
-		Attempt:            attempt,
-		DefinitionVersion:  1,
-		DefinitionHash:     dal.DefinitionHash(definitionJSON),
-		DefinitionJSON:     definitionJSON,
-		RequestJSON:        fmt.Sprintf(`{"job":{"id":"%s","runId":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}},"metadata":{"benchExecution":"%s"}}`, jobID, runID, executionID),
+		ExecutionID:       executionID,
+		RunID:             runID,
+		JobID:             jobID,
+		RunIndex:          i + 1,
+		TaskID:            taskID,
+		TaskKey:           dal.RootTaskKey,
+		TaskName:          dal.RootTaskKey,
+		TaskAttemptID:     fmt.Sprintf("%s:attempt:%d", taskID, attempt),
+		SegmentID:         fmt.Sprintf("segment-%06d", i),
+		SegmentName:       dal.RootTaskKey,
+		CellID:            "iad-a",
+		Attempt:           attempt,
+		DefinitionVersion: 1,
+		DefinitionHash:    dal.DefinitionHash(definitionJSON),
+		DefinitionJSON:    definitionJSON,
+		RequestJSON: fmt.Sprintf(
+			`{"job":{"id":"%s","runId":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}},"metadata":{"benchExecution":"%s"}}`,
+			jobID,
+			runID,
+			executionID,
+		),
 		AcceptedAtUnixNano: int64(i + 1),
 	}
 }

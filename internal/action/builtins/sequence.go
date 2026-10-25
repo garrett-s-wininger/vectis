@@ -33,7 +33,12 @@ func (s *SequenceNode) PortSchema() []action.PortSpec {
 	}}
 }
 
-func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, ports action.Ports) action.Result {
+func (s *SequenceNode) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	_ map[string]any,
+	ports action.Ports,
+) action.Result {
 	children := ports.Children(taskgraph.StepsPort)
 	if len(children) == 0 {
 		return action.NewSuccessResult(nil)
@@ -62,7 +67,8 @@ func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState
 }
 
 func executeChildNode(ctx context.Context, node *api.Node, state *action.ExecutionState) action.Result {
-	childCtx, span := observability.Tracer("vectis/job").Start(ctx, "run.action.execute", trace.WithSpanKind(trace.SpanKindInternal))
+	childCtx, span := observability.Tracer("vectis/job").
+		Start(ctx, "run.action.execute", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(state.JobID, state.RunID)...)
 	span.SetAttributes(
 		attribute.String("action.type", node.GetUses()),

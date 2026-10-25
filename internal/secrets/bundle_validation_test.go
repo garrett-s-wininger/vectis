@@ -45,9 +45,11 @@ func TestValidateResolvedBundleRejectsSecretMaterialInvariantViolations(t *testi
 		bundle Bundle
 	}{
 		{
-			name:   "extra file material",
-			req:    validReq,
-			bundle: Bundle{Files: []FileMaterial{{ID: "npm-token", Path: "npm/token"}, {ID: "deploy-token", Path: "deploy/token"}}},
+			name: "extra file material",
+			req:  validReq,
+			bundle: Bundle{
+				Files: []FileMaterial{{ID: "npm-token", Path: "npm/token"}, {ID: "deploy-token", Path: "deploy/token"}},
+			},
 		},
 		{
 			name:   "missing file material",
@@ -55,9 +57,11 @@ func TestValidateResolvedBundleRejectsSecretMaterialInvariantViolations(t *testi
 			bundle: Bundle{},
 		},
 		{
-			name:   "duplicate file material",
-			req:    validReq,
-			bundle: Bundle{Files: []FileMaterial{{ID: "npm-token", Path: "npm/token"}, {ID: "npm-token", Path: "npm/token"}}},
+			name: "duplicate file material",
+			req:  validReq,
+			bundle: Bundle{
+				Files: []FileMaterial{{ID: "npm-token", Path: "npm/token"}, {ID: "npm-token", Path: "npm/token"}},
+			},
 		},
 		{
 			name:   "retargeted file path",

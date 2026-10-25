@@ -147,7 +147,13 @@ func requireNonEmptyStoredJobTriggers(w http.ResponseWriter, definitionJSON []by
 		return true
 	}
 
-	writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "stored-job triggers must not be empty; omit triggers to use on_demand", map[string]any{"field": "triggers"})
+	writeAPIError(
+		w,
+		http.StatusBadRequest,
+		"invalid_job_definition",
+		"stored-job triggers must not be empty; omit triggers to use on_demand",
+		map[string]any{"field": "triggers"},
+	)
 	return false
 }
 
@@ -380,7 +386,13 @@ func (s *APIServer) repairMarkRun(w http.ResponseWriter, r *http.Request, mark r
 		}
 
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "run_repair_conflict", "run cannot be repair-marked from current status", nil)
+			writeAPIError(
+				w,
+				http.StatusConflict,
+				"run_repair_conflict",
+				"run cannot be repair-marked from current status",
+				nil,
+			)
 			return
 		}
 
@@ -439,7 +451,12 @@ func readRepairReason(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return req.Reason, true
 }
 
-func (s *APIServer) authorizeRunOperator(ctx context.Context, w http.ResponseWriter, p *authn.Principal, runID string) (string, bool) {
+func (s *APIServer) authorizeRunOperator(
+	ctx context.Context,
+	w http.ResponseWriter,
+	p *authn.Principal,
+	runID string,
+) (string, bool) {
 	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
@@ -618,7 +635,13 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if status == "succeeded" {
-		writeAPIError(w, http.StatusConflict, "run_requeue_forbidden", "cannot requeue succeeded run", map[string]any{"status": status})
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"run_requeue_forbidden",
+			"cannot requeue succeeded run",
+			map[string]any{"status": status},
+		)
 		return
 	}
 
@@ -628,7 +651,13 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "run_requeue_conflict", "run cannot be requeued from current status", nil)
+			writeAPIError(
+				w,
+				http.StatusConflict,
+				"run_requeue_conflict",
+				"run cannot be requeued from current status",
+				nil,
+			)
 			return
 		}
 
@@ -701,7 +730,13 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "run_not_executing", "run is not executing", map[string]any{"status": rec.Status})
+			writeAPIError(
+				w,
+				http.StatusConflict,
+				"run_not_executing",
+				"run is not executing",
+				map[string]any{"status": rec.Status},
+			)
 			return
 		}
 
@@ -723,9 +758,19 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 	if rec.LeaseOwner != "" && rec.CancelToken != "" && s.ResolveWorkerAddress != nil {
 		workerAddr, err := s.ResolveWorkerAddress(ctx, rec.LeaseOwner)
 		if err != nil {
-			s.logger.Warn("Cancel request stored for run %s but worker %s could not be resolved: %v", runID, rec.LeaseOwner, err)
+			s.logger.Warn(
+				"Cancel request stored for run %s but worker %s could not be resolved: %v",
+				runID,
+				rec.LeaseOwner,
+				err,
+			)
 		} else if err := s.sendCancelToWorker(ctx, workerAddr, runID, rec.CancelToken); err != nil {
-			s.logger.Warn("Cancel request stored for run %s but worker %s did not accept fast-path cancel: %v", runID, rec.LeaseOwner, err)
+			s.logger.Warn(
+				"Cancel request stored for run %s but worker %s did not accept fast-path cancel: %v",
+				runID,
+				rec.LeaseOwner,
+				err,
+			)
 		} else {
 			s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
 				"run_id":    runID,
@@ -816,8 +861,17 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+	if err := jobvalidation.ValidateJob(
+		&job,
+		jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver},
+	); err != nil {
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_job_definition",
+			"invalid job definition",
+			jobvalidation.ErrorDetails(err),
+		)
 		return
 	}
 
@@ -1010,7 +1064,13 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	var job api.Job
 	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
+		writeAPIError(
+			w,
+			http.StatusInternalServerError,
+			"invalid_stored_job_definition",
+			"invalid job definition stored",
+			nil,
+		)
 		return
 	}
 
@@ -1042,7 +1102,13 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	idempotencyHash := hashIdempotencyRequest(idempotencyHashParts...)
-	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(
+		w,
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyHash,
+	)
 	if !ok {
 		return
 	}
@@ -1055,9 +1121,16 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if idempotencyInProgress {
-		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
-			return triggerJobResponse(jobID, createdRuns), true
-		}) {
+		if s.recoverRunCreationIdempotency(
+			w,
+			ctx,
+			idempotencyScope,
+			idempotencyKey,
+			idempotencyRecord,
+			func(createdRuns []dal.CreatedRun) (any, bool) {
+				return triggerJobResponse(jobID, createdRuns), true
+			},
+		) {
 			return
 		}
 
@@ -1065,7 +1138,14 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, manualTriggerID, string(bytes.TrimSpace(triggerBody)), targetCellIDs)
+	invocationID, err := s.recordTriggerInvocation(
+		ctx,
+		jobID,
+		dal.TriggerTypeManual,
+		manualTriggerID,
+		string(bytes.TrimSpace(triggerBody)),
+		targetCellIDs,
+	)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1080,7 +1160,13 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+	if err := s.attachIdempotencyResource(
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyResourceTriggerInvocation,
+		invocationID,
+	); err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
 		}
@@ -1094,7 +1180,14 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, targetCellIDs, newRunAuditMetadata(invocationID, nsPath))
+	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(
+		ctx,
+		jobID,
+		nil,
+		definitionVersion,
+		targetCellIDs,
+		newRunAuditMetadata(invocationID, nsPath),
+	)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1134,7 +1227,14 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, createdRun := range createdRuns {
-		s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
+		s.recordDispatchEvent(
+			ctx,
+			createdRun.RunID,
+			dal.DispatchSourceAPI,
+			dal.DispatchEventAccepted,
+			createdRun.TargetCellID,
+			nil,
+		)
 		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAccepted)
 	}
 
@@ -1159,10 +1259,17 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, createdRun dal.CreatedRun, job *api.Job, definitionHash string) {
+func (s *APIServer) finishTriggerEnqueue(
+	ctx context.Context,
+	jobID string,
+	createdRun dal.CreatedRun,
+	job *api.Job,
+	definitionHash string,
+) {
 	runID := createdRun.RunID
 	runIndex := createdRun.RunIndex
-	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.trigger.async", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := observability.Tracer("vectis/api").
+		Start(ctx, "run.enqueue.trigger.async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(observability.RunIndexAttrs(runIndex)...)
 	span.SetAttributes(attribute.String("run.phase", "enqueue"))
@@ -1195,7 +1302,11 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, crea
 		msg := err.Error()
 
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedEnqueue)
+		s.recordAPIEnqueueMetric(
+			ctx,
+			observability.APIEnqueueRunKindReplay,
+			observability.APIEnqueueOutcomeFailedEnqueue,
+		)
 		return
 	}
 
@@ -1208,7 +1319,14 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, crea
 		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
 
 		msg := err.Error()
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+		if dispatchErr := s.recordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			dal.DispatchSourceAPI,
+			dal.DispatchEventFailure,
+			targetCellID,
+			&msg,
+		); dispatchErr != nil {
 			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 		}
 
@@ -1226,8 +1344,19 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, crea
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedEnqueue)
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+		s.recordAPIEnqueueMetric(
+			ctx,
+			observability.APIEnqueueRunKindReplay,
+			observability.APIEnqueueOutcomeFailedEnqueue,
+		)
+		if dispatchErr := s.recordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			dal.DispatchSourceAPI,
+			dal.DispatchEventFailure,
+			targetCellID,
+			&msg,
+		); dispatchErr != nil {
 			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 		}
 		return
@@ -1235,22 +1364,35 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, crea
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil); err != nil {
-		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+	if err := s.recordDispatchAttemptOutcome(
+		ctx,
+		runID,
+		dal.DispatchSourceAPI,
+		dal.DispatchEventSuccess,
+		targetCellID,
+		nil,
+	); err != nil {
+		_, tdSpan := observability.Tracer("vectis/api").
+			Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
 		tdSpan.SetStatus(codes.Error, "touch dispatched")
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedTouchDispatch)
+		s.recordAPIEnqueueMetric(
+			ctx,
+			observability.APIEnqueueRunKindReplay,
+			observability.APIEnqueueOutcomeFailedTouchDispatch,
+		)
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
 
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeSuccess)
 
-	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+	_, tdSpan := observability.Tracer("vectis/api").
+		Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	if runIndex > 0 {
 		tdSpan.SetAttributes(observability.RunIndexAttrs(runIndex)...)
@@ -1297,7 +1439,13 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sourceRun.Status == dal.RunStatusQueued || sourceRun.Status == dal.RunStatusRunning {
-		writeAPIError(w, http.StatusConflict, "source_run_not_replayable", "source run cannot be replayed from its current status", nil)
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_run_not_replayable",
+			"source run cannot be replayed from its current status",
+			nil,
+		)
 		return
 	}
 
@@ -1357,7 +1505,13 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 
 	var job api.Job
 	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "invalid_run_definition", "invalid captured job definition", nil)
+		writeAPIError(
+			w,
+			http.StatusInternalServerError,
+			"invalid_run_definition",
+			"invalid captured job definition",
+			nil,
+		)
 		return
 	}
 
@@ -1368,8 +1522,18 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("replay:"+sourceRunID, p)
-	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", string(bytes.TrimSpace(body)))
-	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyHash := hashIdempotencyRequest(
+		http.MethodPost,
+		"/api/v1/runs/"+sourceRunID+"/replay",
+		string(bytes.TrimSpace(body)),
+	)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(
+		w,
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyHash,
+	)
 	if !ok {
 		return
 	}
@@ -1382,19 +1546,26 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if idempotencyInProgress {
-		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
-			if len(createdRuns) != 1 {
-				return nil, false
-			}
+		if s.recoverRunCreationIdempotency(
+			w,
+			ctx,
+			idempotencyScope,
+			idempotencyKey,
+			idempotencyRecord,
+			func(createdRuns []dal.CreatedRun) (any, bool) {
+				if len(createdRuns) != 1 {
+					return nil, false
+				}
 
-			return replayRunResponseBody{
-				JobID:         jobID,
-				RunID:         createdRuns[0].RunID,
-				RunIndex:      createdRuns[0].RunIndex,
-				CellID:        createdRuns[0].TargetCellID,
-				ReplayOfRunID: sourceRunID,
-			}, true
-		}) {
+				return replayRunResponseBody{
+					JobID:         jobID,
+					RunID:         createdRuns[0].RunID,
+					RunIndex:      createdRuns[0].RunIndex,
+					CellID:        createdRuns[0].TargetCellID,
+					ReplayOfRunID: sourceRunID,
+				}, true
+			},
+		) {
 			return
 		}
 
@@ -1420,7 +1591,14 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeReplay, nil, string(triggerPayloadJSON), []string{targetCellID})
+	invocationID, err := s.recordTriggerInvocation(
+		ctx,
+		jobID,
+		dal.TriggerTypeReplay,
+		nil,
+		string(triggerPayloadJSON),
+		[]string{targetCellID},
+	)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1435,7 +1613,13 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+	if err := s.attachIdempotencyResource(
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyResourceTriggerInvocation,
+		invocationID,
+	); err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
 		}
@@ -1466,7 +1650,13 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "source_run_not_replayable", "source run cannot be replayed from its current status", nil)
+			writeAPIError(
+				w,
+				http.StatusConflict,
+				"source_run_not_replayable",
+				"source run cannot be replayed from its current status",
+				nil,
+			)
 			return
 		}
 
@@ -1501,7 +1691,14 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		"replay_of_run_id": sourceRunID,
 	})
 
-	s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
+	s.recordDispatchEvent(
+		ctx,
+		createdRun.RunID,
+		dal.DispatchSourceAPI,
+		dal.DispatchEventAccepted,
+		createdRun.TargetCellID,
+		nil,
+	)
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeAccepted)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1568,8 +1765,17 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+	if err := jobvalidation.ValidateJob(
+		&job,
+		jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver},
+	); err != nil {
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_job_definition",
+			"invalid job definition",
+			jobvalidation.ErrorDetails(err),
+		)
 		return
 	}
 
@@ -1746,12 +1952,24 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{Resolver: s.actionResolver}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_job_definition",
+			"invalid job definition",
+			jobvalidation.ErrorDetails(err),
+		)
 		return
 	}
 
 	if hasTriggers, _ := jobDefinitionTriggersField(req.Job); hasTriggers {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "stored-job triggers are not supported for one-off runs", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_job_definition",
+			"stored-job triggers are not supported for one-off runs",
+			nil,
+		)
 		return
 	}
 
@@ -1785,9 +2003,15 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if namespacePath != dal.EphemeralNamespacePath {
-		writeAPIError(w, http.StatusBadRequest, "unsupported_namespace", "direct job runs must use /ephemeral namespace", map[string]any{
-			"namespace": namespacePath,
-		})
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"unsupported_namespace",
+			"direct job runs must use /ephemeral namespace",
+			map[string]any{
+				"namespace": namespacePath,
+			},
+		)
 		return
 	}
 
@@ -1814,7 +2038,13 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("run:"+ns.Path, p)
 	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/jobs/run", string(body))
-	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(
+		w,
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyHash,
+	)
 	if !ok {
 		return
 	}
@@ -1827,16 +2057,23 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if idempotencyInProgress {
-		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
-			if len(createdRuns) != 1 || createdRuns[0].JobID == "" {
-				return nil, false
-			}
+		if s.recoverRunCreationIdempotency(
+			w,
+			ctx,
+			idempotencyScope,
+			idempotencyKey,
+			idempotencyRecord,
+			func(createdRuns []dal.CreatedRun) (any, bool) {
+				if len(createdRuns) != 1 || createdRuns[0].JobID == "" {
+					return nil, false
+				}
 
-			return map[string]string{
-				"id":     createdRuns[0].JobID,
-				"run_id": createdRuns[0].RunID,
-			}, true
-		}) {
+				return map[string]string{
+					"id":     createdRuns[0].JobID,
+					"run_id": createdRuns[0].RunID,
+				}, true
+			},
+		) {
 			return
 		}
 
@@ -1844,7 +2081,14 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invocationID, err := s.recordTriggerInvocation(ctx, ephemeralJobID, dal.TriggerTypeManual, nil, string(bytes.TrimSpace(body)), []string{targetCellID})
+	invocationID, err := s.recordTriggerInvocation(
+		ctx,
+		ephemeralJobID,
+		dal.TriggerTypeManual,
+		nil,
+		string(bytes.TrimSpace(body)),
+		[]string{targetCellID},
+	)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1859,7 +2103,13 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+	if err := s.attachIdempotencyResource(
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyResourceTriggerInvocation,
+		invocationID,
+	); err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
 		}
@@ -1875,9 +2125,22 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	var runID string
 	if starter, ok := s.ephemeralRuns.(dal.EphemeralRunStarterWithAudit); ok {
-		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, newRunAuditMetadata(invocationID, ns.Path))
+		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(
+			ctx,
+			ephemeralJobID,
+			string(definitionJSON),
+			&runIndexOne,
+			targetCellID,
+			newRunAuditMetadata(invocationID, ns.Path),
+		)
 	} else {
-		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
+		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(
+			ctx,
+			ephemeralJobID,
+			string(definitionJSON),
+			&runIndexOne,
+			targetCellID,
+		)
 	}
 
 	if err != nil {
@@ -1936,12 +2199,18 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 	s.finishRunJobEnqueueWithKind(ctx, observability.APIEnqueueRunKindEphemeral, jobID, runID, job, definitionHash)
 }
 
-func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jobID, runID string, job *api.Job, definitionHash string) {
+func (s *APIServer) finishRunJobEnqueueWithKind(
+	ctx context.Context,
+	runKind, jobID, runID string,
+	job *api.Job,
+	definitionHash string,
+) {
 	if runKind == "" {
 		runKind = observability.APIEnqueueRunKindEphemeral
 	}
 
-	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue."+runKind+".async", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := observability.Tracer("vectis/api").
+		Start(ctx, "run.enqueue."+runKind+".async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(attribute.String("vectis.run.kind", runKind))
 	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", runKind == observability.APIEnqueueRunKindEphemeral))
@@ -1976,7 +2245,11 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 		msg := err.Error()
 
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeFailedEnqueue)
+		s.recordAPIEnqueueMetric(
+			ctx,
+			observability.APIEnqueueRunKindEphemeral,
+			observability.APIEnqueueOutcomeFailedEnqueue,
+		)
 		return
 	}
 
@@ -1988,7 +2261,14 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 		span.End()
 		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
 		msg := err.Error()
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+		if dispatchErr := s.recordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			dal.DispatchSourceAPI,
+			dal.DispatchEventFailure,
+			targetCellID,
+			&msg,
+		); dispatchErr != nil {
 			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 		}
 		return
@@ -2006,7 +2286,14 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
 		s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeFailedEnqueue)
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+		if dispatchErr := s.recordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			dal.DispatchSourceAPI,
+			dal.DispatchEventFailure,
+			targetCellID,
+			&msg,
+		); dispatchErr != nil {
 			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
 		}
 		return
@@ -2014,8 +2301,16 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil); err != nil {
-		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+	if err := s.recordDispatchAttemptOutcome(
+		ctx,
+		runID,
+		dal.DispatchSourceAPI,
+		dal.DispatchEventSuccess,
+		targetCellID,
+		nil,
+	); err != nil {
+		_, tdSpan := observability.Tracer("vectis/api").
+			Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
 		tdSpan.SetStatus(codes.Error, "touch dispatched")
@@ -2028,19 +2323,30 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 	}
 	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeSuccess)
 
-	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+	_, tdSpan := observability.Tracer("vectis/api").
+		Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	tdSpan.End()
 
 	s.logger.Info("Enqueued %s job: %s (run %s)", runKind, jobID, runID)
 }
 
-func (s *APIServer) resolveManualTriggerID(ctx context.Context, w http.ResponseWriter, jobID string) (*int64, string, bool) {
+func (s *APIServer) resolveManualTriggerID(
+	ctx context.Context,
+	w http.ResponseWriter,
+	jobID string,
+) (*int64, string, bool) {
 	triggerKey := dal.DefaultManualTriggerKey
 	triggerID, err := s.jobs.GetEnabledTriggerID(ctx, jobID, dal.TriggerTypeManual, triggerKey)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "manual trigger not found", map[string]any{"trigger_key": triggerKey})
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_trigger_options",
+				"manual trigger not found",
+				map[string]any{"trigger_key": triggerKey},
+			)
 			return nil, "", false
 		}
 
@@ -2057,7 +2363,13 @@ func (s *APIServer) resolveManualTriggerID(ctx context.Context, w http.ResponseW
 	return &triggerID, triggerKey, true
 }
 
-func (s *APIServer) recordTriggerInvocation(ctx context.Context, jobID, triggerType string, triggerID *int64, triggerPayload string, targetCellIDs []string) (string, error) {
+func (s *APIServer) recordTriggerInvocation(
+	ctx context.Context,
+	jobID, triggerType string,
+	triggerID *int64,
+	triggerPayload string,
+	targetCellIDs []string,
+) (string, error) {
 	if s.triggerEvents == nil {
 		return "", nil
 	}
@@ -2100,17 +2412,31 @@ func requestedCellsForInvocation(targetCellIDs []string) []string {
 	return out
 }
 
-func (s *APIServer) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
+func (s *APIServer) recordExecutionPayload(
+	ctx context.Context,
+	runID string,
+	req *api.JobRequest,
+	definitionHash string,
+) (*api.JobRequest, error) {
 	return cell.RecordExecutionHandoffPayload(ctx, s.runs, runID, req, definitionHash)
 }
 
-func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+func (s *APIServer) attachExecutionEnvelope(
+	ctx context.Context,
+	req *api.JobRequest,
+	runID string,
+	createdAtUnixNano int64,
+) (*cell.ExecutionEnvelope, error) {
 	dispatch, err := s.runs.GetPendingExecution(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
 
-	deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()))
+	deadline, err := s.runs.EnsureExecutionStartDeadline(
+		ctx,
+		dispatch.ExecutionID,
+		dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2119,7 +2445,12 @@ func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobReq
 	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionDescriptorResolver)
 }
 
-func (s *APIServer) attachCreatedRunExecutionEnvelope(ctx context.Context, req *api.JobRequest, createdRun dal.CreatedRun, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+func (s *APIServer) attachCreatedRunExecutionEnvelope(
+	ctx context.Context,
+	req *api.JobRequest,
+	createdRun dal.CreatedRun,
+	createdAtUnixNano int64,
+) (*cell.ExecutionEnvelope, error) {
 	dispatch := createdRun.RootDispatch
 	if strings.TrimSpace(dispatch.ExecutionID) == "" || strings.TrimSpace(dispatch.SegmentID) == "" {
 		return s.attachExecutionEnvelope(ctx, req, createdRun.RunID, createdAtUnixNano)
@@ -2129,13 +2460,21 @@ func (s *APIServer) attachCreatedRunExecutionEnvelope(ctx context.Context, req *
 	if dispatch.RunID == "" {
 		dispatch.RunID = createdRun.RunID
 	} else if dispatch.RunID != createdRun.RunID {
-		return nil, fmt.Errorf("created run dispatch run_id %q does not match created run %q", dispatch.RunID, createdRun.RunID)
+		return nil, fmt.Errorf(
+			"created run dispatch run_id %q does not match created run %q",
+			dispatch.RunID,
+			createdRun.RunID,
+		)
 	}
 
 	if dispatch.RunIndex <= 0 {
 		dispatch.RunIndex = createdRun.RunIndex
 	} else if createdRun.RunIndex > 0 && dispatch.RunIndex != createdRun.RunIndex {
-		return nil, fmt.Errorf("created run dispatch run_index %d does not match created run index %d", dispatch.RunIndex, createdRun.RunIndex)
+		return nil, fmt.Errorf(
+			"created run dispatch run_index %d does not match created run index %d",
+			dispatch.RunIndex,
+			createdRun.RunIndex,
+		)
 	}
 
 	targetCellID := strings.TrimSpace(createdRun.TargetCellID)
@@ -2143,14 +2482,22 @@ func (s *APIServer) attachCreatedRunExecutionEnvelope(ctx context.Context, req *
 	if dispatch.CellID == "" {
 		dispatch.CellID = targetCellID
 	} else if targetCellID != "" && dispatch.CellID != targetCellID {
-		return nil, fmt.Errorf("created run dispatch cell_id %q does not match target cell %q", dispatch.CellID, targetCellID)
+		return nil, fmt.Errorf(
+			"created run dispatch cell_id %q does not match target cell %q",
+			dispatch.CellID,
+			targetCellID,
+		)
 	}
 
 	dispatch.OwningCell = strings.TrimSpace(dispatch.OwningCell)
 	if dispatch.OwningCell == "" {
 		dispatch.OwningCell = targetCellID
 	} else if targetCellID != "" && dispatch.OwningCell != targetCellID {
-		return nil, fmt.Errorf("created run dispatch owning_cell %q does not match target cell %q", dispatch.OwningCell, targetCellID)
+		return nil, fmt.Errorf(
+			"created run dispatch owning_cell %q does not match target cell %q",
+			dispatch.OwningCell,
+			targetCellID,
+		)
 	}
 
 	if strings.TrimSpace(dispatch.NamespacePath) == "" {
@@ -2158,7 +2505,11 @@ func (s *APIServer) attachCreatedRunExecutionEnvelope(ctx context.Context, req *
 	}
 
 	if dispatch.StartDeadlineUnixNano <= 0 {
-		deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()))
+		deadline, err := s.runs.EnsureExecutionStartDeadline(
+			ctx,
+			dispatch.ExecutionID,
+			dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -2328,7 +2679,13 @@ func parseRunListRequestOptions(w http.ResponseWriter, r *http.Request) (runList
 	if sinceStr != "" {
 		parsedSince, err := parseRunSince(sinceStr)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be an RFC3339 timestamp or YYYY-MM-DD date", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_since",
+				"since must be an RFC3339 timestamp or YYYY-MM-DD date",
+				nil,
+			)
 			return opts, false
 		}
 
@@ -2339,7 +2696,13 @@ func parseRunListRequestOptions(w http.ResponseWriter, r *http.Request) (runList
 	if afterIndexStr != "" {
 		parsedAfterIndex, err := strconv.Atoi(afterIndexStr)
 		if err != nil || parsedAfterIndex < 0 {
-			writeAPIError(w, http.StatusBadRequest, "invalid_after_index", "after_index must be a non-negative integer", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_after_index",
+				"after_index must be a non-negative integer",
+				nil,
+			)
 			return opts, false
 		}
 
@@ -2359,7 +2722,13 @@ func parseRunListRequestOptions(w http.ResponseWriter, r *http.Request) (runList
 	return opts, true
 }
 
-func (s *APIServer) writeJobRunsResponse(w http.ResponseWriter, ctx context.Context, jobID string, runRows []dal.RunRecord, nextCursor int64) {
+func (s *APIServer) writeJobRunsResponse(
+	w http.ResponseWriter,
+	ctx context.Context,
+	jobID string,
+	runRows []dal.RunRecord,
+	nextCursor int64,
+) {
 	versions := make([]int, 0, len(runRows))
 	for _, rec := range runRows {
 		versions = append(versions, rec.DefinitionVersion)
@@ -2457,7 +2826,13 @@ func parseRunOwningCellFilter(w http.ResponseWriter, r *http.Request) (string, b
 	cellID := strings.TrimSpace(r.URL.Query().Get("cell_id"))
 	owningCell := strings.TrimSpace(r.URL.Query().Get("owning_cell"))
 	if cellID != "" && owningCell != "" && cellID != owningCell {
-		writeAPIError(w, http.StatusBadRequest, "invalid_cell_id", "cell_id and owning_cell must match when both are provided", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_cell_id",
+			"cell_id and owning_cell must match when both are provided",
+			nil,
+		)
 		return "", false
 	}
 
@@ -2712,9 +3087,14 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash:    rec.TriggerPayloadHash,
 		RequestedCells:        rec.RequestedCells,
 		ExecutionPayloadHash:  rec.ExecutionPayloadHash,
-		NextAction:            runNextAction(effectiveStatus, taskCompletionSummary, pendingTaskContinuation, latestFailedSecurityEvent != nil),
-		DispatchSummary:       buildDispatchSummary(dispatchEvents),
-		DispatchEvents:        []dispatchEventRow{},
+		NextAction: runNextAction(
+			effectiveStatus,
+			taskCompletionSummary,
+			pendingTaskContinuation,
+			latestFailedSecurityEvent != nil,
+		),
+		DispatchSummary: buildDispatchSummary(dispatchEvents),
+		DispatchEvents:  []dispatchEventRow{},
 	}
 
 	if latestFailedSecurityEvent != nil {
@@ -2900,7 +3280,11 @@ const (
 	runNextActionSecurityGateFailed            = "security_gate_failed"
 )
 
-func (s *APIServer) activeRunHotStateOwner(ctx context.Context, runID string, now time.Time) (dal.RunHotStateOwnerRecord, bool, error) {
+func (s *APIServer) activeRunHotStateOwner(
+	ctx context.Context,
+	runID string,
+	now time.Time,
+) (dal.RunHotStateOwnerRecord, bool, error) {
 	owner, found, err := s.runs.GetRunHotStateOwner(ctx, runID)
 	if err != nil {
 		return dal.RunHotStateOwnerRecord{}, false, err
@@ -2921,7 +3305,11 @@ func effectiveRunStatusFromHotOwner(status string, activeHotOwner bool) string {
 	return status
 }
 
-func (s *APIServer) orchestratorRunTaskCompletion(ctx context.Context, owner dal.RunHotStateOwnerRecord, runID string) (dal.RunTaskCompletion, bool) {
+func (s *APIServer) orchestratorRunTaskCompletion(
+	ctx context.Context,
+	owner dal.RunHotStateOwnerRecord,
+	runID string,
+) (dal.RunTaskCompletion, bool) {
 	client := s.orchestratorReadClientForOwner(ctx, owner)
 	if client == nil {
 		return dal.RunTaskCompletion{}, false
@@ -2930,7 +3318,11 @@ func (s *APIServer) orchestratorRunTaskCompletion(ctx context.Context, owner dal
 	resp, err := client.GetRunTaskCompletion(ctx, &api.GetRunTaskCompletionRequest{RunId: &runID})
 	if err != nil {
 		if grpcstatus.Code(err) != grpccodes.NotFound {
-			s.logger.Warn("Live orchestrator task completion read for run %s failed; falling back to database: %v", runID, err)
+			s.logger.Warn(
+				"Live orchestrator task completion read for run %s failed; falling back to database: %v",
+				runID,
+				err,
+			)
 		}
 
 		return dal.RunTaskCompletion{}, false
@@ -3012,13 +3404,19 @@ func buildDispatchSummary(events []dal.DispatchEvent) []dispatchSummary {
 	return summary
 }
 
-func runNextAction(status string, taskCompletion dal.RunTaskCompletion, pendingTaskContinuation bool, securityGateFailed bool) *string {
+func runNextAction(
+	status string,
+	taskCompletion dal.RunTaskCompletion,
+	pendingTaskContinuation bool,
+	securityGateFailed bool,
+) *string {
 	if status == dal.RunStatusFailed && securityGateFailed {
 		action := runNextActionSecurityGateFailed
 		return &action
 	}
 
-	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 && (taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {
+	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 &&
+		(taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {
 		action := runNextActionTaskFinalizationRepairPending
 		return &action
 	}
@@ -3055,7 +3453,12 @@ func (s *APIServer) runHasPendingTaskContinuation(ctx context.Context, runID str
 	return false, nil
 }
 
-func (s *APIServer) orchestratorRunTaskRows(ctx context.Context, owner dal.RunHotStateOwnerRecord, runID string, params pageParams) ([]runTaskRow, int64, bool) {
+func (s *APIServer) orchestratorRunTaskRows(
+	ctx context.Context,
+	owner dal.RunHotStateOwnerRecord,
+	runID string,
+	params pageParams,
+) ([]runTaskRow, int64, bool) {
 	client := s.orchestratorReadClientForOwner(ctx, owner)
 	if client == nil {
 		return nil, 0, false
@@ -3071,7 +3474,11 @@ func (s *APIServer) orchestratorRunTaskRows(ctx context.Context, owner dal.RunHo
 
 	if err != nil {
 		if grpcstatus.Code(err) != grpccodes.NotFound {
-			s.logger.Warn("Live orchestrator task snapshot read for run %s failed; falling back to database: %v", runID, err)
+			s.logger.Warn(
+				"Live orchestrator task snapshot read for run %s failed; falling back to database: %v",
+				runID,
+				err,
+			)
 		}
 
 		return nil, 0, false

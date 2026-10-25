@@ -168,7 +168,12 @@ func checkCellIngressReady(ctx context.Context, cellID, endpoint string) cellSta
 	return resp
 }
 
-func (s *APIServer) addRunCellStatus(ctx context.Context, cells map[string]*cellStatusResponse, localCellID string, splitDatabases bool) error {
+func (s *APIServer) addRunCellStatus(
+	ctx context.Context,
+	cells map[string]*cellStatusResponse,
+	localCellID string,
+	splitDatabases bool,
+) error {
 	queued, err := s.runs.CountByStatusByCell(ctx, dal.RunStatusQueued)
 	if err != nil {
 		return err
@@ -213,7 +218,12 @@ func (s *APIServer) addRunCellStatus(ctx context.Context, cells map[string]*cell
 	return nil
 }
 
-func (s *APIServer) addCatalogCellStatus(ctx context.Context, cells map[string]*cellStatusResponse, localCellID string, splitDatabases bool) error {
+func (s *APIServer) addCatalogCellStatus(
+	ctx context.Context,
+	cells map[string]*cellStatusResponse,
+	localCellID string,
+	splitDatabases bool,
+) error {
 	sources, err := s.catalogEvents.SummaryBySource(ctx)
 	if err != nil {
 		return err
@@ -229,7 +239,11 @@ func (s *APIServer) addCatalogCellStatus(ctx context.Context, cells map[string]*
 	return nil
 }
 
-func ensureCellStatus(cells map[string]*cellStatusResponse, cellID, localCellID string, splitDatabases bool) *cellStatusResponse {
+func ensureCellStatus(
+	cells map[string]*cellStatusResponse,
+	cellID, localCellID string,
+	splitDatabases bool,
+) *cellStatusResponse {
 	if existing, ok := cells[cellID]; ok {
 		return existing
 	}
@@ -332,7 +346,10 @@ func formatCellDispatchRepairSummary(cell cellStatusResponse) string {
 		if cell.TaskContinuationPending == 1 {
 			parts = append(parts, "1 task continuation is awaiting redispatch")
 		} else {
-			parts = append(parts, fmt.Sprintf("%d task continuations are awaiting redispatch", cell.TaskContinuationPending))
+			parts = append(
+				parts,
+				fmt.Sprintf("%d task continuations are awaiting redispatch", cell.TaskContinuationPending),
+			)
 		}
 	}
 
@@ -340,7 +357,10 @@ func formatCellDispatchRepairSummary(cell cellStatusResponse) string {
 		if cell.TaskFinalizationPending == 1 {
 			parts = append(parts, "1 orphaned task finalization is repairable")
 		} else {
-			parts = append(parts, fmt.Sprintf("%d orphaned task finalizations are repairable", cell.TaskFinalizationPending))
+			parts = append(
+				parts,
+				fmt.Sprintf("%d orphaned task finalizations are repairable", cell.TaskFinalizationPending),
+			)
 		}
 	}
 

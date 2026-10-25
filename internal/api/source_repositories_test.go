@@ -34,10 +34,25 @@ type sourceRepositoryStatusMetricRecorder struct {
 	records []sourceRepositoryObjectStoreMetricRecord
 }
 
-func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositorySync(context.Context, string, string, string, string, string, time.Duration) {
+func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositorySync(
+	context.Context,
+	string,
+	string,
+	string,
+	string,
+	string,
+	time.Duration,
+) {
 }
 
-func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, _ int, _ int64, _, _ int, _ []observability.SourceRepositoryObjectStoreWarning) {
+func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositoryObjectStore(
+	_ context.Context,
+	repositoryID, sourceKind, checkoutMode, pressure string,
+	_ int,
+	_ int64,
+	_, _ int,
+	_ []observability.SourceRepositoryObjectStoreWarning,
+) {
 	m.records = append(m.records, sourceRepositoryObjectStoreMetricRecord{
 		repositoryID: repositoryID,
 		sourceKind:   sourceKind,
@@ -46,7 +61,9 @@ func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositoryObjectStore
 	})
 }
 
-func (m *sourceRepositoryStatusMetricRecorder) hasObjectStore(repositoryID, sourceKind, checkoutMode, pressure string) bool {
+func (m *sourceRepositoryStatusMetricRecorder) hasObjectStore(
+	repositoryID, sourceKind, checkoutMode, pressure string,
+) bool {
 	for _, rec := range m.records {
 		if rec.repositoryID == repositoryID &&
 			rec.sourceKind == sourceKind &&
@@ -73,11 +90,16 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	firstBlob := apiGitOutput(t, repoPath, "rev-parse", "HEAD:.vectis/jobs/build.json")
 
 	registerBody := map[string]any{
-		"repository_id":        "vectis-local",
-		"source_kind":          dal.SourceKindLocalCheckout,
-		"checkout_path":        repoPath,
-		"fallback_remote_urls": []string{" https://tier1.invalid/vectis.git ", "", "https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"},
-		"default_ref":          "HEAD",
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"fallback_remote_urls": []string{
+			" https://tier1.invalid/vectis.git ",
+			"",
+			"https://tier1.invalid/vectis.git",
+			"https://tier2.invalid/vectis.git",
+		},
+		"default_ref": "HEAD",
 	}
 
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", registerBody)
@@ -133,13 +155,20 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		"path": ".vectis/jobs/build.json",
 	}
 
-	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", resolveBody)
+	resolveRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/vectis-local/definitions/resolve",
+		resolveBody,
+	)
 	if resolveRec.Code != http.StatusOK {
 		t.Fatalf("resolve source definition: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
 	}
 
 	resolveResp := decodeResolvedSourceDefinitionResponse(t, resolveRec)
-	if resolveResp.RepositoryID != "vectis-local" || resolveResp.Source.ResolvedCommit != firstCommit || resolveResp.Source.BlobSHA != firstBlob {
+	if resolveResp.RepositoryID != "vectis-local" || resolveResp.Source.ResolvedCommit != firstCommit ||
+		resolveResp.Source.BlobSHA != firstBlob {
 		t.Fatalf("resolve response mismatch: %+v", resolveResp)
 	}
 
@@ -159,10 +188,16 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	writeAPIJobDefinitionAndCommit(t, repoPath, "false", "second definition")
 	secondCommit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 
-	resolveOldRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", map[string]any{
-		"ref":  firstCommit,
-		"path": ".vectis/jobs/build.json",
-	})
+	resolveOldRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/vectis-local/definitions/resolve",
+		map[string]any{
+			"ref":  firstCommit,
+			"path": ".vectis/jobs/build.json",
+		},
+	)
 
 	if resolveOldRec.Code != http.StatusOK {
 		t.Fatalf("resolve old source definition: status=%d body=%s", resolveOldRec.Code, resolveOldRec.Body.String())
@@ -182,7 +217,11 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	}
 
 	definitionRec := httptest.NewRecorder()
-	definitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/build/definition?ref=HEAD", nil)
+	definitionReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/jobs/build/definition?ref=HEAD",
+		nil,
+	)
 	handler.ServeHTTP(definitionRec, definitionReq)
 	if definitionRec.Code != http.StatusOK {
 		t.Fatalf("get current source definition: status=%d body=%s", definitionRec.Code, definitionRec.Body.String())
@@ -203,15 +242,22 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatalf("current source definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 
-	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/jobs/build/trigger", map[string]any{
-		"ref": "HEAD",
-	})
+	triggerRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/vectis-local/jobs/build/trigger",
+		map[string]any{
+			"ref": "HEAD",
+		},
+	)
 	if triggerRec.Code != http.StatusAccepted {
 		t.Fatalf("trigger source job: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
 	}
 
 	triggerResp := decodeSourceJobTriggerResponse(t, triggerRec)
-	if triggerResp.RunID == "" || triggerResp.DefinitionVersion != 1 || triggerResp.Source.ResolvedCommit != secondCommit {
+	if triggerResp.RunID == "" || triggerResp.DefinitionVersion != 1 ||
+		triggerResp.Source.ResolvedCommit != secondCommit {
 		t.Fatalf("source trigger response mismatch: %+v", triggerResp)
 	}
 	if triggerResp.DefinitionHash == "" {
@@ -253,7 +299,9 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatalf("expected one run row, got %+v", runsResp.Data)
 	}
 
-	if runsResp.Data[0].RunID != triggerResp.RunID || runsResp.Data[0].DefinitionVersion != 1 || runsResp.Data[0].Source == nil || runsResp.Data[0].Source.ResolvedCommit != secondCommit {
+	if runsResp.Data[0].RunID != triggerResp.RunID || runsResp.Data[0].DefinitionVersion != 1 ||
+		runsResp.Data[0].Source == nil ||
+		runsResp.Data[0].Source.ResolvedCommit != secondCommit {
 		t.Fatalf("run list source provenance mismatch: %+v", runsResp.Data[0])
 	}
 
@@ -280,7 +328,8 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if runResp.RunID != triggerResp.RunID || runResp.DefinitionVersion != 1 || runResp.Source == nil || runResp.Source.ResolvedCommit != secondCommit {
+	if runResp.RunID != triggerResp.RunID || runResp.DefinitionVersion != 1 || runResp.Source == nil ||
+		runResp.Source.ResolvedCommit != secondCommit {
 		t.Fatalf("run detail source provenance mismatch: %+v", runResp)
 	}
 
@@ -288,7 +337,11 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	getRunDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+triggerResp.RunID+"/definition", nil)
 	handler.ServeHTTP(getRunDefinitionRec, getRunDefinitionReq)
 	if getRunDefinitionRec.Code != http.StatusOK {
-		t.Fatalf("get source run definition: status=%d body=%s", getRunDefinitionRec.Code, getRunDefinitionRec.Body.String())
+		t.Fatalf(
+			"get source run definition: status=%d body=%s",
+			getRunDefinitionRec.Code,
+			getRunDefinitionRec.Body.String(),
+		)
 	}
 
 	var runDefinitionResp struct {
@@ -317,7 +370,11 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		runDefinitionResp.Source == nil ||
 		runDefinitionResp.Source.ResolvedCommit != secondCommit ||
 		resolvedJob.GetRoot().GetWith()["script"] != "false" {
-		t.Fatalf("run definition response mismatch: resp=%+v job=%+v", runDefinitionResp, resolvedJob.GetRoot().GetWith())
+		t.Fatalf(
+			"run definition response mismatch: resp=%+v job=%+v",
+			runDefinitionResp,
+			resolvedJob.GetRoot().GetWith(),
+		)
 	}
 }
 
@@ -526,7 +583,11 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	}
 
 	readCreateRec := httptest.NewRecorder()
-	readCreateReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=managed-repo&ref="+createResp.Source.ResolvedCommit, nil)
+	readCreateReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/jobs/build?repository_id=managed-repo&ref="+createResp.Source.ResolvedCommit,
+		nil,
+	)
 	handler.ServeHTTP(readCreateRec, readCreateReq)
 	if readCreateRec.Code != http.StatusOK {
 		t.Fatalf("read created source job facade: status=%d body=%s", readCreateRec.Code, readCreateRec.Body.String())
@@ -586,7 +647,11 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	}
 
 	readUpdateRec := httptest.NewRecorder()
-	readUpdateReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=managed-repo&ref="+updateResp.Source.ResolvedCommit, nil)
+	readUpdateReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/jobs/build?repository_id=managed-repo&ref="+updateResp.Source.ResolvedCommit,
+		nil,
+	)
 	handler.ServeHTTP(readUpdateRec, readUpdateReq)
 	if readUpdateRec.Code != http.StatusOK {
 		t.Fatalf("read updated source job facade: status=%d body=%s", readUpdateRec.Code, readUpdateRec.Body.String())
@@ -602,7 +667,11 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		t.Fatalf("updated job command mismatch: %+v", updatedJob.GetRoot().GetWith())
 	}
 
-	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/build?repository_id=managed-repo&expected_head="+updateResp.Source.ResolvedCommit+"&message=delete+build+through+jobs+facade", nil)
+	deleteReq := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/jobs/build?repository_id=managed-repo&expected_head="+updateResp.Source.ResolvedCommit+"&message=delete+build+through+jobs+facade",
+		nil,
+	)
 	deleteRec := httptest.NewRecorder()
 	handler.ServeHTTP(deleteRec, deleteReq)
 	if deleteRec.Code != http.StatusOK {
@@ -620,11 +689,17 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		t.Fatalf("delete source job facade response mismatch: %+v update=%+v", deleteResp, updateResp)
 	}
 
-	if headerCommit := strings.TrimSpace(deleteRec.Header().Get("X-Vectis-Source-Commit")); headerCommit != deleteCommit {
+	if headerCommit := strings.TrimSpace(
+		deleteRec.Header().Get("X-Vectis-Source-Commit"),
+	); headerCommit != deleteCommit {
 		t.Fatalf("delete source commit header mismatch: %q body=%s", headerCommit, deleteCommit)
 	}
 
-	readDeletedReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=managed-repo&ref="+deleteCommit, nil)
+	readDeletedReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/jobs/build?repository_id=managed-repo&ref="+deleteCommit,
+		nil,
+	)
 	readDeletedRec := httptest.NewRecorder()
 	handler.ServeHTTP(readDeletedRec, readDeletedReq)
 	assertAPIError(t, readDeletedRec, http.StatusNotFound, "source_not_found")
@@ -708,7 +783,10 @@ func sourceRepositoryAuditEvents(events []audit.Event, eventType, repositoryID s
 
 func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly-build","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":true}]`)
+	t.Setenv(
+		"VECTIS_SOURCE_SCHEDULES",
+		`[{"schedule_id":"nightly-build","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":true}]`,
+	)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
 
 	server, _, _, db := setupTestServer(t)
@@ -925,11 +1003,17 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		t.Fatalf("enable source schedule response mismatch: %+v", enableResp)
 	}
 
-	overrideRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-schedules/nightly-build/override", map[string]any{
-		"ref":    "hotfix/build",
-		"path":   ".vectis/jobs/build-hotfix.json",
-		"reason": "production hotfix",
-	})
+	overrideRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-schedules/nightly-build/override",
+		map[string]any{
+			"ref":    "hotfix/build",
+			"path":   ".vectis/jobs/build-hotfix.json",
+			"reason": "production hotfix",
+		},
+	)
 
 	if overrideRec.Code != http.StatusOK {
 		t.Fatalf("set source schedule override: status=%d body=%s", overrideRec.Code, overrideRec.Body.String())
@@ -1090,7 +1174,10 @@ func TestAPIServer_SourceScheduleOverrideRejectsInvalidSourceReference(t *testin
 
 func TestAPIServer_DeleteSourceScheduleGuards(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"declared-disabled","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":false}]`)
+	t.Setenv(
+		"VECTIS_SOURCE_SCHEDULES",
+		`[{"schedule_id":"declared-disabled","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":false}]`,
+	)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
 
 	server, _, _, db := setupTestServer(t)
@@ -1282,9 +1369,15 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 		t.Fatalf("source jobs response mismatch: %+v", jobsResp)
 	}
 
-	sourceTriggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/jobs/build/trigger", map[string]any{
-		"ref": "HEAD",
-	})
+	sourceTriggerRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/vectis-local/jobs/build/trigger",
+		map[string]any{
+			"ref": "HEAD",
+		},
+	)
 
 	if sourceTriggerRec.Code != http.StatusAccepted {
 		t.Fatalf("source trigger: status=%d body=%s", sourceTriggerRec.Code, sourceTriggerRec.Body.String())
@@ -1320,7 +1413,11 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 	assertAPIError(t, runLogsRec, http.StatusServiceUnavailable, "log_service_unavailable")
 
 	sourceLogsRec := httptest.NewRecorder()
-	sourceLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/build/runs/"+triggerResp.RunID+"/logs", nil)
+	sourceLogsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/jobs/build/runs/"+triggerResp.RunID+"/logs",
+		nil,
+	)
 	handler.ServeHTTP(sourceLogsRec, sourceLogsReq)
 	assertAPIError(t, sourceLogsRec, http.StatusServiceUnavailable, "log_service_unavailable")
 
@@ -1364,9 +1461,15 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 
 func TestAPIServer_SourceStatus(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"vectis-local","checkout_path":"/work/vectis"},{"repository_id":"infra","checkout_path":"/work/infra"}]`)
+	t.Setenv(
+		"VECTIS_SOURCE_REPOSITORIES",
+		`[{"repository_id":"vectis-local","checkout_path":"/work/vectis"},{"repository_id":"infra","checkout_path":"/work/infra"}]`,
+	)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
-	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly","repository_id":"vectis-local","job_id":"build","cron_spec":"0 2 * * *"}]`)
+	t.Setenv(
+		"VECTIS_SOURCE_SCHEDULES",
+		`[{"schedule_id":"nightly","repository_id":"vectis-local","job_id":"build","cron_spec":"0 2 * * *"}]`,
+	)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
 
 	server, _, _, db := setupTestServer(t)
@@ -1511,7 +1614,10 @@ func TestAPIServer_DeleteSourceRepository(t *testing.T) {
 
 func TestAPIServer_SourceRepositoryDeclarationState(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"declared-repo","source_kind":"local_checkout","checkout_path":"/work/declared","default_ref":"main","enabled":true}]`)
+	t.Setenv(
+		"VECTIS_SOURCE_REPOSITORIES",
+		`[{"repository_id":"declared-repo","source_kind":"local_checkout","checkout_path":"/work/declared","default_ref":"main","enabled":true}]`,
+	)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
 
 	server, _, _, db := setupTestServer(t)
@@ -1604,7 +1710,8 @@ func TestAPIServer_DeleteSourceRepositoryConflictsWhenReferenced(t *testing.T) {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1693,9 +1800,15 @@ func TestAPIServer_ResolveSourceDefinitionRejectsDisabledRepository(t *testing.T
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/disabled-repo/definitions/resolve", map[string]any{
-		"path": ".vectis/jobs/build.json",
-	})
+	resolveRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/disabled-repo/definitions/resolve",
+		map[string]any{
+			"path": ".vectis/jobs/build.json",
+		},
+	)
 
 	assertAPIError(t, resolveRec, http.StatusConflict, "source_repository_disabled")
 
@@ -1740,7 +1853,8 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	}
 
 	statusResp := decodeSourceRepositoryStatusResponse(t, statusRec)
-	if statusResp.RepositoryID != "vectis-local" || statusResp.Namespace != "/" || !statusResp.Enabled || statusResp.Status != "ok" {
+	if statusResp.RepositoryID != "vectis-local" || statusResp.Namespace != "/" || !statusResp.Enabled ||
+		statusResp.Status != "ok" {
 		t.Fatalf("status response mismatch: %+v", statusResp)
 	}
 
@@ -1787,7 +1901,8 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	}
 
 	statusResp = decodeSourceRepositoryStatusResponse(t, statusRec)
-	if statusResp.Enabled || statusResp.Status != "disabled" || statusResp.ResolvedCommit != commit || statusResp.Error != nil {
+	if statusResp.Enabled || statusResp.Status != "disabled" || statusResp.ResolvedCommit != commit ||
+		statusResp.Error != nil {
 		t.Fatalf("disabled status mismatch: %+v", statusResp)
 	}
 
@@ -1907,7 +2022,8 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 
 	var sawInvalidName, sawDuplicate bool
 	for _, invalid := range resp.Invalid {
-		if invalid.Path == ".vectis/jobs/bad name.json" && strings.Contains(invalid.Error, "unsupported job_id segment") {
+		if invalid.Path == ".vectis/jobs/bad name.json" &&
+			strings.Contains(invalid.Error, "unsupported job_id segment") {
 			sawInvalidName = true
 		}
 		if strings.Contains(invalid.Error, "duplicate derived job_id team.deploy") {
@@ -1920,7 +2036,11 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	treeRec := httptest.NewRecorder()
-	treeReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/tree?path=.vectis/jobs&recursive=true&limit=1", nil)
+	treeReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/tree?path=.vectis/jobs&recursive=true&limit=1",
+		nil,
+	)
 	handler.ServeHTTP(treeRec, treeReq)
 	if treeRec.Code != http.StatusOK {
 		t.Fatalf("list limited source tree: status=%d body=%s", treeRec.Code, treeRec.Body.String())
@@ -1942,7 +2062,13 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	treeNextRec := httptest.NewRecorder()
-	treeNextReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/tree?path=.vectis/jobs&recursive=true&limit=10&cursor="+url.QueryEscape(treeResp.NextCursor), nil)
+	treeNextReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/tree?path=.vectis/jobs&recursive=true&limit=10&cursor="+url.QueryEscape(
+			treeResp.NextCursor,
+		),
+		nil,
+	)
 	handler.ServeHTTP(treeNextRec, treeNextReq)
 	if treeNextRec.Code != http.StatusOK {
 		t.Fatalf("list source tree after cursor: status=%d body=%s", treeNextRec.Code, treeNextRec.Body.String())
@@ -1966,10 +2092,18 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	definitionsRec := httptest.NewRecorder()
-	definitionsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/definitions?path=.vectis/jobs&limit=1", nil)
+	definitionsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/definitions?path=.vectis/jobs&limit=1",
+		nil,
+	)
 	handler.ServeHTTP(definitionsRec, definitionsReq)
 	if definitionsRec.Code != http.StatusOK {
-		t.Fatalf("list limited source definitions: status=%d body=%s", definitionsRec.Code, definitionsRec.Body.String())
+		t.Fatalf(
+			"list limited source definitions: status=%d body=%s",
+			definitionsRec.Code,
+			definitionsRec.Body.String(),
+		)
 	}
 
 	var definitionsResp struct {
@@ -1983,7 +2117,8 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	if err := json.NewDecoder(definitionsRec.Body).Decode(&definitionsResp); err != nil {
 		t.Fatalf("decode limited source definitions: %v", err)
 	}
-	if definitionsResp.Limit != 1 || !definitionsResp.Truncated || definitionsResp.NextCursor == "" || len(definitionsResp.Definitions) != 1 {
+	if definitionsResp.Limit != 1 || !definitionsResp.Truncated || definitionsResp.NextCursor == "" ||
+		len(definitionsResp.Definitions) != 1 {
 		t.Fatalf("limited source definitions response mismatch: %+v", definitionsResp)
 	}
 
@@ -2003,10 +2138,18 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	definitionRec := httptest.NewRecorder()
-	definitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/build/definition?ref=HEAD", nil)
+	definitionReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/jobs/build/definition?ref=HEAD",
+		nil,
+	)
 	handler.ServeHTTP(definitionRec, definitionReq)
 	if definitionRec.Code != http.StatusOK {
-		t.Fatalf("get source repository job definition: status=%d body=%s", definitionRec.Code, definitionRec.Body.String())
+		t.Fatalf(
+			"get source repository job definition: status=%d body=%s",
+			definitionRec.Code,
+			definitionRec.Body.String(),
+		)
 	}
 
 	definitionResp := decodeSourceRepositoryJobDefinitionResponse(t, definitionRec)
@@ -2030,14 +2173,23 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	nestedDefinitionRec := httptest.NewRecorder()
-	nestedDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/team.deploy/definition?ref=HEAD", nil)
+	nestedDefinitionReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/jobs/team.deploy/definition?ref=HEAD",
+		nil,
+	)
 	handler.ServeHTTP(nestedDefinitionRec, nestedDefinitionReq)
 	if nestedDefinitionRec.Code != http.StatusOK {
-		t.Fatalf("get nested source repository job definition: status=%d body=%s", nestedDefinitionRec.Code, nestedDefinitionRec.Body.String())
+		t.Fatalf(
+			"get nested source repository job definition: status=%d body=%s",
+			nestedDefinitionRec.Code,
+			nestedDefinitionRec.Body.String(),
+		)
 	}
 
 	nestedDefinitionResp := decodeSourceRepositoryJobDefinitionResponse(t, nestedDefinitionRec)
-	if nestedDefinitionResp.JobID != "team.deploy" || nestedDefinitionResp.Source.Path != ".vectis/jobs/team/deploy.json" {
+	if nestedDefinitionResp.JobID != "team.deploy" ||
+		nestedDefinitionResp.Source.Path != ".vectis/jobs/team/deploy.json" {
 		t.Fatalf("nested source job definition response mismatch: %+v", nestedDefinitionResp)
 	}
 
@@ -2049,14 +2201,23 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	overrideDefinitionRec := httptest.NewRecorder()
-	overrideDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/team.deploy/definition?ref=HEAD&path=.vectis/jobs/team.deploy.json", nil)
+	overrideDefinitionReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/vectis-local/jobs/team.deploy/definition?ref=HEAD&path=.vectis/jobs/team.deploy.json",
+		nil,
+	)
 	handler.ServeHTTP(overrideDefinitionRec, overrideDefinitionReq)
 	if overrideDefinitionRec.Code != http.StatusOK {
-		t.Fatalf("get override source repository job definition: status=%d body=%s", overrideDefinitionRec.Code, overrideDefinitionRec.Body.String())
+		t.Fatalf(
+			"get override source repository job definition: status=%d body=%s",
+			overrideDefinitionRec.Code,
+			overrideDefinitionRec.Body.String(),
+		)
 	}
 
 	overrideDefinitionResp := decodeSourceRepositoryJobDefinitionResponse(t, overrideDefinitionRec)
-	if overrideDefinitionResp.JobID != "team.deploy" || overrideDefinitionResp.Source.Path != ".vectis/jobs/team.deploy.json" {
+	if overrideDefinitionResp.JobID != "team.deploy" ||
+		overrideDefinitionResp.Source.Path != ".vectis/jobs/team.deploy.json" {
 		t.Fatalf("override source job definition response mismatch: %+v", overrideDefinitionResp)
 	}
 
@@ -2102,14 +2263,21 @@ func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T
 	}
 
 	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-		t.Fatalf("managed checkout path should be under configured root: root=%q path=%q rel=%q", checkoutRoot, resp.CheckoutPath, rel)
+		t.Fatalf(
+			"managed checkout path should be under configured root: root=%q path=%q rel=%q",
+			checkoutRoot,
+			resp.CheckoutPath,
+			rel,
+		)
 	}
 
 	if base := filepath.Base(resp.CheckoutPath); !strings.HasPrefix(base, "github.com-acme-big-repo.git-") {
 		t.Fatalf("managed checkout path should include sanitized repository id, got %q", base)
 	}
 
-	stored, err := dal.NewSQLRepositories(db).Sources().GetRepository(context.Background(), "github.com/acme/Big Repo.git")
+	stored, err := dal.NewSQLRepositories(db).
+		Sources().
+		GetRepository(context.Background(), "github.com/acme/Big Repo.git")
 	if err != nil {
 		t.Fatalf("GetRepository: %v", err)
 	}
@@ -2256,7 +2424,11 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 
 	failedSyncEvents := sourceRepositoryAuditEvents(auditor.events, audit.EventSourceRepositorySyncRequested, "not-git")
 	if len(failedSyncEvents) != 1 {
-		t.Fatalf("failed source sync audit event count: got %d want 1 events=%+v", len(failedSyncEvents), failedSyncEvents)
+		t.Fatalf(
+			"failed source sync audit event count: got %d want 1 events=%+v",
+			len(failedSyncEvents),
+			failedSyncEvents,
+		)
 	}
 	metadata := failedSyncEvents[0].Metadata
 	syncError, _ := metadata["sync_error"].(string)
@@ -2331,9 +2503,15 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		t.Fatalf("managed resync response mismatch: %+v", syncResp)
 	}
 
-	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
-		"path": ".vectis/jobs/build.json",
-	})
+	resolveRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/managed-repo/definitions/resolve",
+		map[string]any{
+			"path": ".vectis/jobs/build.json",
+		},
+	)
 
 	if resolveRec.Code != http.StatusOK {
 		t.Fatalf("resolve from managed checkout: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
@@ -2368,10 +2546,16 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		t.Fatalf("sync managed feature branch: status=%d body=%s", syncRec.Code, syncRec.Body.String())
 	}
 
-	resolveRec = doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
-		"ref":  "feature/source-ref",
-		"path": ".vectis/jobs/build.json",
-	})
+	resolveRec = doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/managed-repo/definitions/resolve",
+		map[string]any{
+			"ref":  "feature/source-ref",
+			"path": ".vectis/jobs/build.json",
+		},
+	)
 
 	if resolveRec.Code != http.StatusOK {
 		t.Fatalf("resolve managed feature branch: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
@@ -2391,7 +2575,11 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	}
 
 	branchesRec := httptest.NewRecorder()
-	branchesReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/refs/branches?prefix=feature/&limit=5", nil)
+	branchesReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/refs/branches?prefix=feature/&limit=5",
+		nil,
+	)
 	handler.ServeHTTP(branchesRec, branchesReq)
 	if branchesRec.Code != http.StatusOK {
 		t.Fatalf("list managed feature branches: status=%d body=%s", branchesRec.Code, branchesRec.Body.String())
@@ -2414,7 +2602,9 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		t.Fatalf("decode managed branches: %v", err)
 	}
 
-	if branchesResp.RepositoryID != "managed-repo" || branchesResp.Prefix != "feature/" || branchesResp.Limit != 5 || branchesResp.Truncated || len(branchesResp.Branches) != 1 {
+	if branchesResp.RepositoryID != "managed-repo" || branchesResp.Prefix != "feature/" || branchesResp.Limit != 5 ||
+		branchesResp.Truncated ||
+		len(branchesResp.Branches) != 1 {
 		t.Fatalf("managed branches response mismatch: %+v", branchesResp)
 	}
 
@@ -2427,10 +2617,18 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	}
 
 	limitedBranchesRec := httptest.NewRecorder()
-	limitedBranchesReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/refs/branches?limit=1", nil)
+	limitedBranchesReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/refs/branches?limit=1",
+		nil,
+	)
 	handler.ServeHTTP(limitedBranchesRec, limitedBranchesReq)
 	if limitedBranchesRec.Code != http.StatusOK {
-		t.Fatalf("list limited managed branches: status=%d body=%s", limitedBranchesRec.Code, limitedBranchesRec.Body.String())
+		t.Fatalf(
+			"list limited managed branches: status=%d body=%s",
+			limitedBranchesRec.Code,
+			limitedBranchesRec.Body.String(),
+		)
 	}
 
 	var limitedBranchesResp struct {
@@ -2448,7 +2646,11 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	}
 
 	treeRec := httptest.NewRecorder()
-	treeReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/tree?ref=feature/source-ref&path=.vectis/jobs&limit=10", nil)
+	treeReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/tree?ref=feature/source-ref&path=.vectis/jobs&limit=10",
+		nil,
+	)
 	handler.ServeHTTP(treeRec, treeReq)
 	if treeRec.Code != http.StatusOK {
 		t.Fatalf("list managed source tree: status=%d body=%s", treeRec.Code, treeRec.Body.String())
@@ -2509,10 +2711,18 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	}
 
 	definitionsRec := httptest.NewRecorder()
-	definitionsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/definitions?ref=feature/source-ref&path=.vectis/jobs&limit=5", nil)
+	definitionsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/definitions?ref=feature/source-ref&path=.vectis/jobs&limit=5",
+		nil,
+	)
 	handler.ServeHTTP(definitionsRec, definitionsReq)
 	if definitionsRec.Code != http.StatusOK {
-		t.Fatalf("list managed source definitions: status=%d body=%s", definitionsRec.Code, definitionsRec.Body.String())
+		t.Fatalf(
+			"list managed source definitions: status=%d body=%s",
+			definitionsRec.Code,
+			definitionsRec.Body.String(),
+		)
 	}
 
 	var definitionsResp struct {
@@ -2587,10 +2797,16 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T
 	featureCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
 	apiGit(t, remotePath, "checkout", defaultBranch)
 
-	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
-		"ref":  "feature/on-demand",
-		"path": ".vectis/jobs/build.json",
-	})
+	resolveRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/managed-repo/definitions/resolve",
+		map[string]any{
+			"ref":  "feature/on-demand",
+			"path": ".vectis/jobs/build.json",
+		},
+	)
 
 	if resolveRec.Code != http.StatusOK {
 		t.Fatalf("resolve managed missing feature branch: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
@@ -2651,10 +2867,16 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesProviderRefs(t *testing
 
 	for _, ref := range []string{"refs/pull/123/head", "refs/changes/34/1234/5"} {
 		t.Run(ref, func(t *testing.T) {
-			resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
-				"ref":  ref,
-				"path": ".vectis/jobs/build.json",
-			})
+			resolveRec := doJSONRequest(
+				t,
+				handler,
+				http.MethodPost,
+				"/api/v1/source-repositories/managed-repo/definitions/resolve",
+				map[string]any{
+					"ref":  ref,
+					"path": ".vectis/jobs/build.json",
+				},
+			)
 
 			if resolveRec.Code != http.StatusOK {
 				t.Fatalf("resolve managed provider ref: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
@@ -2710,24 +2932,40 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
 	}
 
-	readOnlyRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo/jobs/build/definition", map[string]any{
-		"definition": map[string]any{
-			"root": map[string]any{
-				"id":   "root",
-				"uses": "builtins/script",
-				"with": map[string]any{"script": "blocked"},
+	readOnlyRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/managed-repo/jobs/build/definition",
+		map[string]any{
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/script",
+					"with": map[string]any{"script": "blocked"},
+				},
 			},
 		},
-	})
+	)
 
 	assertAPIError(t, readOnlyRec, http.StatusConflict, "source_authoring_unavailable")
 	assertAPIErrorDetail(t, readOnlyRec, "kind", "authoring_unavailable")
-	enableAuthoringRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo", map[string]any{
-		"authoring_mode": dal.SourceAuthoringModeLocalCommit,
-	})
+	enableAuthoringRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/managed-repo",
+		map[string]any{
+			"authoring_mode": dal.SourceAuthoringModeLocalCommit,
+		},
+	)
 
 	if enableAuthoringRec.Code != http.StatusOK {
-		t.Fatalf("enable local source authoring: status=%d body=%s", enableAuthoringRec.Code, enableAuthoringRec.Body.String())
+		t.Fatalf(
+			"enable local source authoring: status=%d body=%s",
+			enableAuthoringRec.Code,
+			enableAuthoringRec.Body.String(),
+		)
 	}
 
 	enableAuthoringResp := decodeSourceRepositoryResponse(t, enableAuthoringRec)
@@ -2741,17 +2979,23 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 	}
 
 	parent := apiGitOutput(t, registerResp.CheckoutPath, "rev-parse", "HEAD")
-	writeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo/jobs/build/definition", map[string]any{
-		"expected_head": parent,
-		"message":       "add build definition",
-		"definition": map[string]any{
-			"root": map[string]any{
-				"id":   "root",
-				"uses": "builtins/script",
-				"with": map[string]any{"script": "authored"},
+	writeRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/managed-repo/jobs/build/definition",
+		map[string]any{
+			"expected_head": parent,
+			"message":       "add build definition",
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/script",
+					"with": map[string]any{"script": "authored"},
+				},
 			},
 		},
-	})
+	)
 
 	if writeRec.Code != http.StatusOK {
 		t.Fatalf("put managed source job definition: status=%d body=%s", writeRec.Code, writeRec.Body.String())
@@ -2770,7 +3014,12 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		t.Fatalf("put managed source job definition response mismatch: %+v parent=%s", writeResp, parent)
 	}
 
-	if head := apiGitOutput(t, registerResp.CheckoutPath, "rev-parse", "HEAD"); head != writeResp.Source.ResolvedCommit {
+	if head := apiGitOutput(
+		t,
+		registerResp.CheckoutPath,
+		"rev-parse",
+		"HEAD",
+	); head != writeResp.Source.ResolvedCommit {
 		t.Fatalf("managed checkout HEAD: got %q, want %q", head, writeResp.Source.ResolvedCommit)
 	}
 
@@ -2779,14 +3028,19 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 	}
 
 	readRec := httptest.NewRecorder()
-	readReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/definition?ref="+writeResp.Source.ResolvedCommit, nil)
+	readReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/jobs/build/definition?ref="+writeResp.Source.ResolvedCommit,
+		nil,
+	)
 	handler.ServeHTTP(readRec, readReq)
 	if readRec.Code != http.StatusOK {
 		t.Fatalf("read authored source definition: status=%d body=%s", readRec.Code, readRec.Body.String())
 	}
 
 	readResp := decodeSourceRepositoryJobDefinitionResponse(t, readRec)
-	if readResp.DefinitionHash != writeResp.DefinitionHash || readResp.Source.ResolvedCommit != writeResp.Source.ResolvedCommit {
+	if readResp.DefinitionHash != writeResp.DefinitionHash ||
+		readResp.Source.ResolvedCommit != writeResp.Source.ResolvedCommit {
 		t.Fatalf("read authored source definition mismatch: write=%+v read=%+v", writeResp, readResp)
 	}
 
@@ -2799,29 +3053,42 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		t.Fatalf("authored definition command: got %+v", job.GetRoot().GetWith())
 	}
 
-	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/jobs/build/trigger", map[string]any{
-		"ref": writeResp.Source.ResolvedCommit,
-	})
+	triggerRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/managed-repo/jobs/build/trigger",
+		map[string]any{
+			"ref": writeResp.Source.ResolvedCommit,
+		},
+	)
 
 	if triggerRec.Code != http.StatusAccepted {
 		t.Fatalf("trigger authored source definition: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
 	}
 
 	triggerResp := decodeSourceJobTriggerResponse(t, triggerRec)
-	if triggerResp.Source.ResolvedCommit != writeResp.Source.ResolvedCommit || triggerResp.Source.BlobSHA != writeResp.Source.BlobSHA {
+	if triggerResp.Source.ResolvedCommit != writeResp.Source.ResolvedCommit ||
+		triggerResp.Source.BlobSHA != writeResp.Source.BlobSHA {
 		t.Fatalf("trigger authored source definition provenance mismatch: %+v write=%+v", triggerResp, writeResp)
 	}
 
-	staleRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo/jobs/build/definition", map[string]any{
-		"expected_head": parent,
-		"definition": map[string]any{
-			"root": map[string]any{
-				"id":   "root",
-				"uses": "builtins/script",
-				"with": map[string]any{"script": "stale"},
+	staleRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/managed-repo/jobs/build/definition",
+		map[string]any{
+			"expected_head": parent,
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/script",
+					"with": map[string]any{"script": "stale"},
+				},
 			},
 		},
-	})
+	)
 
 	assertAPIError(t, staleRec, http.StatusConflict, "source_conflict")
 	assertAPIErrorDetail(t, staleRec, "kind", "stale_head")
@@ -2860,9 +3127,15 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
 	}
 
-	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/jobs/build/trigger", map[string]any{
-		"ref": "HEAD",
-	})
+	triggerRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/managed-repo/jobs/build/trigger",
+		map[string]any{
+			"ref": "HEAD",
+		},
+	)
 
 	if triggerRec.Code != http.StatusAccepted {
 		t.Fatalf("trigger source repository job: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
@@ -2965,7 +3238,11 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 	getDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+triggerResp.RunID+"/definition", nil)
 	handler.ServeHTTP(getDefinitionRec, getDefinitionReq)
 	if getDefinitionRec.Code != http.StatusOK {
-		t.Fatalf("get source repository run definition: status=%d body=%s", getDefinitionRec.Code, getDefinitionRec.Body.String())
+		t.Fatalf(
+			"get source repository run definition: status=%d body=%s",
+			getDefinitionRec.Code,
+			getDefinitionRec.Body.String(),
+		)
 	}
 
 	var runDefinitionResp struct {
@@ -3001,15 +3278,29 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		runDefinitionResp.Source.ResolvedCommit != commit ||
 		runDefinitionResp.Source.BlobSHA != blob ||
 		runDefinitionJob.GetRoot().GetWith()["script"] != "source-trigger" {
-		t.Fatalf("source repository run definition response mismatch: resp=%+v job=%+v", runDefinitionResp, runDefinitionJob.GetRoot().GetWith())
+		t.Fatalf(
+			"source repository run definition response mismatch: resp=%+v job=%+v",
+			runDefinitionResp,
+			runDefinitionJob.GetRoot().GetWith(),
+		)
 	}
 
-	secondTriggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/jobs/build/trigger", map[string]any{
-		"ref": "HEAD",
-	})
+	secondTriggerRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/managed-repo/jobs/build/trigger",
+		map[string]any{
+			"ref": "HEAD",
+		},
+	)
 
 	if secondTriggerRec.Code != http.StatusAccepted {
-		t.Fatalf("trigger source repository job again: status=%d body=%s", secondTriggerRec.Code, secondTriggerRec.Body.String())
+		t.Fatalf(
+			"trigger source repository job again: status=%d body=%s",
+			secondTriggerRec.Code,
+			secondTriggerRec.Body.String(),
+		)
 	}
 
 	secondTriggerResp := decodeSourceJobTriggerResponse(t, secondTriggerRec)
@@ -3017,12 +3308,14 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("second source trigger response mismatch: %+v", secondTriggerResp)
 	}
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(context.Background(), "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"unprovenanced"}}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(context.Background(), "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"unprovenanced"}}}`); err != nil {
 		t.Fatalf("Create unprovenanced job snapshot with same id: %v", err)
 	}
 
 	var unprovenancedVersion int
-	if err := db.QueryRowContext(context.Background(), "SELECT MAX(version) FROM job_definitions WHERE job_id = ?", "build").Scan(&unprovenancedVersion); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT MAX(version) FROM job_definitions WHERE job_id = ?", "build").
+		Scan(&unprovenancedVersion); err != nil {
 		t.Fatalf("query unprovenanced definition version: %v", err)
 	}
 
@@ -3032,17 +3325,29 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 	}
 
 	unprovenancedLogsRec := httptest.NewRecorder()
-	unprovenancedLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs/"+unprovenancedRunID+"/logs", nil)
+	unprovenancedLogsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/jobs/build/runs/"+unprovenancedRunID+"/logs",
+		nil,
+	)
 	handler.ServeHTTP(unprovenancedLogsRec, unprovenancedLogsReq)
 	assertAPIError(t, unprovenancedLogsRec, http.StatusNotFound, "run_not_found")
 
 	wrongJobLogsRec := httptest.NewRecorder()
-	wrongJobLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/deploy/runs/"+triggerResp.RunID+"/logs", nil)
+	wrongJobLogsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/jobs/deploy/runs/"+triggerResp.RunID+"/logs",
+		nil,
+	)
 	handler.ServeHTTP(wrongJobLogsRec, wrongJobLogsReq)
 	assertAPIError(t, wrongJobLogsRec, http.StatusNotFound, "run_not_found")
 
 	sourceLogsRec := httptest.NewRecorder()
-	sourceLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs/"+triggerResp.RunID+"/logs", nil)
+	sourceLogsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/jobs/build/runs/"+triggerResp.RunID+"/logs",
+		nil,
+	)
 	handler.ServeHTTP(sourceLogsRec, sourceLogsReq)
 	assertAPIError(t, sourceLogsRec, http.StatusServiceUnavailable, "log_service_unavailable")
 
@@ -3095,10 +3400,18 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 	}
 
 	listRunsAfterRec := httptest.NewRecorder()
-	listRunsAfterReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs?after_index=1", nil)
+	listRunsAfterReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/jobs/build/runs?after_index=1",
+		nil,
+	)
 	handler.ServeHTTP(listRunsAfterRec, listRunsAfterReq)
 	if listRunsAfterRec.Code != http.StatusOK {
-		t.Fatalf("list source repository job runs after index: status=%d body=%s", listRunsAfterRec.Code, listRunsAfterRec.Body.String())
+		t.Fatalf(
+			"list source repository job runs after index: status=%d body=%s",
+			listRunsAfterRec.Code,
+			listRunsAfterRec.Body.String(),
+		)
 	}
 
 	var sourceRunsAfterResp struct {
@@ -3112,7 +3425,8 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatal(err)
 	}
 
-	if len(sourceRunsAfterResp.Data) != 1 || sourceRunsAfterResp.Data[0].RunID != secondTriggerResp.RunID || sourceRunsAfterResp.Data[0].RunIndex != 2 {
+	if len(sourceRunsAfterResp.Data) != 1 || sourceRunsAfterResp.Data[0].RunID != secondTriggerResp.RunID ||
+		sourceRunsAfterResp.Data[0].RunIndex != 2 {
 		t.Fatalf("after_index source run history mismatch: %+v", sourceRunsAfterResp.Data)
 	}
 
@@ -3124,10 +3438,18 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 	}
 
 	listDisabledRunsRec := httptest.NewRecorder()
-	listDisabledRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs", nil)
+	listDisabledRunsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/managed-repo/jobs/build/runs",
+		nil,
+	)
 	handler.ServeHTTP(listDisabledRunsRec, listDisabledRunsReq)
 	if listDisabledRunsRec.Code != http.StatusOK {
-		t.Fatalf("list disabled source repository job runs: status=%d body=%s", listDisabledRunsRec.Code, listDisabledRunsRec.Body.String())
+		t.Fatalf(
+			"list disabled source repository job runs: status=%d body=%s",
+			listDisabledRunsRec.Code,
+			listDisabledRunsRec.Body.String(),
+		)
 	}
 }
 
@@ -3157,7 +3479,12 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/api/v1/sse/source-repositories/vectis-local/jobs/build/runs", nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		httpServer.URL+"/api/v1/sse/source-repositories/vectis-local/jobs/build/runs",
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("create source sse request: %v", err)
 	}
@@ -3212,7 +3539,11 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 	}
 
 	triggerBody := strings.NewReader(`{"ref":"HEAD"}`)
-	triggerResp, err := http.Post(httpServer.URL+"/api/v1/source-repositories/vectis-local/jobs/build/trigger", "application/json", triggerBody)
+	triggerResp, err := http.Post(
+		httpServer.URL+"/api/v1/source-repositories/vectis-local/jobs/build/trigger",
+		"application/json",
+		triggerBody,
+	)
 	if err != nil {
 		t.Fatalf("trigger source job: %v", err)
 	}
@@ -3235,7 +3566,11 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 		t.Fatalf("mark source run succeeded: %v", err)
 	}
 
-	replayResp, err := http.Post(httpServer.URL+"/api/v1/runs/"+ev.RunID+"/replay", "application/json", strings.NewReader(`{}`))
+	replayResp, err := http.Post(
+		httpServer.URL+"/api/v1/runs/"+ev.RunID+"/replay",
+		"application/json",
+		strings.NewReader(`{}`),
+	)
 	if err != nil {
 		t.Fatalf("replay source run: %v", err)
 	}
@@ -3359,9 +3694,15 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		t.Fatalf("status credential response mismatch: %+v", statusResp)
 	}
 
-	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", map[string]any{
-		"path": ".vectis/jobs/build.json",
-	})
+	resolveRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/vectis-local/definitions/resolve",
+		map[string]any{
+			"path": ".vectis/jobs/build.json",
+		},
+	)
 
 	assertAPIError(t, resolveRec, http.StatusConflict, "source_repository_disabled")
 	enableRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
@@ -3372,9 +3713,15 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		t.Fatalf("enable source repository: status=%d body=%s", enableRec.Code, enableRec.Body.String())
 	}
 
-	resolveRec = doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", map[string]any{
-		"path": ".vectis/jobs/build.json",
-	})
+	resolveRec = doJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/source-repositories/vectis-local/definitions/resolve",
+		map[string]any{
+			"path": ".vectis/jobs/build.json",
+		},
+	)
 
 	if resolveRec.Code != http.StatusOK {
 		t.Fatalf("resolve after enable: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
@@ -3391,28 +3738,52 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 
 	assertAPIError(t, missingRec, http.StatusNotFound, "source_repository_not_found")
 
-	invalidModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
-		"checkout_mode": "magic",
-	})
+	invalidModeRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/vectis-local",
+		map[string]any{
+			"checkout_mode": "magic",
+		},
+	)
 
 	assertAPIError(t, invalidModeRec, http.StatusBadRequest, "unsupported_checkout_mode")
 
-	invalidAuthoringModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
-		"authoring_mode": "magic",
-	})
+	invalidAuthoringModeRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/vectis-local",
+		map[string]any{
+			"authoring_mode": "magic",
+		},
+	)
 
 	assertAPIError(t, invalidAuthoringModeRec, http.StatusBadRequest, "unsupported_authoring_mode")
 
-	invalidWorkerCacheModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
-		"worker_cache_mode": "magic",
-	})
+	invalidWorkerCacheModeRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/vectis-local",
+		map[string]any{
+			"worker_cache_mode": "magic",
+		},
+	)
 
 	assertAPIError(t, invalidWorkerCacheModeRec, http.StatusBadRequest, "unsupported_worker_cache_mode")
 
-	incompatibleAuthoringModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
-		"checkout_mode":  dal.SourceCheckoutModeExternal,
-		"authoring_mode": dal.SourceAuthoringModeLocalCommit,
-	})
+	incompatibleAuthoringModeRec := doJSONRequest(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/source-repositories/vectis-local",
+		map[string]any{
+			"checkout_mode":  dal.SourceCheckoutModeExternal,
+			"authoring_mode": dal.SourceAuthoringModeLocalCommit,
+		},
+	)
 
 	assertAPIError(t, incompatibleAuthoringModeRec, http.StatusBadRequest, "incompatible_authoring_mode")
 }

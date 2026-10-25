@@ -59,7 +59,9 @@ func validateDurationField(with map[string]string, name string) []action.FieldEr
 
 	duration, err := time.ParseDuration(raw)
 	if err != nil || duration <= 0 {
-		return []action.FieldError{{Field: name, Message: "must be a positive duration like \"30s\", \"5m\", or \"1h\""}}
+		return []action.FieldError{
+			{Field: name, Message: "must be a positive duration like \"30s\", \"5m\", or \"1h\""},
+		}
 	}
 
 	return nil

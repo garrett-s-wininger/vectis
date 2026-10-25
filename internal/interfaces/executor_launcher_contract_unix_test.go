@@ -34,11 +34,17 @@ func TestDirectExecutorLauncherBoundaryContract(t *testing.T) {
 		}
 
 		script := `printf 'argv0=%s\narg1=%s\narg2=%s\nvisible=%s\nparent=%s\nauth=%s\npwd=%s\n' "$0" "$1" "$2" "$VECTIS_LAUNCHER_VISIBLE" "$VECTIS_LAUNCHER_PARENT_ONLY" "$VECTIS_ACTION_LAUNCHER_TOKEN" "$(pwd -P)"`
-		stdout, stderr, err := runContractCommand(t, "sh", []string{"-c", script, "custom-argv0", "arg with spaces", "arg:two"}, workspace, []string{
-			"PATH=" + os.Getenv("PATH"),
-			"VECTIS_ACTION_LAUNCHER_TOKEN=caller",
-			"VECTIS_LAUNCHER_VISIBLE=ok",
-		})
+		stdout, stderr, err := runContractCommand(
+			t,
+			"sh",
+			[]string{"-c", script, "custom-argv0", "arg with spaces", "arg:two"},
+			workspace,
+			[]string{
+				"PATH=" + os.Getenv("PATH"),
+				"VECTIS_ACTION_LAUNCHER_TOKEN=caller",
+				"VECTIS_LAUNCHER_VISIBLE=ok",
+			},
+		)
 
 		if err != nil {
 			t.Fatalf("Wait: %v\nstderr:\n%s", err, stderr)
@@ -73,7 +79,13 @@ func TestDirectExecutorLauncherBoundaryContract(t *testing.T) {
 if sh -c 'printf leak >&3' 2>/dev/null; then echo fd3-open; exit 12; fi
 if sh -c 'printf leak >&%d' 2>/dev/null; then echo parent-fd-open; exit 13; fi`, fd)
 
-		stdout, stderr, err := runContractCommand(t, "sh", []string{"-c", script}, workspace, []string{"PATH=" + os.Getenv("PATH")})
+		stdout, stderr, err := runContractCommand(
+			t,
+			"sh",
+			[]string{"-c", script},
+			workspace,
+			[]string{"PATH=" + os.Getenv("PATH")},
+		)
 		if err != nil {
 			t.Fatalf("Wait: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 		}
@@ -139,7 +151,13 @@ if sh -c 'printf leak >&%d' 2>/dev/null; then echo parent-fd-open; exit 13; fi`,
 
 	t.Run("private umask", func(t *testing.T) {
 		workspace := t.TempDir()
-		_, stderr, err := runContractCommand(t, "sh", []string{"-c", ": > created"}, workspace, []string{"PATH=" + os.Getenv("PATH")})
+		_, stderr, err := runContractCommand(
+			t,
+			"sh",
+			[]string{"-c", ": > created"},
+			workspace,
+			[]string{"PATH=" + os.Getenv("PATH")},
+		)
 		if err != nil {
 			t.Fatalf("Wait: %v\nstderr:\n%s", err, stderr)
 		}
@@ -158,7 +176,13 @@ if sh -c 'printf leak >&%d' 2>/dev/null; then echo parent-fd-open; exit 13; fi`,
 		restore := blockSignalForTest(t, syscall.SIGUSR1)
 		defer restore()
 
-		_, stderr, err := runContractCommand(t, "sh", []string{"-c", "trap 'exit 0' USR1; kill -USR1 $$; sleep 1; exit 7"}, t.TempDir(), []string{"PATH=" + os.Getenv("PATH")})
+		_, stderr, err := runContractCommand(
+			t,
+			"sh",
+			[]string{"-c", "trap 'exit 0' USR1; kill -USR1 $$; sleep 1; exit 7"},
+			t.TempDir(),
+			[]string{"PATH=" + os.Getenv("PATH")},
+		)
 		if err != nil {
 			t.Fatalf("Wait: %v\nstderr:\n%s", err, stderr)
 		}
@@ -248,7 +272,13 @@ func TestDirectExecutorFinalSignalDispositionProbe(t *testing.T) {
 	}
 }
 
-func runContractCommand(t *testing.T, path string, args []string, workDir string, env []string) (string, string, error) {
+func runContractCommand(
+	t *testing.T,
+	path string,
+	args []string,
+	workDir string,
+	env []string,
+) (string, string, error) {
 	t.Helper()
 
 	process, err := NewDirectExecutor().Start(context.Background(), path, args, workDir, env)

@@ -31,13 +31,20 @@ func TestGetRunJobNamespacePathUsesSourceRepositoryNamespace(t *testing.T) {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	runID, _, _, err := repos.CreateSourceDefinitionAndRunInCellWithAudit(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, dal.JobDefinitionSourceRecord{
-		RepositoryID:   "source-repo",
-		RequestedRef:   "main",
-		ResolvedCommit: "abc123",
-		DefinitionPath: ".vectis/jobs/build.json",
-		BlobSHA:        "blob123",
-	}, "", dal.RunAuditMetadata{})
+	runID, _, _, err := repos.CreateSourceDefinitionAndRunInCellWithAudit(
+		ctx,
+		"build",
+		`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`,
+		dal.JobDefinitionSourceRecord{
+			RepositoryID:   "source-repo",
+			RequestedRef:   "main",
+			ResolvedCommit: "abc123",
+			DefinitionPath: ".vectis/jobs/build.json",
+			BlobSHA:        "blob123",
+		},
+		"",
+		dal.RunAuditMetadata{},
+	)
 
 	if err != nil {
 		t.Fatalf("CreateSourceDefinitionAndRunInCellWithAudit: %v", err)
@@ -59,9 +66,16 @@ func TestGetRunJobNamespacePathUsesPersistedEphemeralNamespace(t *testing.T) {
 	server := NewAPIServer(mocks.NewMockLogger(), db)
 	ctx := context.Background()
 
-	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "ephemeral-job", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, nil, "", dal.RunAuditMetadata{
-		NamespacePath: dal.EphemeralNamespacePath,
-	})
+	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(
+		ctx,
+		"ephemeral-job",
+		`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`,
+		nil,
+		"",
+		dal.RunAuditMetadata{
+			NamespacePath: dal.EphemeralNamespacePath,
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("CreateDefinitionAndRunInCellWithAudit: %v", err)
@@ -83,7 +97,14 @@ func TestGetRunJobNamespacePathKeepsLegacyRootFallback(t *testing.T) {
 	server := NewAPIServer(mocks.NewMockLogger(), db)
 	ctx := context.Background()
 
-	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "legacy-ephemeral-job", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, nil, "", dal.RunAuditMetadata{})
+	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(
+		ctx,
+		"legacy-ephemeral-job",
+		`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`,
+		nil,
+		"",
+		dal.RunAuditMetadata{},
+	)
 	if err != nil {
 		t.Fatalf("CreateDefinitionAndRunInCellWithAudit: %v", err)
 	}

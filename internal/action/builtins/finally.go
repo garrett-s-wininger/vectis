@@ -30,7 +30,12 @@ func (f *FinallyNode) PortSchema() []action.PortSpec {
 	}
 }
 
-func (f *FinallyNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, ports action.Ports) action.Result {
+func (f *FinallyNode) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	_ map[string]any,
+	ports action.Ports,
+) action.Result {
 	body := ports.Children(taskgraph.BodyPort)
 	always := ports.Children(taskgraph.AlwaysPort)
 	if len(body) == 0 {
@@ -50,7 +55,9 @@ func (f *FinallyNode) Execute(ctx context.Context, state *action.ExecutionState,
 	alwaysResult := executeOrderedChildren(ctx, state, taskgraph.AlwaysPort, always)
 
 	if bodyResult.Status == action.StatusFailure && alwaysResult.Status == action.StatusFailure {
-		return action.NewFailureResult(fmt.Errorf("finally body failed: %w; always failed: %w", bodyResult.Error, alwaysResult.Error))
+		return action.NewFailureResult(
+			fmt.Errorf("finally body failed: %w; always failed: %w", bodyResult.Error, alwaysResult.Error),
+		)
 	}
 
 	if bodyResult.Status == action.StatusFailure {

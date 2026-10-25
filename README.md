@@ -2,44 +2,36 @@
 
 Vectis is a self-hosted job runner for CI/CD-style workflows and other repeatable automation. You define a job, submit it to the API or CLI, and Vectis queues the work, runs it on a worker, stores run history, and streams logs back to you.
 
-Vectis is developer alpha software: useful today for trying the model, building examples, and developing Vectis itself, but not yet recommended for production or untrusted workloads.
+Vectis is developer alpha software for trying the model and developing Vectis itself. Production and untrusted workloads should wait.
 
 ## Quick Start
 
-Build the local Go binaries:
+On Unix, install the local toolchain, build, and start the stack from the repository root:
 
 ```bash
-mage build
-```
-
-This does not require Node.js or npm. It builds the backend services, local
-supervisor, SCM trigger services, workers, and CLI. To include the browser UI
-and docs site for a full local stack, use `mage buildFull`; to build only those
-web wrappers, use `mage buildFrontend`.
-
-Start the local stack:
-
-```bash
+scripts/dev-doctor.sh --install --yes
+./.tools/bin/mage build
 ./bin/vectis-local
 ```
 
-In another terminal, check that the stack is healthy:
+`./.tools/bin/mage` uses the Go installed by the doctor. `mage build` produces the local services, supervisor, workers, and CLI.
+
+On Windows, run `.\scripts\dev-doctor.ps1`, then `mage build` and `.\bin\vectis-local`. Toolchain, CGO, protobuf, and Windows build notes are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+`vectis-local` enables API authentication and finishes first-admin setup once the API is healthy. In a terminal it prompts for the admin username and password. Without a terminal it creates user `admin`, writes the password to `~/.local/share/vectis/local-admin-password` when `XDG_DATA_HOME` is unset, and saves the CLI token for later commands. Pass `--setup=off` to keep the bootstrap token and finish setup yourself.
+
+Check that the stack is healthy, then run the included example:
 
 ```bash
 ./bin/vectis-cli health check
-```
-
-Run the included example job and follow its logs:
-
-```bash
 ./bin/vectis-cli jobs run examples/sequenced.json --follow
 ```
 
-That is the smallest useful loop: build, start, check health, run a job.
+That is the smallest useful loop: install, build, start, create the first admin, check health, run a job.
 
 ## What Starts Locally
 
-`vectis-local` starts a complete local Vectis stack:
+`vectis-local` starts the services built by `mage build`. The API listens on `http://localhost:8080`.
 
 | Service | What it does |
 | --- | --- |
@@ -51,73 +43,25 @@ That is the smallest useful loop: build, start, check health, run a job.
 | Registry | Lets services find each other locally. |
 | Cron | Evaluates schedules. |
 | Reconciler | Repairs queued runs that missed queue handoff. |
-| UI | Serves the browser application from the `vectis-ui` binary when built. |
-| Docs | Serves this documentation site from the `vectis-docs` binary when built. |
 
-By default, the API listens on `http://localhost:8080` and the bundled docs site listens on `http://localhost:8088`. If you need to reach the local stack from another machine, for example over SSH to a dev host, run `./bin/vectis-local --host 0.0.0.0` and use the dev host's address. Only do that on a trusted network. Local data is stored under your user data directory; see [Configuration](./website/docs/operating/configuration.md) for exact paths and overrides.
-
-For local multi-cell routing tests, add execution cells with repeated `--cell` flags:
+The browser UI and docs site start from `vectis-ui` and `vectis-docs`. Those binaries come from `buildFull`:
 
 ```bash
-./bin/vectis-local --cell pdx-b --cell sjc-c
+scripts/dev-doctor.sh --install --yes --install-frontend
+./.tools/bin/mage buildFull
+./bin/vectis-local
 ```
 
-To stop the local stack, press `Ctrl+C` in the terminal running `vectis-local`.
+After setup, the UI is at `http://localhost:8089` and the docs site is at `http://localhost:8088`. Sign in with the admin username and password from the `vectis-local` terminal. On Windows, install the frontend toolchain from [CONTRIBUTING.md](CONTRIBUTING.md), then run `mage buildFull`.
 
-To inspect or remove local state:
+To reach the stack from another machine, run `./bin/vectis-local --host 0.0.0.0` and use that machine's address on a trusted network. Local data paths are in [Configuration](./website/docs/operating/configuration.md).
+
+Press `Ctrl+C` in the `vectis-local` terminal to stop the stack. Inspect or remove local state with:
 
 ```bash
 ./bin/vectis-cli local reset --dry-run
 ./bin/vectis-cli local reset --yes
 ```
-
-## Requirements
-
-- Go `1.25.11+` as declared in [go.mod](go.mod).
-- CGO enabled for local SQLite use. This is the normal Go default on most developer machines.
-- Node.js `20.19+` and npm only for frontend lanes such as `mage buildFrontend`, `mage buildDocs`, `mage buildUI`, and `mage buildFull`.
-- Mage, `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` for the portable build targets and protobuf regeneration.
-
-Run `scripts/dev-doctor.sh` on POSIX shells or `.\scripts\dev-doctor.ps1` on Windows PowerShell for a preflight check with install guidance. On Unix, `scripts/dev-doctor.sh --install --yes` installs the required local Go toolchain with the local package manager plus repo-local Go, Mage, and protobuf tools under `.tools/`; source `.tools/env.sh` afterward. Add `--install-frontend` when you also want repo-local Node.js for docs/UI work. Pass `--install-go-tools` / `-InstallGoTools` to install only the Go-based tools directly.
-
-Portable build targets live in Mage. Use `mage -l` to list the targets after running the doctor install and loading the repo-local toolchain environment.
-
-For the current Windows baseline, run `mage testWindowsCompile` or `mage buildWindows`. These use the `nosqlite` build tag and default to `windows/amd64`; override `WINDOWS_GOARCH` or `WINDOWS_OUT_DIR` when needed. Use `mage testWindowsSQLiteCompile` to compile-check the native SQLite/CGO lane; on Windows this needs a GCC-compatible C compiler such as MinGW/UCRT GCC or LLVM clang, not MSVC `cl.exe`/`clang-cl`. On Unix it can use Zig as a Windows cross-compiler when `zig` is on `PATH`. Windows checkout-cache tests use directory symlinks; enable Developer Mode or run from an elevated shell so those tests exercise the real symlink path instead of skipping.
-
-For fast local test loops, keep the repository and Go caches on a fast local filesystem. Windows developers using a Dev Drive can opt into that filesystem for test temp files with `VECTIS_TEST_TEMPDIR`, for example `D:\Caches\tmp`; Unix developers can use the same variable when `/tmp` is slow or restricted. See [Development Environment](./website/docs/developing/development-environment.md) for platform-specific setup commands.
-
-To verify the Unix bootstrap from a clean base image, run `scripts/dev-doctor-container.sh`. It copies the repo into a container, runs the installer, and then runs the default smoke target chain; override with `VECTIS_SMOKE_TARGETS='scripts/dev-doctor.sh && mage proto' scripts/dev-doctor-container.sh` when you want a narrower check.
-
-## Learn The Basics
-
-The docs site is the best place to continue:
-
-| Start here | When you need |
-| --- | --- |
-| [Getting Started](./website/docs/getting-started.md) | A slower walkthrough of the local stack and first run. |
-| [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
-| [Job Definition Reference](./website/docs/using/job-definition-reference.md) | Field-by-field job JSON shape, ports, inputs, secrets, limits, and built-in action settings. |
-| [Actions Reference](./website/docs/using/actions-reference.md) | Built-in actions, action descriptors, selectors, digest pins, capabilities, and custom action policy. |
-| [Secrets Reference](./website/docs/using/secrets-reference.md) | Job secret references, encryptedfs envelopes, broker policy, file delivery, and redacted troubleshooting signals. |
-| [Triggers And Schedules Reference](./website/docs/using/triggers-and-schedules-reference.md) | Manual triggers, replay, cron schedule processing, trigger audit fields, and cron status signals. |
-| [Artifacts](./website/docs/using/artifacts.md) | Upload, list, download, operate, and troubleshoot run artifacts. |
-| [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
-| [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
-| [API Error Code Reference](./website/docs/using/api-error-code-reference.md) | Stable API error codes, status meanings, and retry posture. |
-| [OpenAPI Specification](./website/docs/using/openapi-specification.md) | Machine-readable v1 HTTP API contract. |
-| [SSE And Streaming Reference](./website/docs/using/streaming-reference.md) | SSE routes, payloads, replay controls, reconnect behavior, and proxy notes. |
-| [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
-| [Configuration Key Reference](./website/docs/operating/reference/configuration-key-reference.md) | Embedded defaults, config paths, and env-only runtime knobs. |
-| [Run, Task, And Queue State Reference](./website/docs/operating/reference/run-state-reference.md) | Lifecycle states, queue delivery states, repair hints, and operator triage. |
-| [Internal gRPC Service Reference](./website/docs/operating/reference/internal-grpc-service-reference.md) | Internal protobuf services, RPC ownership, listeners, discovery, TLS, and compatibility notes. |
-| [Upgrade Compatibility Matrix](./website/docs/operating/reference/upgrade-compatibility-matrix.md) | Operator upgrade questions, surface compatibility, rollout order, schema readiness, and rollback choices. |
-| [Authorization Reference](./website/docs/operating/reference/authorization-reference.md) | API auth actions, namespace roles, token scopes, and route families. |
-| [Audit Event Catalog](./website/docs/operating/reference/audit-event-catalog.md) | Audit event names, metadata fields, durability defaults, and operator signals. |
-| [Database Schema](./website/docs/operating/reference/database-schema.md) | SQL tables, fields, constraints, indexes, and operational notes. |
-| [Metrics Catalog](./website/docs/operating/reference/metrics-catalog.md) | Prometheus metric names, labels, and operator interpretation. |
-| [Architecture](./website/docs/concepts/architecture.md) | The current component model and data flows. |
-| [Security](./website/docs/concepts/security.md) | Trust boundaries, auth, tokens, RBAC, and deployment cautions. |
-| [Planning](./website/docs/developing/roadmap/planning.md) | Product direction, deferred work, and future federation notes. |
 
 ## Common Workflows
 
@@ -127,59 +71,54 @@ Run a one-off job:
 ./bin/vectis-cli jobs run examples/sequenced.json --follow
 ```
 
-Store a job and trigger it later:
+Store a job and trigger it later. `vectis-local` registers managed repository `vectis-local` with `local_commit` authoring, which is what `jobs create` writes to:
 
 ```bash
-./bin/vectis-cli jobs create examples/sequenced.json
-./bin/vectis-cli jobs trigger sequenced-job --follow
+./bin/vectis-cli jobs create examples/sequenced.json --repository vectis-local --branch main --message "Add sequenced job"
+./bin/vectis-cli jobs trigger sequenced-job --repository vectis-local --ref main --follow
 ```
 
-Try the secrets-backed example after running the local SPIFFE secrets smoke-test setup:
+Inspect a one-off run with the `run_id` printed by `jobs run`:
 
 ```bash
-./bin/vectis-cli jobs run examples/secrets.json --follow
-```
-
-Inspect run history:
-
-```bash
-./bin/vectis-cli runs list sequenced-job
 ./bin/vectis-cli runs show <run-id>
 ./bin/vectis-cli logs run <run-id>
 ```
 
-Run tests:
+List runs for the reusable job after it is stored:
 
 ```bash
-mage test
+./bin/vectis-cli runs list sequenced-job --repository vectis-local
 ```
 
-Regenerate protobuf stubs after editing `api/proto/`:
+More checked-in jobs are ordered in [examples/README.md](examples/README.md).
 
-```bash
-mage proto
-```
+Continue in the docs:
+
+| Start here | When you need |
+| --- | --- |
+| [Getting Started](./website/docs/getting-started.md) | A slower walkthrough of the local stack and first run. |
+| [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
+| [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
+| [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
+| [Security](./website/docs/concepts/security.md) | Trust boundaries, auth, tokens, RBAC, and deployment cautions. |
 
 ## Deployment
 
 For local development, use `vectis-local`.
 
-For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log/artifact/secrets storage, the Vectis SPIFFE authority, bundled docs, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
+For a fuller reference deployment, build the component images and start the Podman stack:
 
 ```bash
 mage imagesComponents
 ./bin/vectis-cli deploy podman up
 ```
 
-That deployment path is documented in [Reference Deployment Posture](./website/docs/operating/deployment/reference-deployment-posture.md), [Configuration](./website/docs/operating/configuration.md), and [Scaling And Restarts](./website/docs/operating/deployment/scaling-and-restarts.md). For the conservative production-oriented operating target, see [Production Topology v1](./website/docs/operating/deployment/production-topology-v1.md); for the Linux operator flow, see [Production Linux Deployment](./website/docs/operating/deployment/production-linux.md) and [Production Config And Secrets Contract](./website/docs/operating/deployment/production-config-contract.md).
-
-Do not expose the API to untrusted networks without reading [Security](./website/docs/concepts/security.md) and enabling appropriate controls.
+That path is documented in [Reference Deployment Posture](./website/docs/operating/deployment/reference-deployment-posture.md). The production-oriented target is [Production Topology v1](./website/docs/operating/deployment/production-topology-v1.md). Read [Security](./website/docs/concepts/security.md) before exposing the API beyond a trusted network.
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development loop, tests, protobuf generation, and conventions.
-
-Architecture decisions live in [ADRs](./website/docs/developing/architecture-decisions/index.md). Compatibility expectations live in [Compatibility](./website/docs/concepts/compatibility.md).
+Toolchain setup, tests, protobuf generation, Windows builds, and the rest of the docs map live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

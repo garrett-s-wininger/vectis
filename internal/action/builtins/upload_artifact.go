@@ -42,7 +42,12 @@ func (a *UploadArtifactAction) Type() string {
 	return "builtins/upload-artifact"
 }
 
-func (a *UploadArtifactAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
+func (a *UploadArtifactAction) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	inputs map[string]any,
+	_ action.Ports,
+) action.Result {
 	if state.Artifacts == nil {
 		return action.NewFailureResult(fmt.Errorf("artifact publisher is not configured"))
 	}

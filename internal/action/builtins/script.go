@@ -52,7 +52,12 @@ func (s *ScriptAction) Type() string {
 	return "builtins/script"
 }
 
-func (s *ScriptAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
+func (s *ScriptAction) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	inputs map[string]any,
+	_ action.Ports,
+) action.Result {
 	body, ok := inputs[ScriptBodyField].(string)
 	if !ok || strings.TrimSpace(body) == "" {
 		return action.NewFailureResult(fmt.Errorf("script action requires 'script' input"))
@@ -77,7 +82,10 @@ func (s *ScriptAction) Execute(ctx context.Context, state *action.ExecutionState
 	state.Logger.Info("Executing script with runner %s: %s", runner.Name, scriptPath)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s %s", runner.Name, scriptPath))
 
-	process, err := processExecutor(s.executor, state).Start(ctx, runner.Path, runner.FileArgs(scriptPath), state.Workspace, state.CommandEnv())
+	process, err := processExecutor(
+		s.executor,
+		state,
+	).Start(ctx, runner.Path, runner.FileArgs(scriptPath), state.Workspace, state.CommandEnv())
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start script: %w", err))
 	}

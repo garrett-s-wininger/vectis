@@ -29,7 +29,11 @@ func TestReconcilerCounters_AppearOnScrape(t *testing.T) {
 	rm.RecordReenqueueOutcome(ctx, ReconcilerOutcomeSuccess)
 	rm.RecordReenqueueOutcome(ctx, ReconcilerOutcomeFailedEnqueue)
 	rm.RecordTaskFinalizationRepair(ctx, ReconcilerTaskFinalizationOutcomeSuccess, "failed")
-	rm.RecordTaskFinalizationRepair(ctx, ReconcilerTaskFinalizationOutcomeError, ReconcilerTaskFinalizationReduceOutcomeUnknown)
+	rm.RecordTaskFinalizationRepair(
+		ctx,
+		ReconcilerTaskFinalizationOutcomeError,
+		ReconcilerTaskFinalizationReduceOutcomeUnknown,
+	)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -63,13 +67,19 @@ func TestReconcilerCounters_AppearOnScrape(t *testing.T) {
 		"outcome":        ReconcilerTaskFinalizationOutcomeSuccess,
 		"reduce_outcome": "failed",
 	}) {
-		t.Fatalf("task finalization metric missing success labels: %v", families["vectis_reconciler_task_finalization_repairs_total"])
+		t.Fatalf(
+			"task finalization metric missing success labels: %v",
+			families["vectis_reconciler_task_finalization_repairs_total"],
+		)
 	}
 
 	if !metricFamilyHasLabels(families["vectis_reconciler_task_finalization_repairs_total"], map[string]string{
 		"outcome":        ReconcilerTaskFinalizationOutcomeError,
 		"reduce_outcome": ReconcilerTaskFinalizationReduceOutcomeUnknown,
 	}) {
-		t.Fatalf("task finalization metric missing error labels: %v", families["vectis_reconciler_task_finalization_repairs_total"])
+		t.Fatalf(
+			"task finalization metric missing error labels: %v",
+			families["vectis_reconciler_task_finalization_repairs_total"],
+		)
 	}
 }

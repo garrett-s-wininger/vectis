@@ -52,7 +52,14 @@ func NewPublisherForRun(ctx context.Context, runID string, opts RoutedPublisherO
 	}
 
 	logger := artifactRouteLogger(opts.Logger)
-	conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_ARTIFACT, endpoint.Address, logger, nil, opts.RetryMetrics)
+	conn, cleanup, err := resolver.NewClientWithPinnedAddress(
+		ctx,
+		api.Component_COMPONENT_ARTIFACT,
+		endpoint.Address,
+		logger,
+		nil,
+		opts.RetryMetrics,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +97,11 @@ func (p *RoutedPublisher) Close() error {
 	return nil
 }
 
-func resolveArtifactPublishEndpoint(ctx context.Context, runID string, opts RoutedPublisherOptions) (ArtifactEndpoint, error) {
+func resolveArtifactPublishEndpoint(
+	ctx context.Context,
+	runID string,
+	opts RoutedPublisherOptions,
+) (ArtifactEndpoint, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return ArtifactEndpoint{}, fmt.Errorf("run id is required")
@@ -112,7 +123,13 @@ func resolveArtifactPublishEndpoint(ctx context.Context, runID string, opts Rout
 	reg := opts.Registry
 	if reg == nil {
 		var err error
-		reg, err = resolver.NewRegistryClient(ctx, opts.RegistryAddress, artifactRouteLogger(opts.Logger), nil, opts.RetryMetrics)
+		reg, err = resolver.NewRegistryClient(
+			ctx,
+			opts.RegistryAddress,
+			artifactRouteLogger(opts.Logger),
+			nil,
+			opts.RetryMetrics,
+		)
 		if err != nil {
 			return ArtifactEndpoint{}, fmt.Errorf("artifact registry client: %w", err)
 		}
@@ -139,12 +156,20 @@ func resolveArtifactPublishEndpoint(ctx context.Context, runID string, opts Rout
 	return chooseArtifactEndpoint(runID, writable), nil
 }
 
-func listArtifactPublishEndpoints(ctx context.Context, reg *registry.Registry, cellID string) ([]ArtifactEndpoint, error) {
+func listArtifactPublishEndpoints(
+	ctx context.Context,
+	reg *registry.Registry,
+	cellID string,
+) ([]ArtifactEndpoint, error) {
 	if reg == nil {
 		return nil, fmt.Errorf("registry client is required")
 	}
 
-	entries, err := reg.ListRegistrations(ctx, api.Component_COMPONENT_ARTIFACT, registry.DefaultServiceMetadataForCell(cellID))
+	entries, err := reg.ListRegistrations(
+		ctx,
+		api.Component_COMPONENT_ARTIFACT,
+		registry.DefaultServiceMetadataForCell(cellID),
+	)
 	if err != nil {
 		return nil, err
 	}

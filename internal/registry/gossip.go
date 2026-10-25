@@ -89,7 +89,11 @@ func (s *registryServer) antiEntropyOnce(ctx context.Context) {
 	}
 }
 
-func (s *registryServer) gossipPeer(ctx context.Context, peer string, req *api.GossipRequest) (*api.GossipResponse, error) {
+func (s *registryServer) gossipPeer(
+	ctx context.Context,
+	peer string,
+	req *api.GossipRequest,
+) (*api.GossipResponse, error) {
 	client, err := s.peerClient(ctx, peer)
 	if err != nil {
 		return nil, err
@@ -104,7 +108,11 @@ func (s *registryServer) gossipPeer(ctx context.Context, peer string, req *api.G
 	return resp, nil
 }
 
-func (s *registryServer) snapshotPeer(ctx context.Context, peer string, req *api.RegistrySnapshotRequest) (*api.RegistrySnapshotResponse, error) {
+func (s *registryServer) snapshotPeer(
+	ctx context.Context,
+	peer string,
+	req *api.RegistrySnapshotRequest,
+) (*api.RegistrySnapshotResponse, error) {
 	client, err := s.peerClient(ctx, peer)
 	if err != nil {
 		return nil, err

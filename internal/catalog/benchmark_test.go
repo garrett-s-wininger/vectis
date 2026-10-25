@@ -57,7 +57,14 @@ func BenchmarkCatalog_FanInCopyPendingEvents(b *testing.B) {
 			ctx := context.Background()
 			sourceDB, sourceRepos := newCatalogBenchmarkDBAndRepos(b, "iad-a")
 			targetDB, targetRepos := newCatalogBenchmarkDBAndRepos(b, dal.DefaultCellID)
-			seedCatalogBenchmarkEvents(b, ctx, sourceRepos.CatalogEvents(), "iad-a", cell.CatalogEventTypeRunStatus, tc.backlog)
+			seedCatalogBenchmarkEvents(
+				b,
+				ctx,
+				sourceRepos.CatalogEvents(),
+				"iad-a",
+				cell.CatalogEventTypeRunStatus,
+				tc.backlog,
+			)
 
 			processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
 				{CellID: "iad-a", Events: sourceRepos.CatalogEvents()},
@@ -125,8 +132,21 @@ func BenchmarkCatalog_InboxProcessExecutionStatusEvents(b *testing.B) {
 		b.Run(catalogBenchmarkCaseName(tc.backlog, tc.limit), func(b *testing.B) {
 			ctx := context.Background()
 			db, repos := newCatalogBenchmarkDBAndRepos(b, "iad-a")
-			executionIDs := seedCatalogBenchmarkPendingExecutions(b, ctx, repos, "bench-catalog-inbox-executions", tc.backlog)
-			seedCatalogBenchmarkExecutionStatusEvents(b, ctx, repos.CatalogEvents(), "iad-a", executionIDs, dal.ExecutionStatusRunning)
+			executionIDs := seedCatalogBenchmarkPendingExecutions(
+				b,
+				ctx,
+				repos,
+				"bench-catalog-inbox-executions",
+				tc.backlog,
+			)
+			seedCatalogBenchmarkExecutionStatusEvents(
+				b,
+				ctx,
+				repos.CatalogEvents(),
+				"iad-a",
+				executionIDs,
+				dal.ExecutionStatusRunning,
+			)
 
 			processor := cell.NewCatalogInboxProcessor(repos.CatalogEvents(), repos.Runs())
 			want := min(tc.backlog, tc.limit)
@@ -192,7 +212,14 @@ func newCatalogBenchmarkDBAndRepos(b *testing.B, cellID string) (*sql.DB, *dal.S
 	return db, dal.NewSQLRepositoriesWithCellID(db, cellID)
 }
 
-func seedCatalogBenchmarkRunningRuns(b *testing.B, ctx context.Context, db *sql.DB, repos *dal.SQLRepositories, jobID string, count int) {
+func seedCatalogBenchmarkRunningRuns(
+	b *testing.B,
+	ctx context.Context,
+	db *sql.DB,
+	repos *dal.SQLRepositories,
+	jobID string,
+	count int,
+) {
 	b.Helper()
 
 	executionIDs := seedCatalogBenchmarkPendingExecutions(b, ctx, repos, jobID, count)
@@ -209,10 +236,17 @@ func seedCatalogBenchmarkRunningRuns(b *testing.B, ctx context.Context, db *sql.
 	`, dal.RunStatusRunning, jobID)
 }
 
-func seedCatalogBenchmarkQueuedRuns(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string, count int) []string {
+func seedCatalogBenchmarkQueuedRuns(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	jobID string,
+	count int,
+) []string {
 	b.Helper()
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(catalogBenchmarkJobDefinition, jobID)); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(catalogBenchmarkJobDefinition, jobID)); err != nil {
 		b.Fatalf("create benchmark job definition %s: %v", jobID, err)
 	}
 
@@ -231,7 +265,13 @@ func seedCatalogBenchmarkQueuedRuns(b *testing.B, ctx context.Context, repos *da
 	return runIDs
 }
 
-func seedCatalogBenchmarkPendingExecutions(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string, count int) []string {
+func seedCatalogBenchmarkPendingExecutions(
+	b *testing.B,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	jobID string,
+	count int,
+) []string {
 	b.Helper()
 
 	runIDs := seedCatalogBenchmarkQueuedRuns(b, ctx, repos, jobID, count)
@@ -248,7 +288,13 @@ func seedCatalogBenchmarkPendingExecutions(b *testing.B, ctx context.Context, re
 	return executionIDs
 }
 
-func seedCatalogBenchmarkEvents(b *testing.B, ctx context.Context, events dal.CatalogEventsRepository, sourceCell, eventType string, count int) {
+func seedCatalogBenchmarkEvents(
+	b *testing.B,
+	ctx context.Context,
+	events dal.CatalogEventsRepository,
+	sourceCell, eventType string,
+	count int,
+) {
 	b.Helper()
 
 	for i := 0; i < count; i++ {
@@ -260,23 +306,49 @@ func seedCatalogBenchmarkEvents(b *testing.B, ctx context.Context, events dal.Ca
 	}
 }
 
-func seedCatalogBenchmarkRunStatusEvents(b *testing.B, ctx context.Context, events dal.CatalogEventsRepository, sourceCell string, runIDs []string, status string) {
+func seedCatalogBenchmarkRunStatusEvents(
+	b *testing.B,
+	ctx context.Context,
+	events dal.CatalogEventsRepository,
+	sourceCell string,
+	runIDs []string,
+	status string,
+) {
 	b.Helper()
 
 	for _, runID := range runIDs {
 		payload := []byte(fmt.Sprintf(`{"run_id":"%s","status":"%s"}`, runID, status))
-		if _, _, err := events.Record(ctx, sourceCell, cell.CatalogRunStatusEventKey(runID, status), cell.CatalogEventTypeRunStatus, payload); err != nil {
+		if _, _, err := events.Record(
+			ctx,
+			sourceCell,
+			cell.CatalogRunStatusEventKey(runID, status),
+			cell.CatalogEventTypeRunStatus,
+			payload,
+		); err != nil {
 			b.Fatalf("record run status catalog event: %v", err)
 		}
 	}
 }
 
-func seedCatalogBenchmarkExecutionStatusEvents(b *testing.B, ctx context.Context, events dal.CatalogEventsRepository, sourceCell string, executionIDs []string, status string) {
+func seedCatalogBenchmarkExecutionStatusEvents(
+	b *testing.B,
+	ctx context.Context,
+	events dal.CatalogEventsRepository,
+	sourceCell string,
+	executionIDs []string,
+	status string,
+) {
 	b.Helper()
 
 	for _, executionID := range executionIDs {
 		payload := []byte(fmt.Sprintf(`{"execution_id":"%s","status":"%s"}`, executionID, status))
-		if _, _, err := events.Record(ctx, sourceCell, cell.CatalogExecutionStatusEventKey(executionID, status), cell.CatalogEventTypeExecutionStatus, payload); err != nil {
+		if _, _, err := events.Record(
+			ctx,
+			sourceCell,
+			cell.CatalogExecutionStatusEventKey(executionID, status),
+			cell.CatalogEventTypeExecutionStatus,
+			payload,
+		); err != nil {
 			b.Fatalf("record execution status catalog event: %v", err)
 		}
 	}

@@ -60,7 +60,11 @@ func (p routeAcceptPolicy) mediaTypes() []string {
 	}
 }
 
-func routeAcceptMiddleware(policy routeAcceptPolicy, next http.Handler, recorders ...securityRejectionRecorder) http.Handler {
+func routeAcceptMiddleware(
+	policy routeAcceptPolicy,
+	next http.Handler,
+	recorders ...securityRejectionRecorder,
+) http.Handler {
 	var record securityRejectionRecorder
 	if len(recorders) > 0 {
 		record = recorders[0]

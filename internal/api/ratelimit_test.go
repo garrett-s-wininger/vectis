@@ -131,7 +131,11 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 		h.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("expected rotating invalid bearer tokens to hit shared 429 bucket, got %d body=%s", rec.Code, rec.Body.String())
+			t.Fatalf(
+				"expected rotating invalid bearer tokens to hit shared 429 bucket, got %d body=%s",
+				rec.Code,
+				rec.Body.String(),
+			)
 		}
 	})
 
@@ -236,7 +240,11 @@ func TestRateLimitKey_ignoresSessionCookie(t *testing.T) {
 	anotherInvalidBearerKey := s.rateLimitKey(req, protectedSpec)
 
 	if anotherInvalidBearerKey != protectedBearerKey {
-		t.Fatalf("unknown bearer tokens should share an invalid-bearer bucket: got %q want %q", anotherInvalidBearerKey, protectedBearerKey)
+		t.Fatalf(
+			"unknown bearer tokens should share an invalid-bearer bucket: got %q want %q",
+			anotherInvalidBearerKey,
+			protectedBearerKey,
+		)
 	}
 }
 
@@ -264,7 +272,11 @@ func TestRateLimitKey_usesKnownBearerTokenBucket(t *testing.T) {
 	preAuthInvalidKey := s.rateLimitKey(req, spec)
 
 	if preAuthKnownKey != preAuthInvalidKey {
-		t.Fatalf("pre-auth bearer tokens should share the same IP bucket: got %q want %q", preAuthKnownKey, preAuthInvalidKey)
+		t.Fatalf(
+			"pre-auth bearer tokens should share the same IP bucket: got %q want %q",
+			preAuthKnownKey,
+			preAuthInvalidKey,
+		)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)

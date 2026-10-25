@@ -16,10 +16,34 @@ func TestParseReference(t *testing.T) {
 		wantKind     SelectorKind
 	}{
 		{name: "name only", raw: "acme/cache", wantName: "acme/cache", wantKind: SelectorNone},
-		{name: "version selector", raw: "acme/cache@1.2.3", wantName: "acme/cache", wantSelector: "1.2.3", wantKind: SelectorVersion},
-		{name: "channel selector", raw: "acme/cache@v1", wantName: "acme/cache", wantSelector: "v1", wantKind: SelectorVersion},
-		{name: "digest selector", raw: "acme/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", wantName: "acme/cache", wantSelector: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", wantKind: SelectorDigest},
-		{name: "trimmed", raw: "  acme/cache@v1  ", wantName: "acme/cache", wantSelector: "v1", wantKind: SelectorVersion},
+		{
+			name:         "version selector",
+			raw:          "acme/cache@1.2.3",
+			wantName:     "acme/cache",
+			wantSelector: "1.2.3",
+			wantKind:     SelectorVersion,
+		},
+		{
+			name:         "channel selector",
+			raw:          "acme/cache@v1",
+			wantName:     "acme/cache",
+			wantSelector: "v1",
+			wantKind:     SelectorVersion,
+		},
+		{
+			name:         "digest selector",
+			raw:          "acme/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			wantName:     "acme/cache",
+			wantSelector: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			wantKind:     SelectorDigest,
+		},
+		{
+			name:         "trimmed",
+			raw:          "  acme/cache@v1  ",
+			wantName:     "acme/cache",
+			wantSelector: "v1",
+			wantKind:     SelectorVersion,
+		},
 	}
 
 	for _, tt := range tests {
@@ -31,8 +55,15 @@ func TestParseReference(t *testing.T) {
 				t.Fatalf("ParseReference: %v", err)
 			}
 
-			if got.CanonicalName() != tt.wantName || got.Selector != tt.wantSelector || got.SelectorKind != tt.wantKind {
-				t.Fatalf("reference mismatch: got %+v, want name=%q selector=%q kind=%q", got, tt.wantName, tt.wantSelector, tt.wantKind)
+			if got.CanonicalName() != tt.wantName || got.Selector != tt.wantSelector ||
+				got.SelectorKind != tt.wantKind {
+				t.Fatalf(
+					"reference mismatch: got %+v, want name=%q selector=%q kind=%q",
+					got,
+					tt.wantName,
+					tt.wantSelector,
+					tt.wantKind,
+				)
 			}
 		})
 	}

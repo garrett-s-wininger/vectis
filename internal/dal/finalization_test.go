@@ -132,13 +132,21 @@ func TestValidateMirroredExecutionFinalizationTargetAllowsAggregateDrift(t *test
 	}
 
 	mirror.ExecutionID = "execution-2"
-	if err := dal.ValidateMirroredExecutionFinalizationTarget(primary, mirror); err == nil || !strings.Contains(err.Error(), "execution") {
+	if err := dal.ValidateMirroredExecutionFinalizationTarget(
+		primary,
+		mirror,
+	); err == nil ||
+		!strings.Contains(err.Error(), "execution") {
 		t.Fatalf("target validator execution error = %v, want execution mismatch", err)
 	}
 
 	mirror = primary
 	mirror.RunID = "run-2"
-	if err := dal.ValidateMirroredExecutionFinalizationTarget(primary, mirror); err == nil || !strings.Contains(err.Error(), "run") {
+	if err := dal.ValidateMirroredExecutionFinalizationTarget(
+		primary,
+		mirror,
+	); err == nil ||
+		!strings.Contains(err.Error(), "run") {
 		t.Fatalf("target validator run error = %v, want run mismatch", err)
 	}
 }

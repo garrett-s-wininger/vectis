@@ -10,7 +10,12 @@ import (
 )
 
 func TestAPIServer_TriggerJob_RequiresRepositoryID(t *testing.T) {
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), mocks.NewMockRunsRepository(), mocks.StubEphemeralRunStarter{})
+	server := api.NewAPIServerWithRepositories(
+		mocks.NewMockLogger(),
+		mocks.NewMockJobsRepository(),
+		mocks.NewMockRunsRepository(),
+		mocks.StubEphemeralRunStarter{},
+	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-1", nil)
 	req.SetPathValue("id", "job-1")
@@ -22,7 +27,12 @@ func TestAPIServer_TriggerJob_RequiresRepositoryID(t *testing.T) {
 }
 
 func TestAPIServer_GetJobRuns_RequiresRepositoryID(t *testing.T) {
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), mocks.NewMockRunsRepository(), mocks.StubEphemeralRunStarter{})
+	server := api.NewAPIServerWithRepositories(
+		mocks.NewMockLogger(),
+		mocks.NewMockJobsRepository(),
+		mocks.NewMockRunsRepository(),
+		mocks.StubEphemeralRunStarter{},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-1/runs?after_index=1", nil)
 	req.SetPathValue("id", "job-1")
@@ -34,7 +44,12 @@ func TestAPIServer_GetJobRuns_RequiresRepositoryID(t *testing.T) {
 }
 
 func TestAPIServer_GetJobRuns_ValidatesSourceRunFilters(t *testing.T) {
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), mocks.NewMockRunsRepository(), mocks.StubEphemeralRunStarter{})
+	server := api.NewAPIServerWithRepositories(
+		mocks.NewMockLogger(),
+		mocks.NewMockJobsRepository(),
+		mocks.NewMockRunsRepository(),
+		mocks.StubEphemeralRunStarter{},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-1/runs?repository_id=repo-1&since=not-time", nil)
 	req.SetPathValue("id", "job-1")

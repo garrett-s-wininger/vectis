@@ -123,7 +123,13 @@ func TestEnsureJobTaskExecutionsRejectsMissingRunID(t *testing.T) {
 	j := taskPlanJob("echo compile")
 	j.RunId = nil
 
-	if _, err := job.EnsureJobTaskExecutions(context.Background(), &noopRunsRepository{}, j, ""); err == nil || !strings.Contains(err.Error(), "job run_id is required") {
+	if _, err := job.EnsureJobTaskExecutions(
+		context.Background(),
+		&noopRunsRepository{},
+		j,
+		"",
+	); err == nil ||
+		!strings.Contains(err.Error(), "job run_id is required") {
 		t.Fatalf("expected missing run_id error, got %v", err)
 	}
 }
@@ -131,10 +137,17 @@ func TestEnsureJobTaskExecutionsRejectsMissingRunID(t *testing.T) {
 func TestEnsurePlannedTaskExecutionsRejectsOutOfOrderPlan(t *testing.T) {
 	t.Parallel()
 
-	if _, err := job.EnsurePlannedTaskExecutions(context.Background(), &noopRunsRepository{}, "run-1", []job.TaskPlanEntry{{
-		TaskKey:       "child",
-		ParentTaskKey: "missing-parent",
-	}}, ""); err == nil || !strings.Contains(err.Error(), `parent "missing-parent" has not been materialized`) {
+	if _, err := job.EnsurePlannedTaskExecutions(
+		context.Background(),
+		&noopRunsRepository{},
+		"run-1",
+		[]job.TaskPlanEntry{{
+			TaskKey:       "child",
+			ParentTaskKey: "missing-parent",
+		}},
+		"",
+	); err == nil ||
+		!strings.Contains(err.Error(), `parent "missing-parent" has not been materialized`) {
 		t.Fatalf("expected missing parent error, got %v", err)
 	}
 }
@@ -149,7 +162,8 @@ func assertMaterializedTask(t *testing.T, byKey map[string]dal.TaskRecord, runID
 
 	wantTaskID := runID + ":" + taskKey
 	wantParentID := runID + ":" + parentKey
-	if task.TaskID != wantTaskID || task.RunID != runID || task.Name != taskKey || task.Status != dal.TaskStatusPlanned {
+	if task.TaskID != wantTaskID || task.RunID != runID || task.Name != taskKey ||
+		task.Status != dal.TaskStatusPlanned {
 		t.Fatalf("task %s mismatch: %+v", taskKey, task)
 	}
 
@@ -161,7 +175,8 @@ func assertMaterializedTask(t *testing.T, byKey map[string]dal.TaskRecord, runID
 		t.Fatalf("task %s spec hash: %q", taskKey, task.SpecHash)
 	}
 
-	if len(task.Attempts) != 1 || task.Attempts[0].CellID != "pdx-b" || task.Attempts[0].Status != dal.TaskStatusPlanned {
+	if len(task.Attempts) != 1 || task.Attempts[0].CellID != "pdx-b" ||
+		task.Attempts[0].Status != dal.TaskStatusPlanned {
 		t.Fatalf("task %s attempts: %+v", taskKey, task.Attempts)
 	}
 }

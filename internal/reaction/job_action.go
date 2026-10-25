@@ -16,7 +16,14 @@ const defaultJobTriggerCycleDepth = 16
 type JobTriggerStore interface {
 	GetDefinition(ctx context.Context, jobID string) (definitionJSON string, version int, err error)
 	Record(ctx context.Context, invocation dal.TriggerInvocation) (dal.TriggerInvocationRecord, error)
-	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit dal.RunAuditMetadata) ([]dal.CreatedRun, error)
+	CreateRunsInCellsWithAudit(
+		ctx context.Context,
+		jobID string,
+		runIndex *int,
+		definitionVersion int,
+		targetCellIDs []string,
+		audit dal.RunAuditMetadata,
+	) ([]dal.CreatedRun, error)
 	ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]dal.CreatedRun, error)
 	ListJobTriggerEdges(ctx context.Context) ([]dal.ReactionJobTriggerEdge, error)
 }
@@ -42,15 +49,27 @@ func (s *DALJobTriggerStore) GetDefinition(ctx context.Context, jobID string) (s
 	return s.Jobs.GetLatestDefinition(ctx, jobID)
 }
 
-func (s *DALJobTriggerStore) Record(ctx context.Context, invocation dal.TriggerInvocation) (dal.TriggerInvocationRecord, error) {
+func (s *DALJobTriggerStore) Record(
+	ctx context.Context,
+	invocation dal.TriggerInvocation,
+) (dal.TriggerInvocationRecord, error) {
 	if s == nil || s.Triggers == nil {
-		return dal.TriggerInvocationRecord{}, fmt.Errorf("trigger job reaction action requires trigger invocation repository")
+		return dal.TriggerInvocationRecord{}, fmt.Errorf(
+			"trigger job reaction action requires trigger invocation repository",
+		)
 	}
 
 	return s.Triggers.Record(ctx, invocation)
 }
 
-func (s *DALJobTriggerStore) CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit dal.RunAuditMetadata) ([]dal.CreatedRun, error) {
+func (s *DALJobTriggerStore) CreateRunsInCellsWithAudit(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellIDs []string,
+	audit dal.RunAuditMetadata,
+) ([]dal.CreatedRun, error) {
 	if s == nil || s.Runs == nil {
 		return nil, fmt.Errorf("trigger job reaction action requires runs repository")
 	}
@@ -58,7 +77,10 @@ func (s *DALJobTriggerStore) CreateRunsInCellsWithAudit(ctx context.Context, job
 	return s.Runs.CreateRunsInCellsWithAudit(ctx, jobID, runIndex, definitionVersion, targetCellIDs, audit)
 }
 
-func (s *DALJobTriggerStore) ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]dal.CreatedRun, error) {
+func (s *DALJobTriggerStore) ListRunsByTriggerInvocation(
+	ctx context.Context,
+	triggerInvocationID string,
+) ([]dal.CreatedRun, error) {
 	if s == nil || s.Runs == nil {
 		return nil, fmt.Errorf("trigger job reaction action requires runs repository")
 	}
@@ -198,7 +220,11 @@ func (a *TriggerJobAction) Execute(ctx context.Context, req TriggerJobActionRequ
 
 	if len(existing) > 0 {
 		if !createdRunsMatchTargetCells(existing, targetCellIDs) {
-			return TriggerJobResult{}, fmt.Errorf("%w: trigger invocation %s already created runs for different target cells", dal.ErrConflict, trigger.InvocationID)
+			return TriggerJobResult{}, fmt.Errorf(
+				"%w: trigger invocation %s already created runs for different target cells",
+				dal.ErrConflict,
+				trigger.InvocationID,
+			)
 		}
 
 		dispatched, err := a.dispatchRuns(ctx, existing)
@@ -209,9 +235,16 @@ func (a *TriggerJobAction) Execute(ctx context.Context, req TriggerJobActionRequ
 		return TriggerJobResult{TriggerInvocation: trigger, Runs: existing, Reused: true, Dispatched: dispatched}, nil
 	}
 
-	created, err := a.Store.CreateRunsInCellsWithAudit(ctx, targetJobID, nil, version, targetCellIDs, dal.RunAuditMetadata{
-		TriggerInvocationID: trigger.InvocationID,
-	})
+	created, err := a.Store.CreateRunsInCellsWithAudit(
+		ctx,
+		targetJobID,
+		nil,
+		version,
+		targetCellIDs,
+		dal.RunAuditMetadata{
+			TriggerInvocationID: trigger.InvocationID,
+		},
+	)
 
 	if err != nil {
 		return TriggerJobResult{}, err
@@ -351,7 +384,12 @@ func rejectJobTriggerCycle(sourceJobID, targetJobID string, maxDepth int, edges 
 
 		if edgeSource == "" {
 			if edgeTarget == targetJobID {
-				return fmt.Errorf("%w: trigger job reaction would let wildcard completion subscription %s self-trigger job %s", dal.ErrConflict, edge.SubscriptionID, targetJobID)
+				return fmt.Errorf(
+					"%w: trigger job reaction would let wildcard completion subscription %s self-trigger job %s",
+					dal.ErrConflict,
+					edge.SubscriptionID,
+					targetJobID,
+				)
 			}
 
 			if !slices.Contains(wildcardTargets, edgeTarget) {
@@ -362,7 +400,12 @@ func rejectJobTriggerCycle(sourceJobID, targetJobID string, maxDepth int, edges 
 		}
 
 		if edgeSource == edgeTarget && edgeTarget == targetJobID {
-			return fmt.Errorf("%w: trigger job reaction would use self-cycling subscription %s for job %s", dal.ErrConflict, edge.SubscriptionID, targetJobID)
+			return fmt.Errorf(
+				"%w: trigger job reaction would use self-cycling subscription %s for job %s",
+				dal.ErrConflict,
+				edge.SubscriptionID,
+				targetJobID,
+			)
 		}
 
 		if !slices.Contains(explicit[edgeSource], edgeTarget) {
@@ -385,7 +428,13 @@ func rejectJobTriggerCycle(sourceJobID, targetJobID string, maxDepth int, edges 
 		current := queue[0]
 		queue = queue[1:]
 		if current.depth >= maxDepth {
-			return fmt.Errorf("%w: trigger job cycle check exceeded max_depth %d while checking %s -> %s", dal.ErrConflict, maxDepth, sourceJobID, targetJobID)
+			return fmt.Errorf(
+				"%w: trigger job cycle check exceeded max_depth %d while checking %s -> %s",
+				dal.ErrConflict,
+				maxDepth,
+				sourceJobID,
+				targetJobID,
+			)
 		}
 
 		neighbors := append([]string{}, explicit[current.job]...)
@@ -397,7 +446,12 @@ func rejectJobTriggerCycle(sourceJobID, targetJobID string, maxDepth int, edges 
 			}
 
 			if next == sourceJobID {
-				return fmt.Errorf("%w: trigger job reaction would create a cycle %s -> %s", dal.ErrConflict, sourceJobID, targetJobID)
+				return fmt.Errorf(
+					"%w: trigger job reaction would create a cycle %s -> %s",
+					dal.ErrConflict,
+					sourceJobID,
+					targetJobID,
+				)
 			}
 
 			if _, ok := seen[next]; ok {

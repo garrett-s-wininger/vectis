@@ -9,7 +9,11 @@ import (
 )
 
 func main() {
-	manifestPath := flag.String("manifest", linux.DefaultManifestPath, "Path to the Linux deploy services TOML manifest")
+	manifestPath := flag.String(
+		"manifest",
+		linux.DefaultManifestPath,
+		"Path to the Linux deploy services TOML manifest",
+	)
 	outDir := flag.String("out", "", "Directory where rendered Linux artifacts are written")
 	flag.Parse()
 

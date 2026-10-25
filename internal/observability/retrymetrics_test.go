@@ -77,7 +77,14 @@ func TestSplitRetryComponent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service, operation := splitRetryComponent(tt.component)
 			if service != tt.wantService || operation != tt.wantOperation {
-				t.Fatalf("splitRetryComponent(%q) = %q/%q, want %q/%q", tt.component, service, operation, tt.wantService, tt.wantOperation)
+				t.Fatalf(
+					"splitRetryComponent(%q) = %q/%q, want %q/%q",
+					tt.component,
+					service,
+					operation,
+					tt.wantService,
+					tt.wantOperation,
+				)
 			}
 		})
 	}

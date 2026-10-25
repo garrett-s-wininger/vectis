@@ -16,10 +16,29 @@ import (
 )
 
 type executionChoreographer interface {
-	LoadRun(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error
-	ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error)
-	RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error
-	CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error)
+	LoadRun(
+		ctx context.Context,
+		job *api.Job,
+		env *cell.ExecutionEnvelope,
+		snapshots []orchestrator.TaskExecutionSnapshot,
+	) error
+	ClaimAndStartExecution(
+		ctx context.Context,
+		env *cell.ExecutionEnvelope,
+		owner string,
+		leaseUntil time.Time,
+	) (dal.ExecutionClaimResult, error)
+	RenewExecutionLease(
+		ctx context.Context,
+		env *cell.ExecutionEnvelope,
+		owner, claimToken string,
+		leaseUntil time.Time,
+	) error
+	CompleteExecution(
+		ctx context.Context,
+		env *cell.ExecutionEnvelope,
+		owner, claimToken, status, failureCode, reason string,
+	) (dal.ExecutionFinalizationResult, error)
 	RequiresDurableTaskRows() bool
 }
 
@@ -43,7 +62,12 @@ func newGRPCExecutionChoreographer(client api.OrchestratorServiceClient) *grpcEx
 	return &grpcExecutionChoreographer{client: client}
 }
 
-func (c *grpcExecutionChoreographer) LoadRun(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
+func (c *grpcExecutionChoreographer) LoadRun(
+	ctx context.Context,
+	job *api.Job,
+	env *cell.ExecutionEnvelope,
+	snapshots []orchestrator.TaskExecutionSnapshot,
+) error {
 	spec, err := orchestrator.RunSpecFromJobAndEnvelope(job, env)
 	if err != nil {
 		return err
@@ -74,7 +98,12 @@ func (c *grpcExecutionChoreographer) LoadRun(ctx context.Context, job *api.Job, 
 	return err
 }
 
-func (c *grpcExecutionChoreographer) ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (c *grpcExecutionChoreographer) ClaimAndStartExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	req := &api.ClaimExecutionRequest{
 		RunId:              stringPtr(env.RunID),
 		ExecutionId:        stringPtr(env.ExecutionID),
@@ -95,7 +124,12 @@ func (c *grpcExecutionChoreographer) ClaimAndStartExecution(ctx context.Context,
 	}, nil
 }
 
-func (c *grpcExecutionChoreographer) RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error {
+func (c *grpcExecutionChoreographer) RenewExecutionLease(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	req := &api.RenewExecutionLeaseRequest{
 		RunId:              stringPtr(env.RunID),
 		ExecutionId:        stringPtr(env.ExecutionID),
@@ -107,7 +141,11 @@ func (c *grpcExecutionChoreographer) RenewExecutionLease(ctx context.Context, en
 	return c.renewExecutionLease(ctx, req)
 }
 
-func (c *grpcExecutionChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (c *grpcExecutionChoreographer) CompleteExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	req := &api.CompleteExecutionRequest{
 		RunId:       stringPtr(env.RunID),
 		ExecutionId: stringPtr(env.ExecutionID),
@@ -138,7 +176,10 @@ func (c *grpcExecutionChoreographer) RequiresDurableTaskRows() bool {
 	return false
 }
 
-func (c *grpcExecutionChoreographer) loadRun(ctx context.Context, req *api.LoadRunRequest) (*api.LoadRunResponse, error) {
+func (c *grpcExecutionChoreographer) loadRun(
+	ctx context.Context,
+	req *api.LoadRunRequest,
+) (*api.LoadRunResponse, error) {
 	resp, usedStream, err := c.tryExecutionStream(ctx, &api.ExecutionStreamRequest{Load: req})
 	if err != nil {
 		return nil, err
@@ -155,7 +196,10 @@ func (c *grpcExecutionChoreographer) loadRun(ctx context.Context, req *api.LoadR
 	return resp.GetLoad(), nil
 }
 
-func (c *grpcExecutionChoreographer) claimExecution(ctx context.Context, req *api.ClaimExecutionRequest) (*api.ClaimExecutionResponse, error) {
+func (c *grpcExecutionChoreographer) claimExecution(
+	ctx context.Context,
+	req *api.ClaimExecutionRequest,
+) (*api.ClaimExecutionResponse, error) {
 	resp, usedStream, err := c.tryExecutionStream(ctx, &api.ExecutionStreamRequest{Claim: req})
 	if err != nil {
 		return nil, err
@@ -172,7 +216,10 @@ func (c *grpcExecutionChoreographer) claimExecution(ctx context.Context, req *ap
 	return resp.GetClaim(), nil
 }
 
-func (c *grpcExecutionChoreographer) renewExecutionLease(ctx context.Context, req *api.RenewExecutionLeaseRequest) error {
+func (c *grpcExecutionChoreographer) renewExecutionLease(
+	ctx context.Context,
+	req *api.RenewExecutionLeaseRequest,
+) error {
 	resp, usedStream, err := c.tryExecutionStream(ctx, &api.ExecutionStreamRequest{Renew: req})
 	if err != nil {
 		return err
@@ -190,7 +237,10 @@ func (c *grpcExecutionChoreographer) renewExecutionLease(ctx context.Context, re
 	return nil
 }
 
-func (c *grpcExecutionChoreographer) completeExecution(ctx context.Context, req *api.CompleteExecutionRequest) (*api.CompleteExecutionResponse, error) {
+func (c *grpcExecutionChoreographer) completeExecution(
+	ctx context.Context,
+	req *api.CompleteExecutionRequest,
+) (*api.CompleteExecutionResponse, error) {
 	resp, usedStream, err := c.tryExecutionStream(ctx, &api.ExecutionStreamRequest{Complete: req})
 	if err != nil {
 		return nil, err
@@ -207,7 +257,10 @@ func (c *grpcExecutionChoreographer) completeExecution(ctx context.Context, req 
 	return resp.GetComplete(), nil
 }
 
-func (c *grpcExecutionChoreographer) tryExecutionStream(ctx context.Context, req *api.ExecutionStreamRequest) (*api.ExecutionStreamResponse, bool, error) {
+func (c *grpcExecutionChoreographer) tryExecutionStream(
+	ctx context.Context,
+	req *api.ExecutionStreamRequest,
+) (*api.ExecutionStreamResponse, bool, error) {
 	if c == nil {
 		return nil, false, fmt.Errorf("execution choreographer is not configured")
 	}
@@ -253,7 +306,9 @@ func (c *grpcExecutionChoreographer) tryExecutionStream(ctx context.Context, req
 	return resp, true, nil
 }
 
-func (c *grpcExecutionChoreographer) executionStreamLocked(ctx context.Context) (api.OrchestratorService_ExecutionStreamClient, error) {
+func (c *grpcExecutionChoreographer) executionStreamLocked(
+	ctx context.Context,
+) (api.OrchestratorService_ExecutionStreamClient, error) {
 	if c.stream != nil {
 		return c.stream, nil
 	}

@@ -61,7 +61,14 @@ func runDocs(cmd *cobra.Command, args []string) {
 	}
 
 	logger.Info("Docs listening on %s://%s (%s)", scheme, addr, source)
-	if err := cli.ServeHTTP(cmd.Context(), srv, func() error { return srv.Serve(ln) }, defaultShutdownTimeout, "Docs HTTP", logger); err != nil {
+	if err := cli.ServeHTTP(
+		cmd.Context(),
+		srv,
+		func() error { return srv.Serve(ln) },
+		defaultShutdownTimeout,
+		"Docs HTTP",
+		logger,
+	); err != nil {
 		logger.Fatal("Docs server failed: %v", err)
 	}
 }
@@ -162,7 +169,8 @@ func docsBindHost() string {
 }
 
 func docsTLSEnabled() bool {
-	return strings.TrimSpace(viper.GetString("tls_cert_file")) != "" || strings.TrimSpace(viper.GetString("tls_key_file")) != ""
+	return strings.TrimSpace(viper.GetString("tls_cert_file")) != "" ||
+		strings.TrimSpace(viper.GetString("tls_key_file")) != ""
 }
 
 func docsTLSOptions() tlsconfig.Options {
@@ -218,7 +226,11 @@ func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs
 				return handler, fmt.Sprintf("serving %s", dir)
 			}
 
-			logger.Warn("configured docs dir %s could not be prepared safely: %v; falling back to embedded docs", dir, err)
+			logger.Warn(
+				"configured docs dir %s could not be prepared safely: %v; falling back to embedded docs",
+				dir,
+				err,
+			)
 		} else {
 			logger.Warn("configured docs dir %s does not contain index.html; falling back to embedded docs", dir)
 		}
@@ -302,11 +314,13 @@ func init() {
 	rootCmd.PersistentFlags().Int("port", defaultDocsPort, "HTTP port for the docs site")
 	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the docs site to bind")
 	rootCmd.PersistentFlags().String("dir", "", "Directory containing a docs build to serve instead of embedded docs")
-	rootCmd.PersistentFlags().StringSlice("allowed-host", nil, "Allowed Host header for the docs site; may be repeated or comma-separated")
+	rootCmd.PersistentFlags().
+		StringSlice("allowed-host", nil, "Allowed Host header for the docs site; may be repeated or comma-separated")
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().String("tls-cert-file", "", "Certificate file for docs HTTPS")
 	rootCmd.PersistentFlags().String("tls-key-file", "", "Private key file for docs HTTPS")
-	rootCmd.PersistentFlags().Duration("tls-reload-interval", 0, "How often to poll docs HTTPS cert/key files for reload; 0 disables polling")
+	rootCmd.PersistentFlags().
+		Duration("tls-reload-interval", 0, "How often to poll docs HTTPS cert/key files for reload; 0 disables polling")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))

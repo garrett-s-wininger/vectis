@@ -268,7 +268,12 @@ func validateSmokeIdentity(opts SmokeOptions, identity sdkauth.Identity) error {
 		}
 
 		encoded, _ := json.Marshal(values)
-		return fmt.Errorf("ldap smoke %s attribute = %s, want %q", opts.UsernameAttribute, encoded, opts.ExpectedUsername)
+		return fmt.Errorf(
+			"ldap smoke %s attribute = %s, want %q",
+			opts.UsernameAttribute,
+			encoded,
+			opts.ExpectedUsername,
+		)
 	}
 
 	return nil

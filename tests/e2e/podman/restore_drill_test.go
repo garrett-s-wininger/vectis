@@ -85,7 +85,20 @@ func TestE2EPodmanReferenceRestoreDrill(t *testing.T) {
 	assertPodmanRestoreDrillRun(t, ctx, root, env, cli, before.RunID)
 
 	evidenceRoot := t.TempDir()
-	expectedTopology := runPodmanRestoreDrillCommandToFile(t, root, env, cli, filepath.Join(evidenceRoot, "podman.expected-topology.json"), "--format", "json", "backup", "expect", "podman", "--profile", "simple")
+	expectedTopology := runPodmanRestoreDrillCommandToFile(
+		t,
+		root,
+		env,
+		cli,
+		filepath.Join(evidenceRoot, "podman.expected-topology.json"),
+		"--format",
+		"json",
+		"backup",
+		"expect",
+		"podman",
+		"--profile",
+		"simple",
+	)
 
 	podmanDeployDown(t, ctx, root, env, cli)
 
@@ -106,8 +119,20 @@ func TestE2EPodmanReferenceRestoreDrill(t *testing.T) {
 	after := submitPodmanRestoreDrillJob(t, ctx, root, env, cli, jobPath)
 	assertPodmanRestoreDrillRun(t, ctx, root, env, cli, after.RunID)
 
-	evidencePath := writePodmanRestoreDrillEvidence(t, filepath.Join(evidenceRoot, "podman.restore-drill.json"), expectedTopology, archives, before.RunID, after.RunID)
-	t.Logf("podman reference restore drill evidence: expected_topology=%s restore_drill=%s archives=%d", expectedTopology, evidencePath, len(archives))
+	evidencePath := writePodmanRestoreDrillEvidence(
+		t,
+		filepath.Join(evidenceRoot, "podman.restore-drill.json"),
+		expectedTopology,
+		archives,
+		before.RunID,
+		after.RunID,
+	)
+	t.Logf(
+		"podman reference restore drill evidence: expected_topology=%s restore_drill=%s archives=%d",
+		expectedTopology,
+		evidencePath,
+		len(archives),
+	)
 }
 
 func podmanDeployUp(t *testing.T, ctx context.Context, root string, env []string, cli string) {
@@ -125,7 +150,18 @@ func podmanDeployDown(t *testing.T, ctx context.Context, root string, env []stri
 
 	downCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if _, err := runCommand(downCtx, root, env, nil, cli, "deploy", "podman", "--profile", "simple", "down"); err != nil {
+	if _, err := runCommand(
+		downCtx,
+		root,
+		env,
+		nil,
+		cli,
+		"deploy",
+		"podman",
+		"--profile",
+		"simple",
+		"down",
+	); err != nil {
 		t.Fatalf("stop podman stack: %v", err)
 	}
 }
@@ -201,7 +237,14 @@ func writePodmanRestoreDrillJob(t *testing.T) string {
 	return path
 }
 
-func submitPodmanRestoreDrillJob(t *testing.T, ctx context.Context, root string, env []string, cli string, jobPath string) jobRunResult {
+func submitPodmanRestoreDrillJob(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+	env []string,
+	cli string,
+	jobPath string,
+) jobRunResult {
 	t.Helper()
 
 	runCtx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -224,7 +267,14 @@ func submitPodmanRestoreDrillJob(t *testing.T, ctx context.Context, root string,
 	return out
 }
 
-func assertPodmanRestoreDrillRun(t *testing.T, ctx context.Context, root string, env []string, cli string, runID string) {
+func assertPodmanRestoreDrillRun(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+	env []string,
+	cli string,
+	runID string,
+) {
 	t.Helper()
 
 	final := waitForRunStatus(t, ctx, root, env, cli, runID, 3*time.Minute)
@@ -238,10 +288,27 @@ func assertPodmanRestoreDrillRun(t *testing.T, ctx context.Context, root string,
 		"Run "+runID+" finished successfully.",
 	)
 
-	assertPodmanRunArtifact(t, ctx, root, env, cli, runID, podmanRestoreDrillArtifactName, podmanRestoreDrillArtifactContent)
+	assertPodmanRunArtifact(
+		t,
+		ctx,
+		root,
+		env,
+		cli,
+		runID,
+		podmanRestoreDrillArtifactName,
+		podmanRestoreDrillArtifactContent,
+	)
 }
 
-func assertPodmanRunLogsContain(t *testing.T, ctx context.Context, root string, env []string, cli string, runID string, wants ...string) {
+func assertPodmanRunLogsContain(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+	env []string,
+	cli string,
+	runID string,
+	wants ...string,
+) {
 	t.Helper()
 
 	logCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
@@ -259,14 +326,34 @@ func assertPodmanRunLogsContain(t *testing.T, ctx context.Context, root string, 
 	}
 }
 
-func assertPodmanRunArtifact(t *testing.T, ctx context.Context, root string, env []string, cli string, runID, name, want string) {
+func assertPodmanRunArtifact(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+	env []string,
+	cli string,
+	runID, name, want string,
+) {
 	t.Helper()
 
 	output := filepath.Join(t.TempDir(), name+".txt")
 	downloadCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
-	if _, err := runCommand(downloadCtx, root, env, nil, cli, "runs", "artifacts", "download", runID, name, "--output", output); err != nil {
+	if _, err := runCommand(
+		downloadCtx,
+		root,
+		env,
+		nil,
+		cli,
+		"runs",
+		"artifacts",
+		"download",
+		runID,
+		name,
+		"--output",
+		output,
+	); err != nil {
 		t.Fatalf("download artifact %s for %s: %v", name, runID, err)
 	}
 
@@ -280,7 +367,12 @@ func assertPodmanRunArtifact(t *testing.T, ctx context.Context, root string, env
 	}
 }
 
-func backupPodmanVolumes(t *testing.T, ctx context.Context, backupDir string, volumes []string) []podmanVolumeArchiveEvidence {
+func backupPodmanVolumes(
+	t *testing.T,
+	ctx context.Context,
+	backupDir string,
+	volumes []string,
+) []podmanVolumeArchiveEvidence {
 	t.Helper()
 
 	if err := os.MkdirAll(backupDir, 0o700); err != nil {
@@ -327,7 +419,13 @@ func exportPodmanVolume(t *testing.T, ctx context.Context, volume, output string
 		t.Fatalf("create volume archive %s: %v", output, err)
 	}
 
-	cmd := exec.CommandContext(exportCtx, "podman", "volume", "export", volume) // #nosec G204 -- e2e harness controls command names/args.
+	cmd := exec.CommandContext(
+		exportCtx,
+		"podman",
+		"volume",
+		"export",
+		volume,
+	) // #nosec G204 -- e2e harness controls command names/args.
 	cmd.Stdout = file
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -356,14 +454,33 @@ func restorePodmanVolumes(t *testing.T, ctx context.Context, archives []podmanVo
 		cancelRemove()
 
 		createCtx, cancelCreate := context.WithTimeout(ctx, 30*time.Second)
-		if _, err := runCommand(createCtx, "", os.Environ(), nil, "podman", "volume", "create", archive.Volume); err != nil {
+		if _, err := runCommand(
+			createCtx,
+			"",
+			os.Environ(),
+			nil,
+			"podman",
+			"volume",
+			"create",
+			archive.Volume,
+		); err != nil {
 			cancelCreate()
 			t.Fatalf("create restored podman volume %s: %v", archive.Volume, err)
 		}
 		cancelCreate()
 
 		importCtx, cancelImport := context.WithTimeout(ctx, 2*time.Minute)
-		if _, err := runCommand(importCtx, "", os.Environ(), nil, "podman", "volume", "import", archive.Volume, archive.Archive); err != nil {
+		if _, err := runCommand(
+			importCtx,
+			"",
+			os.Environ(),
+			nil,
+			"podman",
+			"volume",
+			"import",
+			archive.Volume,
+			archive.Archive,
+		); err != nil {
 			cancelImport()
 			t.Fatalf("import restored podman volume %s: %v", archive.Volume, err)
 		}
@@ -371,7 +488,14 @@ func restorePodmanVolumes(t *testing.T, ctx context.Context, archives []podmanVo
 	}
 }
 
-func runPodmanRestoreDrillCommandToFile(t *testing.T, root string, env []string, cli string, outputPath string, args ...string) string {
+func runPodmanRestoreDrillCommandToFile(
+	t *testing.T,
+	root string,
+	env []string,
+	cli string,
+	outputPath string,
+	args ...string,
+) string {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -389,7 +513,12 @@ func runPodmanRestoreDrillCommandToFile(t *testing.T, root string, env []string,
 	return outputPath
 }
 
-func writePodmanRestoreDrillEvidence(t *testing.T, path, expectedTopology string, archives []podmanVolumeArchiveEvidence, preRestoreRunID, postRestoreRunID string) string {
+func writePodmanRestoreDrillEvidence(
+	t *testing.T,
+	path, expectedTopology string,
+	archives []podmanVolumeArchiveEvidence,
+	preRestoreRunID, postRestoreRunID string,
+) string {
 	t.Helper()
 
 	evidence := podmanRestoreDrillEvidence{

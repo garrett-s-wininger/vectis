@@ -43,10 +43,13 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	clock.SetNow(time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC))
 
 	jobs := mocks.NewMockJobsRepository()
-	loaded, err := (&recordingCronDefinitionResolver{}).ResolveDefinition(context.Background(), sourcepkg.DefinitionRequest{
-		Ref:  "main",
-		Path: ".vectis/jobs/job-1.json",
-	})
+	loaded, err := (&recordingCronDefinitionResolver{}).ResolveDefinition(
+		context.Background(),
+		sourcepkg.DefinitionRequest{
+			Ref:  "main",
+			Path: ".vectis/jobs/job-1.json",
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("resolve test definition: %v", err)
@@ -89,16 +92,26 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 
 	lastCreateJobID, lastDefVersion := runs.SnapshotLastCreate()
 	if lastCreateJobID != "job-1" || lastDefVersion != 1 {
-		t.Fatalf("expected source cron run for job-1 definition version 1, got job=%q version=%d", lastCreateJobID, lastDefVersion)
+		t.Fatalf(
+			"expected source cron run for job-1 definition version 1, got job=%q version=%d",
+			lastCreateJobID,
+			lastDefVersion,
+		)
 	}
 
-	if runs.LastSourceRecord.RepositoryID != "source-repo" || runs.LastSourceRecord.DefinitionPath != ".vectis/jobs/job-1.json" {
+	if runs.LastSourceRecord.RepositoryID != "source-repo" ||
+		runs.LastSourceRecord.DefinitionPath != ".vectis/jobs/job-1.json" {
 		t.Fatalf("expected source cron provenance on scheduled run, got %+v", runs.LastSourceRecord)
 	}
 
 	lastScheduleID, lastScheduledFor := runs.SnapshotLastScheduled()
 	if lastScheduleID != 42 || !lastScheduledFor.Equal(schedules.Ready[0].NextRunAt) {
-		t.Fatalf("expected scheduled run for schedule 42 at %v, got schedule=%d at %v", schedules.Ready[0].NextRunAt, lastScheduleID, lastScheduledFor)
+		t.Fatalf(
+			"expected scheduled run for schedule 42 at %v, got schedule=%d at %v",
+			schedules.Ready[0].NextRunAt,
+			lastScheduleID,
+			lastScheduledFor,
+		)
 	}
 
 	touched := runs.SnapshotTouchedRunIDs()
@@ -124,7 +137,11 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	}
 
 	if schedules.CompleteClaimCalls[0].ClaimToken != claim.ClaimToken {
-		t.Fatalf("expected complete to use claim token %q, got %q", claim.ClaimToken, schedules.CompleteClaimCalls[0].ClaimToken)
+		t.Fatalf(
+			"expected complete to use claim token %q, got %q",
+			claim.ClaimToken,
+			schedules.CompleteClaimCalls[0].ClaimToken,
+		)
 	}
 }
 
@@ -281,7 +298,8 @@ func TestCronService_ProcessSchedules_TwoInstancesOnlyOneClaimsDueTick(t *testin
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).
+		Scan(&runCount); err != nil {
 		t.Fatalf("count job runs: %v", err)
 	}
 
