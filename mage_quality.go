@@ -229,7 +229,11 @@ func Vulncheck() error {
 }
 
 func shellSources() ([]string, error) {
-	return filesWithSuffix([]string{".vectis", filepath.Join("build", "packer", "scripts")}, ".sh", nil)
+	excludedDirs := map[string]struct{}{
+		filepath.Join(".vectis", "scripts"): {},
+	}
+
+	return filesWithSuffix([]string{".vectis", filepath.Join("build", "packer", "scripts")}, ".sh", excludedDirs)
 }
 
 func goFormatSources() ([]string, error) {
