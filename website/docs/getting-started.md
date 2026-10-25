@@ -62,7 +62,7 @@ In one terminal, run:
 
 Leave this process running. It supervises the local API, cell ingress, queue, worker, worker core, secrets service, log service, artifact service, registry, cron, reconciler, catalog, UI, and docs site.
 
-By default, `vectis-local` creates local TLS material. Internal gRPC uses it immediately. The local API and docs use HTTPS automatically when that generated CA is already trusted by the system store, or when you start with `--http-tls=on`. Otherwise they keep using HTTP and log the trust-store setup command.
+By default, `vectis-local` creates local TLS material. Internal gRPC uses it immediately. The local API and docs use HTTPS automatically when that generated CA is already trusted by the system store, or when you start with `--http-tls=on`. Otherwise they keep using HTTP, allow insecure session cookies so API auth can start, and log the trust-store setup command.
 
 To prepare trusted local HTTPS without running the full stack as an elevated user:
 
@@ -91,13 +91,9 @@ The UI listens on:
 http://localhost:8089
 ```
 
-`vectis-local` enables HTTP API authentication by default. On first start with a fresh database, the log prints a local setup bootstrap token and stores it at:
+`vectis-local` enables HTTP API authentication by default and finishes first-admin setup after the API is healthy. With `--setup=off`, the log prints a bootstrap token and stores it at `~/.local/share/vectis/local-bootstrap-token` instead.
 
-```text
-~/.local/share/vectis/local-bootstrap-token
-```
-
-If you built the frontend lane with `mage buildFull` or `mage buildFrontend`, open the UI, enter that bootstrap token, and create the first admin account. `vectis-ui` owns first-load browser routing: it sends unauthenticated browsers to setup or login, then serves the React shell for allowed app routes. The browser receives an HttpOnly UI session cookie; `vectis-ui` keeps the API token server-side when proxying browser API calls. Use `./bin/vectis-local --auth=false` only when you intentionally want an unauthenticated local API.
+If you built the frontend lane with `mage buildFull` or `mage buildFrontend`, open the UI after `vectis-local` finishes setup and sign in with the admin username and password. `vectis-ui` owns first-load browser routing: it sends unauthenticated browsers to setup or login, then serves the React shell for allowed app routes. The browser receives an HttpOnly UI session cookie; `vectis-ui` keeps the API token server-side when proxying browser API calls. The setup screen remains for a stack started with `--setup=off`. Use `./bin/vectis-local --auth=false` only when you intentionally want an unauthenticated local API.
 
 If your browser is on a different machine than the dev shell, start the stack with:
 
@@ -127,23 +123,23 @@ The `8089` origin is the real browser surface. It keeps setup redirects, login r
 
 ## Create The First Admin
 
-`vectis-local` enables API authentication, so `health check` and `jobs run` need a credential before they can succeed. `auth login` asks for a username and password that already exist. On a new database, create that admin first.
+`vectis-local` enables API authentication and, by default, finishes first-admin setup after the API is healthy. `health check` and `jobs run` use the CLI token that setup saves.
 
-The bootstrap token is printed by `vectis-local` and stored at:
+In a terminal, `vectis-local` prompts for the admin username and a password of at least 8 characters. The username defaults to `admin`. Without a terminal, it creates user `admin` and writes the password to:
+
+```text
+~/.local/share/vectis/local-admin-password
+```
+
+That path is `$XDG_DATA_HOME/vectis/local-admin-password` when `XDG_DATA_HOME` is set. The CLI token is saved in the user config directory, the same file `auth login` uses. When the UI is running, sign in at `http://localhost:8089` with that username and password. The browser setup form is only shown when setup has not been completed.
+
+Pass `--setup=off` to skip this and finish setup yourself. The bootstrap token is then printed and stored at:
 
 ```text
 ~/.local/share/vectis/local-bootstrap-token
 ```
 
-That path is `$XDG_DATA_HOME/vectis/local-bootstrap-token` when `XDG_DATA_HOME` is set.
-
-If `vectis-ui` is running, open `http://localhost:8089`, enter the bootstrap token, and create the admin account. Then give the CLI its own credential:
-
-```sh
-./bin/vectis-cli auth login --username admin
-```
-
-Without the UI, create the admin from the API. The password must be at least 8 characters. The JSON response includes `api_token`:
+Create the admin with that token. The password must be at least 8 characters, and the JSON response includes `api_token`:
 
 ```sh
 curl -sS \
@@ -153,7 +149,7 @@ curl -sS \
 export VECTIS_API_TOKEN=<api_token>
 ```
 
-Use `auth login` in later shells. It saves a token in the user config directory. `VECTIS_API_TOKEN` overrides that saved token for one shell.
+An operator-supplied `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` also leaves setup for you. Use `auth login` in later shells after the admin exists. `VECTIS_API_TOKEN` overrides the saved token for one shell.
 
 ## Check Health
 

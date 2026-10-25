@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -10,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -271,6 +274,66 @@ func TestLocalBrowserTLSOffUsesHTTP(t *testing.T) {
 	cfg := localBrowserTLS(m, localHTTPSTLSOff, mocks.NopLogger{})
 	if cfg.Enabled || cfg.Scheme != "http" || len(cfg.Env) != 0 {
 		t.Fatalf("browser TLS off config = %+v, want plain HTTP", cfg)
+	}
+}
+
+func TestLocalPlainHTTPAuthAllowsInsecureCookies(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("auth_enabled", true)
+
+	env := localPlainHTTPAuthEnv(false)
+	if !slices.Contains(env, "VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true") {
+		t.Fatalf("plain HTTP auth env = %v", env)
+	}
+
+	if got := localPlainHTTPAuthEnv(true); got != nil {
+		t.Fatalf("HTTPS auth env = %v, want none", got)
+	}
+
+	viper.Set("auth_enabled", false)
+	if got := localPlainHTTPAuthEnv(false); got != nil {
+		t.Fatalf("auth disabled env = %v, want none", got)
+	}
+}
+
+func TestLocalAPIExitedShortCircuitsSetupPoll(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("exited-process detection uses a Unix process")
+	}
+
+	command := exec.Command("true")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = command.Wait() })
+
+	deadline := time.Now().Add(2 * time.Second)
+	for pidAlive(command.Process.Pid) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if pidAlive(command.Process.Pid) {
+		t.Fatal("exited process still looks alive")
+	}
+
+	trackedMu.Lock()
+	previous := tracked
+	tracked = []trackedCmd{{cmd: command, binary: "vectis-api"}}
+	trackedMu.Unlock()
+	t.Cleanup(func() {
+		trackedMu.Lock()
+		tracked = previous
+		trackedMu.Unlock()
+	})
+
+	started := time.Now()
+	_, err := waitForSetupStatus(t.Context(), &http.Client{Timeout: time.Second}, "http://127.0.0.1:1")
+	if err == nil || !strings.Contains(err.Error(), "exited before it accepted setup") {
+		t.Fatalf("waitForSetupStatus error = %v", err)
+	}
+
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("setup poll took %s after the API exited", elapsed)
 	}
 }
 

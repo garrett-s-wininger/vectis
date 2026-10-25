@@ -28,9 +28,7 @@ That matches the API started by `./bin/vectis-local`.
 
 ## Authentication
 
-`vectis-local` enables API authentication by default. If you start it with `--auth=false`, workflow commands can run without a token.
-
-On a new database, create the first admin before logging in. `vectis-local` writes a bootstrap token under `$XDG_DATA_HOME/vectis/local-bootstrap-token`, or `~/.local/share/vectis/local-bootstrap-token` when `XDG_DATA_HOME` is unset. The admin password must be at least 8 characters:
+`vectis-local` enables API authentication by default and finishes first-admin setup once the API is healthy. A terminal prompts for the username and password. A non-interactive start creates user `admin`, writes the password under `$XDG_DATA_HOME/vectis/local-admin-password` (or `~/.local/share/vectis/local-admin-password`), and saves the CLI token. If you start it with `--auth=false`, workflow commands can run without a token. Pass `--setup=off`, or set `VECTIS_API_AUTH_BOOTSTRAP_TOKEN`, to leave setup for the bootstrap token:
 
 ```sh
 curl -sS \
@@ -40,7 +38,7 @@ curl -sS \
 export VECTIS_API_TOKEN=<api_token>
 ```
 
-`api_token` in that response is a bearer token. With the UI running, the same setup is the form at `http://localhost:8089`. The browser session does not fill the CLI token file.
+The admin password must be at least 8 characters. `api_token` in that response is a bearer token. With the UI running after automatic setup, sign in at `http://localhost:8089`. The browser setup form remains only when setup has not been completed, and that browser session does not fill the CLI token file.
 
 After an admin account exists, log in once:
 
@@ -581,7 +579,7 @@ For operational context, see [Configuration](../operating/configuration.md), [Re
 For local development, a comfortable CLI loop looks like this:
 
 1. Start `./bin/vectis-local`.
-2. On a new database, finish initial setup and export `VECTIS_API_TOKEN`, or run `./bin/vectis-cli auth login` after the admin account exists.
+2. On a new database, let `vectis-local` finish setup, or with `--setup=off` export `VECTIS_API_TOKEN` or run `./bin/vectis-cli auth login` after the admin account exists.
 3. Run `./bin/vectis-cli health check`.
 4. Edit a job JSON file.
 5. Run it with `./bin/vectis-cli jobs run <file> --follow`.

@@ -23,17 +23,7 @@ Start the local stack:
 ./bin/vectis-local
 ```
 
-`vectis-local` enables API authentication. On a new database it writes a bootstrap token to `~/.local/share/vectis/local-bootstrap-token` when `XDG_DATA_HOME` is unset, and prints the token and that path. In another terminal, create the first admin. The password must be at least 8 characters. The response field `api_token` is the CLI credential:
-
-```bash
-curl -sS \
-  -H 'Content-Type: application/json' \
-  -d '{"bootstrap_token":"<bootstrap-token>","admin_username":"admin","admin_password":"<admin-password>"}' \
-  http://localhost:8080/api/v1/setup/complete
-export VECTIS_API_TOKEN=<api_token>
-```
-
-If you built the UI with `mage buildFull`, you can create that admin in the browser at `http://localhost:8089` instead, then run `./bin/vectis-cli auth login --username admin`. `auth login` requires an admin that already exists. Later shells can use `auth login` again; it saves a token for subsequent CLI commands.
+`vectis-local` enables API authentication and finishes first-admin setup once the API is healthy. In a terminal it prompts for the admin username and password. Without a terminal it creates user `admin`, writes the password to `~/.local/share/vectis/local-admin-password` when `XDG_DATA_HOME` is unset, and saves the CLI token for later commands. Pass `--setup=off` to keep the bootstrap token and finish setup yourself.
 
 Check that the stack is healthy, then run the included example and follow its logs:
 

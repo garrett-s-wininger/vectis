@@ -1428,9 +1428,32 @@ func validateLocalCellPorts(cell localCell) error {
 	return nil
 }
 
-func localAuthEnv(logger interfaces.Logger) []string {
+func localPlainHTTPAuthEnv(browserTLSEnabled bool) []string {
+	if browserTLSEnabled || !viper.GetBool("auth_enabled") {
+		return nil
+	}
+
+	return []string{"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true"}
+}
+
+func localAPIExited() bool {
+	trackedMu.Lock()
+	defer trackedMu.Unlock()
+
+	for _, started := range tracked {
+		if started.binary != "vectis-api" || started.cmd == nil || started.cmd.Process == nil {
+			continue
+		}
+
+		return !pidAlive(started.cmd.Process.Pid)
+	}
+
+	return false
+}
+
+func localAuthEnv(logger interfaces.Logger) ([]string, string, string) {
 	if !viper.GetBool("auth_enabled") {
-		return []string{"VECTIS_API_AUTH_ENABLED=false"}
+		return []string{"VECTIS_API_AUTH_ENABLED=false"}, "", ""
 	}
 
 	token, source, err := localBootstrapToken()
@@ -1438,11 +1461,14 @@ func localAuthEnv(logger interfaces.Logger) []string {
 		logger.Fatal("local API auth bootstrap token: %v", err)
 	}
 
-	logger.Info("Setup bootstrap token %s: %s", source, token)
+	if localSetupSkipsAuto(source) {
+		logger.Info("Setup bootstrap token %s: %s", source, token)
+	}
+
 	return []string{
 		"VECTIS_API_AUTH_ENABLED=true",
 		"VECTIS_API_AUTH_BOOTSTRAP_TOKEN=" + token,
-	}
+	}, token, source
 }
 
 func localBootstrapToken() (string, string, error) {
@@ -1608,6 +1634,10 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Fatal("invalid http TLS mode: %s (must be auto, on, or off)", httpTLSMode)
 	}
 
+	if !validLocalSetupMode(localSetupMode()) {
+		logger.Fatal("invalid setup mode: %s (must be auto or off)", localSetupMode())
+	}
+
 	setLoggerLevel(logger, logLevel)
 
 	if err := validateUIDevAssetsConfig(); err != nil {
@@ -1644,6 +1674,10 @@ func runVectis(cmd *cobra.Command, args []string) {
 	}
 	browserTLS := localBrowserTLS(material, httpTLSMode, logger)
 	tlsEnv = append(tlsEnv, browserTLS.Env...)
+	if plainHTTPAuth := localPlainHTTPAuthEnv(browserTLS.Enabled); len(plainHTTPAuth) > 0 {
+		tlsEnv = append(tlsEnv, plainHTTPAuth...)
+		logger.Info("Local API auth is using HTTP, so insecure session cookies are allowed for this process.")
+	}
 
 	embeddedSPIFFE, err := startEmbeddedLocalSPIFFE(logger)
 	if err != nil {
@@ -1729,7 +1763,8 @@ func runVectis(cmd *cobra.Command, args []string) {
 	tlsEnv = append(tlsEnv, localDatabaseEnv(topology)...)
 	tlsEnv = append(tlsEnv, localDiscoveryRegistryEnv(profile)...)
 	tlsEnv = append(tlsEnv, localAPIEnv...)
-	tlsEnv = append(tlsEnv, localAuthEnv(logger)...)
+	authEnv, bootstrapToken, bootstrapSource := localAuthEnv(logger)
+	tlsEnv = append(tlsEnv, authEnv...)
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
@@ -1839,6 +1874,14 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 		logger.Info("Stage %d started successfully", stage)
 	}
+
+	setup := finishLocalSetup(cmd.Context(), logger, localSetupBaseURL(browserTLS.Scheme), material, bootstrapToken, bootstrapSource, os.Stdin, os.Stderr)
+	if setup.Err != nil {
+		killAllStartedAndWait(logger)
+		logger.Fatal("local stack is not ready: %v", setup.Err)
+	}
+
+	printLocalReady(logger, browserTLS.Scheme, services, setup)
 
 	trackedMu.Lock()
 	toWait := make([]trackedCmd, len(tracked))
@@ -2022,7 +2065,11 @@ does not start services or perform any other setup.
 	Use --host=0.0.0.0 to expose the local API, UI, and docs outside the development
 	machine. Use --ui=false or --docs=false to skip either web server explicitly
 	during local development. Local API authentication is enabled by default; pass
-	--auth=false to run the local stack without HTTP API auth.
+	--auth=false to run the local stack without HTTP API auth. With auth enabled,
+	--setup=auto creates the first admin after the API is healthy: a terminal
+	prompts for the username and password, and a non-interactive start writes a
+	generated password under the local data directory. The returned API token is
+	saved for vectis-cli. Pass --setup=off to leave setup for the bootstrap token.
 
 Use --cell repeatedly to add extra local execution cells over the default cell
 from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
@@ -2093,6 +2140,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("ui-dev-assets-port", 5173, "HTTP port for the UI Vite dev assets server")
 	rootCmd.PersistentFlags().String("ui-dev-assets-dir", "ui", "Directory containing the UI package.json for Vite dev assets")
 	rootCmd.PersistentFlags().Bool("auth", true, "Enable local HTTP API authentication")
+	rootCmd.PersistentFlags().String("setup", localSetupAuto, "Local first-admin setup: auto or off")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
@@ -2123,6 +2171,7 @@ func init() {
 	_ = viper.BindPFlag("ui_dev_assets_port", rootCmd.PersistentFlags().Lookup("ui-dev-assets-port"))
 	_ = viper.BindPFlag("ui_dev_assets_dir", rootCmd.PersistentFlags().Lookup("ui-dev-assets-dir"))
 	_ = viper.BindPFlag("auth_enabled", rootCmd.PersistentFlags().Lookup("auth"))
+	_ = viper.BindPFlag("setup", rootCmd.PersistentFlags().Lookup("setup"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
 	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
 	_ = viper.BindEnv("tls_dir", "VECTIS_LOCAL_TLS_DIR")
@@ -2152,6 +2201,7 @@ func init() {
 	_ = viper.BindEnv("ui_dev_assets_port", "VECTIS_LOCAL_UI_DEV_ASSETS_PORT")
 	_ = viper.BindEnv("ui_dev_assets_dir", "VECTIS_LOCAL_UI_DEV_ASSETS_DIR")
 	_ = viper.BindEnv("auth_enabled", "VECTIS_LOCAL_AUTH_ENABLED")
+	_ = viper.BindEnv("setup", "VECTIS_LOCAL_SETUP")
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()
 	rootCmd.AddCommand(initCmd, installCertCmd)
