@@ -48,9 +48,10 @@ Use a one-off run when you are experimenting:
 ./bin/vectis-cli jobs run hello.json --follow
 ```
 
-Use a reusable source-backed job when you want to trigger the same definition repeatedly:
+Use a reusable source-backed job when you want to trigger the same definition repeatedly. Register a managed repository with `local_commit` authoring first; `jobs create` commits the definition there, and a default local stack has no repository until you register one:
 
 ```sh
+./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
 ./bin/vectis-cli jobs create hello.json --repository vectis-local --branch main --message "Add hello job"
 ./bin/vectis-cli jobs trigger hello-job --repository vectis-local --ref main --follow
 ```
@@ -317,7 +318,7 @@ When you are learning or debugging, this loop is usually enough:
 
 1. Edit a local JSON file.
 2. Run it once with `./bin/vectis-cli jobs run <file> --follow`.
-3. If it works and you want to reuse it, commit it with `./bin/vectis-cli jobs create <file> --repository <repo> --branch <branch>`.
+3. If it works and you want to reuse it, register a managed `local_commit` repository if you have not already, then commit it with `./bin/vectis-cli jobs create <file> --repository <repo> --branch <branch>`.
 4. Trigger future runs with `./bin/vectis-cli jobs trigger <job-id> --repository <repo> --follow`.
 5. Inspect history with `./bin/vectis-cli runs list <job-id> --repository <repo>`.
 

@@ -125,21 +125,45 @@ http://localhost:8089
 
 The `8089` origin is the real browser surface. It keeps setup redirects, login redirects, HttpOnly UI session cookies, and browser API proxying active while Vite supplies hot-reloaded React assets. Use the Vite port only for debugging the asset server itself.
 
-## Check Health
+## Create The First Admin
 
-In a second terminal, run:
+`vectis-local` enables API authentication, so `health check` and `jobs run` need a credential before they can succeed. `auth login` asks for a username and password that already exist. On a new database, create that admin first.
 
-```sh
-./bin/vectis-cli auth login
+The bootstrap token is printed by `vectis-local` and stored at:
+
+```text
+~/.local/share/vectis/local-bootstrap-token
 ```
 
-Then check the local stack:
+That path is `$XDG_DATA_HOME/vectis/local-bootstrap-token` when `XDG_DATA_HOME` is set.
+
+If `vectis-ui` is running, open `http://localhost:8089`, enter the bootstrap token, and create the admin account. Then give the CLI its own credential:
+
+```sh
+./bin/vectis-cli auth login --username admin
+```
+
+Without the UI, create the admin from the API. The password must be at least 8 characters. The JSON response includes `api_token`:
+
+```sh
+curl -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"bootstrap_token":"<bootstrap-token>","admin_username":"admin","admin_password":"<admin-password>"}' \
+  http://localhost:8080/api/v1/setup/complete
+export VECTIS_API_TOKEN=<api_token>
+```
+
+Use `auth login` in later shells. It saves a token in the user config directory. `VECTIS_API_TOKEN` overrides that saved token for one shell.
+
+## Check Health
+
+In a second terminal, after the admin credential is available, run:
 
 ```sh
 ./bin/vectis-cli health check
 ```
 
-You should see a list of checks for the API, database schema, queue, reconciler, log service, and related operational signals. A fresh local stack should be healthy enough to accept jobs.
+You should see a list of checks for the API, database schema, queue, reconciler, log service, and related operational signals. A fresh local stack should be healthy enough to accept jobs. Until setup is complete, the check warns that initial setup is incomplete and that no CLI token is configured.
 
 If the command cannot connect, confirm `vectis-local` is still running and that the API is listening on port `8080`.
 
@@ -164,9 +188,10 @@ Running multiple steps in sequence
 
 ## Save And Trigger A Reusable Job
 
-If you want to save a job definition and trigger it later, commit it to a registered source repository:
+If you want to save a job definition and trigger it later, register a managed source repository and commit the job there. `local_commit` authoring is the mode that accepts `jobs create`, and it is only valid for a managed checkout. A default `vectis-local` stack does not register a repository for you:
 
 ```sh
+./bin/vectis-cli sources register vectis-local --checkout-mode managed --authoring-mode local_commit --default-ref main
 ./bin/vectis-cli jobs create examples/sequenced.json --repository vectis-local --branch main --message "Add sequenced job"
 ```
 
