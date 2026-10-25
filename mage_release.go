@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 )
 
 // CiQuick runs the local CI workflow in a clean temporary worktree.
-func CiQuick() error {
+func CiQuick() (err error) {
 	status, err := gitStatusPorcelain()
 	if err != nil {
 		return err
@@ -35,10 +36,17 @@ func CiQuick() error {
 	}
 
 	defer func() {
-		_ = run("", nil, "git", "worktree", "remove", "--force", worktree)
+		err = errors.Join(err, cleanCIWorktreeModuleCache(worktree))
+		err = errors.Join(err, run("", nil, "git", "worktree", "remove", "--force", worktree))
 	}()
 
 	return run(worktree, nil, goCommand(), "run", "./cmd/worker", "run-local", ".vectis/ci.json", "--workspace", ".")
+}
+
+func cleanCIWorktreeModuleCache(worktree string) error {
+	return run(worktree, map[string]string{
+		"GOMODCACHE": filepath.Join(worktree, "go", "pkg", "mod"),
+	}, goCommand(), "clean", "-modcache")
 }
 
 // FormalVerification runs all configured TLA+ formal models.
