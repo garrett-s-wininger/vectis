@@ -47,7 +47,7 @@ func TestCleanCIWorktreeModuleCache(t *testing.T) {
 	t.Setenv("GO", goBinary)
 	t.Setenv("GOTOOLCHAIN", "local")
 	worktree := t.TempDir()
-	cache := filepath.Join(worktree, "go", "pkg", "mod")
+	cache := filepath.Join(worktree, ".cache", "go", "pkg", "mod")
 	moduleDir := filepath.Join(cache, "example.com", "module@v1.0.0")
 
 	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
