@@ -6,6 +6,7 @@
 |--------|-------|-------|
 | `test` | All packages | No timeout, no race |
 | `testQuick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1`; timeout defaults to `60s` on Unix and `600s` on Windows |
+| `testFault` | Deterministic fault and recovery regressions, including worker/orchestrator RPC failures | Real local SQL/gRPC where applicable; no containers required; see the development environment recovery matrix |
 | `testIntegration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
 | `testE2E` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
 | `vmValidate` | Prepared VM static validation | Runs Packer script regression tests and `packer validate`; does not boot guests |

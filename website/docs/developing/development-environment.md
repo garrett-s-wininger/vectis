@@ -113,6 +113,43 @@ mage test
 
 On Windows, `mage testQuick` defaults to a longer timeout because filesystem and process creation are slower than on Unix. Keeping `GOCACHE`, `GOMODCACHE`, and optionally `VECTIS_TEST_TEMPDIR` on a fast local filesystem gives the best feedback loop.
 
+### Deterministic Failure And Recovery Tests
+
+`mage testFault` runs a focused regression suite without containers. Failures are
+injected at named storage or RPC boundaries, leases are advanced explicitly where
+supported, and tests assert the resulting durable and in-memory state. Timeouts
+bound a hung test; elapsed time does not trigger the new RPC failure scenarios.
+
+| Failure boundary | Coverage | Required result |
+| --- | --- | --- |
+| Queue persistence fails during enqueue, delivery, or acknowledgment | `internal/queue/server_fault_test.go` | Failed writes do not advance in-memory state; restart preserves recoverable deliveries. |
+| Queue state is lost or restored behind SQL | `internal/reconciler/reconciler_restore_test.go` | Frozen SQL payloads restore dispatch; an active durable claim suppresses redispatch. |
+| Worker lease expires or orchestrator state disappears | Worker restart and orchestrator recovery tests in `cmd/worker/main_test.go` | Recovery respects claim fencing and reconstructs the needed state. |
+| Completion takes effect but its response is lost | `TestWorkerFault_DurableCompletionAcrossRPCFailures` | Retrying returns the accepted terminal snapshot; one task execution and one durable final fact remain. |
+| SQL commits before acknowledgment request or response is lost | The same RPC fault matrix | A fresh worker delivers the durable receipt; graph reclamation and receipt deletion complete without changing the run outcome. |
+| Orchestrator restarts after SQL commits, before receipt recovery | The same RPC fault matrix | Receipts for absent graphs are consumed safely; delayed deliveries do not rerun the task. |
+| Final snapshot transaction fails | `TestTerminalPersistenceFailureDoesNotReleaseState` | Run state rolls back and the graph stays available until persistence succeeds. |
+| Acknowledgment is duplicated or belongs to an old generation | `internal/orchestrator/retention_test.go` | Reclamation is idempotent and cannot remove a newer graph. |
+| Log forwarding acknowledgment is lost | `internal/logforwarder/forwarder_fault_test.go` | Durable spool remains available for retry. |
+
+The RPC matrix covers successful, failed, and cancelled task outcomes over both
+the execution stream and unary RPCs: 24 scenarios. It uses real worker execution
+and finalization code, an in-memory gRPC transport, and migrated SQLite. Faults
+occur synchronously at the selected boundary; worker replacement starts with no
+in-memory finalization result. The tests also run in `mage testQuick`.
+
+To repeat this matrix under the race detector:
+
+```bash
+go test -race -count=10 -timeout=120s ./cmd/worker -run '^TestWorkerFault_DurableCompletionAcrossRPCFailures$'
+```
+
+This suite proves the listed recovery transitions. Postgres behavior remains in
+`mage testPostgresIntegration`; operating-system process termination, full
+backup/restore, deployment topology, and capacity require their corresponding
+integration or deployment tests. The execution-count assertion applies to these
+tested RPC failures, not arbitrary external side effects interrupted by a crash.
+
 For narrow work, prefer package-level tests:
 
 ```bash

@@ -174,21 +174,23 @@ func TestE2EVM() error {
 	return TestE2EPackageLocal()
 }
 
-// TestFault runs the fault-injection focused suites.
+// TestFault runs deterministic fault-injection and recovery regression suites.
 func TestFault() error {
 	if err := run("", nil, goCommand(), "test", "-count=1", "./internal/faultinject"); err != nil {
 		return err
 	}
 
-	return run("", nil, goCommand(), "test", "-count=1",
+	return run("", nil, goCommand(), "test", "-count=1", "-timeout=120s",
+		"./cmd/worker",
 		"./internal/artifact",
 		"./internal/catalog",
 		"./internal/cron",
 		"./internal/job",
 		"./internal/logforwarder",
+		"./internal/orchestrator",
 		"./internal/queue",
 		"./internal/reconciler",
-		"-run", "Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable",
+		"-run", "Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable|OrchestratorRestart|WorkerRestartMidRun|PersistenceFailure|LostPersistenceAcknowledgment|ReclaimedRun|ReclaimsOnlyAcknowledged|CompletedHistory|GRPCAcknowledge|FailedAndCancelled",
 	)
 }
 
