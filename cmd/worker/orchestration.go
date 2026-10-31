@@ -42,6 +42,26 @@ type executionChoreographer interface {
 	RequiresDurableTaskRows() bool
 }
 
+type continuationCanceller interface {
+	CancelRunContinuation(context.Context, *cell.ExecutionEnvelope, string, string) (dal.ExecutionFinalizationResult, error)
+}
+
+func (c *grpcExecutionChoreographer) CancelRunContinuation(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string) (dal.ExecutionFinalizationResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, orchestratorRPCTimeout)
+	defer cancel()
+
+	flag := true
+	response, err := c.completeExecution(ctx, &api.CompleteExecutionRequest{
+		RunId: stringPtr(env.RunID), RootExecutionId: stringPtr(env.RunAttemptExecutionID()), ExecutionId: stringPtr(env.ExecutionID), Owner: stringPtr(owner), ClaimToken: stringPtr(claimToken), CancelContinuation: &flag,
+	})
+
+	if err != nil {
+		return dal.ExecutionFinalizationResult{}, err
+	}
+
+	return dal.ExecutionFinalizationResult{RunID: response.GetRunId(), ExecutionID: response.GetExecutionId(), Outcome: dal.ExecutionFinalizationOutcome(response.GetOutcome()), Summary: runTaskCompletionFromProto(response.GetSummary()), Executions: taskExecutionSnapshotsFromProto(response.GetExecutions()), PersistenceToken: response.GetPersistenceToken()}, nil
+}
+
 type durableCompletionChoreographer interface {
 	completesExecutionDurably() bool
 }

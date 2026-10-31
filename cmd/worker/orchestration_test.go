@@ -386,3 +386,7 @@ func executionEnvelopeFromRecord(record dal.TaskExecutionRecord) *cell.Execution
 		DefinitionHash:    "test-definition-hash",
 	}
 }
+
+func (c *localOrchestratorChoreographer) CancelRunContinuation(ctx context.Context, env *cell.ExecutionEnvelope, owner, token string) (dal.ExecutionFinalizationResult, error) {
+	return c.service.CancelRunContinuation(ctx, env.RunID, env.RunAttemptExecutionID(), env.ExecutionID, owner, token)
+}

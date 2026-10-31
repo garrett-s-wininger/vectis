@@ -144,16 +144,23 @@ func (s *grpcServer) CompleteExecution(
 		return nil, status.Error(codes.InvalidArgument, "complete execution request is required")
 	}
 
-	result, err := s.service.CompleteExecutionByClaim(
-		ctx,
-		req.GetRunId(),
-		req.GetExecutionId(),
-		req.GetOwner(),
-		req.GetClaimToken(),
-		req.GetStatus(),
-		req.GetFailureCode(),
-		req.GetReason(),
-	)
+	var result dal.ExecutionFinalizationResult
+	var err error
+	if req.GetCancelContinuation() {
+		result, err = s.service.CancelRunContinuation(ctx, req.GetRunId(), req.GetRootExecutionId(), req.GetExecutionId(), req.GetOwner(), req.GetClaimToken())
+	} else {
+		result, err = s.service.CompleteExecutionByClaim(
+			ctx,
+			req.GetRunId(),
+			req.GetExecutionId(),
+			req.GetOwner(),
+			req.GetClaimToken(),
+			req.GetStatus(),
+			req.GetFailureCode(),
+			req.GetReason(),
+		)
+	}
+
 	if err != nil {
 		return nil, grpcError(err)
 	}

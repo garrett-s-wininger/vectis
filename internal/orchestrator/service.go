@@ -506,6 +506,59 @@ func (s *Service) CompleteExecutionByClaim(
 	return value.(dal.ExecutionFinalizationResult), nil
 }
 
+func (s *Service) CancelRunContinuation(ctx context.Context, runID, rootExecutionID, executionID, owner, claimToken string) (dal.ExecutionFinalizationResult, error) {
+	value, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, err := state.getRun(runID)
+		if err != nil {
+			return nil, err
+		}
+
+		root := run.tasks[dal.RootTaskKey]
+		if rootExecutionID == "" || root == nil || root.record.ExecutionID != rootExecutionID {
+			return nil, fmt.Errorf("%w: cancellation generation differs", dal.ErrConflict)
+		}
+
+		task, err := run.getExecution(executionID)
+		if err != nil {
+			return nil, err
+		}
+
+		completed := task.completion
+		if completed == nil || owner == "" || claimToken == "" || completed.owner != owner || completed.claimToken != claimToken || completed.status != dal.ExecutionStatusSucceeded {
+			return nil, fmt.Errorf("%w: cancellation source claim differs", dal.ErrConflict)
+		}
+
+		if run.terminalClaim != nil {
+			return run.terminalResult(), nil
+		}
+
+		now := s.clock.Now()
+		for _, pending := range run.tasks {
+			if !isTerminalExecutionStatus(pending.status) {
+				pending.status = dal.ExecutionStatusCancelled
+				pending.finishedAt = now
+			}
+		}
+
+		run.recomputeSummary()
+		run.applyRunStatus(dal.ExecutionFinalizationOutcomeRunCancelled)
+		cancelled := *completed
+		cancelled.outcome = dal.ExecutionFinalizationOutcomeRunCancelled
+		task.completion = &cancelled
+		run.terminalClaim = &cancelled
+		run.persistenceToken = uuid.NewString()
+		s.awaitingPersistence.Add(1)
+
+		return run.terminalResult(), nil
+	})
+
+	if err != nil {
+		return dal.ExecutionFinalizationResult{}, err
+	}
+
+	return value.(dal.ExecutionFinalizationResult), nil
+}
+
 func (r *runState) terminalResult() dal.ExecutionFinalizationResult {
 	return dal.ExecutionFinalizationResult{
 		RunID: r.runID, ExecutionID: r.terminalClaim.executionID,

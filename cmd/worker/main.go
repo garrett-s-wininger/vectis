@@ -1716,6 +1716,7 @@ func refreshHydratedExecutionEnvelope(req *api.JobRequest) error {
 	}
 
 	_, err = cell.AttachExecutionEnvelope(req, dal.ExecutionDispatchRecord{
+		RootExecutionID:       env.RunAttemptExecutionID(),
 		RunID:                 env.RunID,
 		JobID:                 req.GetJob().GetId(),
 		NamespacePath:         env.NamespacePath,
@@ -1745,10 +1746,14 @@ func (w *worker) handleJobHydrationError(ctx context.Context, jobReq *api.JobReq
 	job := jobReq.GetJob()
 	runID := job.GetRunId()
 	deliveryID := job.GetDeliveryId()
+	executionEnvelope, _ := cell.DecodeExecutionEnvelope([]byte(jobReq.GetMetadata()[cell.ExecutionEnvelopeMetadataKey]))
+	if executionEnvelope != nil && executionEnvelope.RunID != runID {
+		executionEnvelope = nil
+	}
 
 	if runID != "" {
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
+		if markErr := w.markRunOrphanedWithRetry(executionEnvelope, dal.OrphanReasonAckUncertain); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after hydration failure: %v", runID, markErr)
 		}
 	}
@@ -1814,7 +1819,7 @@ func (w *worker) runTaskExecution(
 		span.SetStatus(otelcodes.Error, "ack delivery retry exhausted")
 
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if markErr := w.markRunOrphanedWithRetry(runID, ackFailure.decision.OrphanReason); markErr != nil {
+		if markErr := w.markRunOrphanedWithRetry(executionEnvelope, ackFailure.decision.OrphanReason); markErr != nil {
 			w.logger.Error(
 				"Failed to mark run %s orphaned after ack error (%s): %v",
 				runID,
@@ -1832,7 +1837,7 @@ func (w *worker) runTaskExecution(
 		span.SetStatus(otelcodes.Error, "missing or invalid execution envelope")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 		reason := "missing or invalid execution envelope for persisted run"
-		if err := w.markRunFailedWithRetry(runID, dal.FailureCodeInvalidEnvelope, reason); err != nil {
+		if err := w.markRunFailedWithRetry(executionEnvelope, dal.FailureCodeInvalidEnvelope, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed after missing execution envelope: %v", runID, err)
 			span.RecordError(err)
 		}
@@ -1870,7 +1875,7 @@ func (w *worker) runTaskExecution(
 			w.logger.Error("Failed to prepare run %s for orchestrator execution: %v", runID, err)
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 
-			if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
+			if markErr := w.markRunOrphanedWithRetry(executionEnvelope, dal.OrphanReasonAckUncertain); markErr != nil {
 				w.logger.Error("Failed to mark run %s orphaned after orchestrator prepare failure: %v", runID, markErr)
 				span.RecordError(markErr)
 			}
@@ -1901,7 +1906,7 @@ func (w *worker) runTaskExecution(
 			span.SetStatus(otelcodes.Error, "recover execution claim")
 			span.RecordError(recoverErr)
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-			if err := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); err != nil {
+			if err := w.markRunOrphanedWithRetry(executionEnvelope, dal.OrphanReasonAckUncertain); err != nil {
 				w.logger.Error(
 					"Failed to mark run %s orphaned after orchestrator claim recovery failure: %v",
 					runID,
@@ -1938,7 +1943,7 @@ func (w *worker) runTaskExecution(
 			return observability.WorkerOutcomeFailed
 		}
 
-		if err := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); err != nil {
+		if err := w.markRunOrphanedWithRetry(executionEnvelope, dal.OrphanReasonAckUncertain); err != nil {
 			w.logger.Error("Failed to mark run %s orphaned after execution claim failure: %v", runID, err)
 			span.RecordError(err)
 		}
@@ -1961,7 +1966,7 @@ func (w *worker) runTaskExecution(
 			span.SetStatus(otelcodes.Error, "recover execution claim")
 			span.RecordError(recoverErr)
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-			if err := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); err != nil {
+			if err := w.markRunOrphanedWithRetry(executionEnvelope, dal.OrphanReasonAckUncertain); err != nil {
 				w.logger.Error(
 					"Failed to mark run %s orphaned after orchestrator claim recovery failure: %v",
 					runID,
@@ -1990,7 +1995,7 @@ func (w *worker) runTaskExecution(
 		span.SetStatus(otelcodes.Error, "publish run hot-state owner")
 		w.logger.Error("Failed to publish run %s hot-state owner: %v", runID, err)
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
+		if markErr := w.markRunOrphanedWithRetry(executionEnvelope, dal.OrphanReasonAckUncertain); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after hot-state owner publish failure: %v", runID, markErr)
 			span.RecordError(markErr)
 		}
@@ -2047,7 +2052,7 @@ func (w *worker) runTaskExecution(
 			span.RecordError(execErr)
 			span.SetStatus(otelcodes.Error, "worker core outcome unknown")
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-			if err := w.markRunOrphanedWithRetry(runID, execDecision.reason); err != nil {
+			if err := w.markRunOrphanedWithRetry(executionEnvelope, execDecision.reason); err != nil {
 				w.logger.Error("Failed to mark run %s orphaned after worker core unknown outcome: %v", runID, err)
 				span.RecordError(err)
 			}
@@ -2435,6 +2440,8 @@ func (w *worker) finalizeSucceededTaskRunByExecutionClaim(
 		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 		w.logger.Info("Job completed successfully: %s", jobID)
 		return observability.WorkerOutcomeSuccess
+	case dal.ExecutionFinalizationOutcomeRunCancelled:
+		return observability.WorkerOutcomeAborted
 	case dal.ExecutionFinalizationOutcomeRunFailed:
 		finalizeDecision := taskfinalize.Decide(false, reduceDecision)
 		w.recordTaskFinalizeDecision(ctx, finalizeDecision)
@@ -2444,6 +2451,37 @@ func (w *worker) finalizeSucceededTaskRunByExecutionClaim(
 	case dal.ExecutionFinalizationOutcomeContinued, dal.ExecutionFinalizationOutcomeWaiting:
 		knownPending := result.Outcome == dal.ExecutionFinalizationOutcomeContinued
 		continued, err := w.dispatchOrchestratorContinuation(ctx, j, executionEnvelope, result, knownPending)
+		if errors.Is(err, dal.ErrRunCancelRequested) {
+			canceller, ok := w.executionChoreographer().(continuationCanceller)
+			if !ok {
+				return observability.WorkerOutcomeFailed
+			}
+
+			cancelled, cancelErr := w.cancelContinuationWithRetry(ctx, canceller, executionEnvelope, executionClaim.get())
+			if cancelErr != nil {
+				w.logger.Error("Cancel continuation for run %s: %v", runID, cancelErr)
+				return observability.WorkerOutcomeFailed
+			}
+
+			if persistErr := w.persistTerminalExecutionSnapshot(ctx, cancelled, "", "cancel requested"); persistErr != nil {
+				w.logger.Error("Persist cancelled continuation for run %s: %v", runID, persistErr)
+				return observability.WorkerOutcomeFailed
+			}
+
+			w.recordTerminalExecutionSnapshotCatalogEvent(ctx, cancelled, "", "cancel requested")
+			w.recordRunCatalogEventForExecutionFinalization(cancelled, "", "cancel requested")
+			w.acknowledgePersistedRun(ctx, cancelled)
+			if cancelled.Outcome == dal.ExecutionFinalizationOutcomeRunSucceeded {
+				return observability.WorkerOutcomeSuccess
+			}
+
+			if cancelled.Outcome == dal.ExecutionFinalizationOutcomeRunFailed {
+				return observability.WorkerOutcomeFailed
+			}
+
+			return observability.WorkerOutcomeAborted
+		}
+
 		if err != nil {
 			w.logger.Error("Failed to continue task run %s: %v", runID, err)
 			span.RecordError(err)
@@ -2461,6 +2499,27 @@ func (w *worker) finalizeSucceededTaskRunByExecutionClaim(
 		span.SetStatus(otelcodes.Error, "unsupported execution finalization outcome")
 		return observability.WorkerOutcomeFailed
 	}
+}
+
+func (w *worker) cancelContinuationWithRetry(ctx context.Context, canceller continuationCanceller, env *cell.ExecutionEnvelope, token string) (dal.ExecutionFinalizationResult, error) {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		result, err := canceller.CancelRunContinuation(context.WithoutCancel(ctx), env, w.workerID, token)
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		if err := w.clock.Sleep(context.WithoutCancel(ctx), backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)); err != nil {
+			return dal.ExecutionFinalizationResult{}, err
+		}
+	}
+
+	return dal.ExecutionFinalizationResult{}, lastErr
 }
 
 func (w *worker) dispatchOrchestratorContinuation(
@@ -2486,6 +2545,7 @@ func (w *worker) dispatchOrchestratorContinuation(
 	if persistErr != nil {
 		w.logger.Warn("Failed to persist task continuation for run %s: %v", source.RunID, persistErr)
 		trace.SpanFromContext(ctx).RecordError(persistErr)
+		return false, persistErr
 	}
 
 	inlineJob := shouldInlineContinuationJob(j, w.continuationInlineJobMaxBytes)
@@ -2591,47 +2651,49 @@ func (w *worker) persistTaskContinuation(
 		return false, fmt.Errorf("run_id is required to persist task continuation")
 	}
 
-	if source.ExecutionID != "" {
-		if err := w.store.ApplyExecutionStatusUpdate(context.WithoutCancel(ctx), dal.ExecutionStatusUpdate{
-			ExecutionID: source.ExecutionID,
-			Status:      dal.ExecutionStatusSucceeded,
-		}); err != nil {
-			w.noteDBError(err)
-			return false, fmt.Errorf("mark source execution %s succeeded: %w", source.ExecutionID, err)
-		}
+	plan, err := job.PlanTaskExecutions(j)
+	if err != nil {
+		return false, err
 	}
 
-	mirrored := 0
-	activated := 0
+	entries := make(map[string]job.TaskPlanEntry, len(plan))
+	for _, entry := range plan {
+		entries[entry.TaskKey] = entry
+	}
+
+	children := make([]dal.ContinuationTask, 0, len(result.Children))
 	for _, child := range result.Children {
-		if child.TaskID == "" {
-			continue
+		entry, ok := entries[child.TaskKey]
+		if !ok {
+			return false, fmt.Errorf("%w: child task is absent from plan", dal.ErrConflict)
 		}
 
-		if _, didActivate, err := w.activateOrEnsureContinuationTask(ctx, j, source, child); err != nil {
-			w.noteDBError(err)
-			return false, fmt.Errorf("activate child task %s: %w", child.TaskID, err)
-		} else if didActivate {
-			activated++
+		parentID := child.ParentTaskID
+		if parentID == "" {
+			parentID = source.TaskID
 		}
 
-		mirrored++
+		cellID := child.CellID
+		if cellID == "" {
+			cellID = source.CellID
+		}
+
+		children = append(children, dal.ContinuationTask{ExecutionID: child.ExecutionID, Create: dal.TaskExecutionCreate{
+			RunID: runID, ParentTaskID: parentID, TaskKey: child.TaskKey, Name: entry.Name, SpecHash: entry.SpecHash, TargetCellID: cellID,
+		}})
 	}
 
-	if mirrored == 0 {
-		return false, nil
-	}
-
-	if err := w.store.MarkRunQueuedForContinuation(context.WithoutCancel(ctx), runID); err != nil {
+	if err := w.store.PersistTaskContinuation(context.WithoutCancel(ctx), runID, source.RunAttemptExecutionID(), source.ExecutionID, children); err != nil {
 		w.noteDBError(err)
-		return false, fmt.Errorf("mark run %s queued for continuation: %w", runID, err)
+		return false, err
 	}
 
 	w.noteDBRecovered()
 	trace.SpanFromContext(ctx).AddEvent("task.dispatch.persisted", trace.WithAttributes(
-		attribute.Int("vectis.task.children.persisted", mirrored),
-		attribute.Int("vectis.task.children.activated", activated),
+		attribute.Int("vectis.task.children.persisted", len(children)),
+		attribute.Int("vectis.task.children.activated", len(children)),
 	))
+
 	return true, nil
 }
 
@@ -2651,111 +2713,6 @@ func (w *worker) executionPayloadHashForContinuation(ctx context.Context, runID 
 
 	w.noteDBRecovered()
 	return strings.TrimSpace(payloadHash)
-}
-
-func (w *worker) activateOrEnsureContinuationTask(
-	ctx context.Context,
-	j *api.Job,
-	source *cell.ExecutionEnvelope,
-	child dal.TaskExecutionRecord,
-) (dal.TaskExecutionRecord, bool, error) {
-	activated, didActivate, err := w.store.ActivatePlannedTaskExecution(context.WithoutCancel(ctx), child.TaskID)
-	if err == nil {
-		w.noteDBRecovered()
-		return activated, didActivate, nil
-	}
-
-	if !dal.IsNotFound(err) {
-		trace.SpanFromContext(ctx).RecordError(err)
-		return dal.TaskExecutionRecord{}, false, err
-	}
-
-	created, didCreate, err := w.ensurePendingContinuationTask(j, source, child)
-	if err != nil {
-		trace.SpanFromContext(ctx).RecordError(err)
-		return dal.TaskExecutionRecord{}, false, err
-	}
-
-	w.noteDBRecovered()
-	return created, didCreate, nil
-}
-
-func (w *worker) ensurePendingContinuationTask(
-	j *api.Job,
-	source *cell.ExecutionEnvelope,
-	child dal.TaskExecutionRecord,
-) (dal.TaskExecutionRecord, bool, error) {
-	if w.store == nil {
-		return dal.TaskExecutionRecord{}, false, fmt.Errorf("runs repository is required")
-	}
-
-	taskKey := strings.TrimSpace(child.TaskKey)
-	if taskKey == "" {
-		return dal.TaskExecutionRecord{}, false, fmt.Errorf("%w: child task_key is required", dal.ErrConflict)
-	}
-
-	plan, err := job.PlanTaskExecutions(j)
-	if err != nil {
-		return dal.TaskExecutionRecord{}, false, err
-	}
-
-	var entry job.TaskPlanEntry
-	found := false
-	for _, candidate := range plan {
-		if candidate.TaskKey == taskKey {
-			entry = candidate
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return dal.TaskExecutionRecord{}, false, fmt.Errorf("%w: task %s is not in job plan", dal.ErrNotFound, taskKey)
-	}
-
-	runID := strings.TrimSpace(child.RunID)
-	if runID == "" && source != nil {
-		runID = source.RunID
-	}
-
-	parentTaskID := strings.TrimSpace(child.ParentTaskID)
-	if parentTaskID == "" && source != nil {
-		parentTaskID = source.TaskID
-	}
-
-	name := strings.TrimSpace(child.Name)
-	if name == "" {
-		name = entry.Name
-	}
-
-	cellID := strings.TrimSpace(child.CellID)
-	if cellID == "" && source != nil {
-		cellID = source.CellID
-	}
-
-	record, created, err := w.store.EnsurePendingTaskExecution(w.runCtx, dal.TaskExecutionCreate{
-		RunID:        runID,
-		ParentTaskID: parentTaskID,
-		TaskKey:      taskKey,
-		Name:         name,
-		SpecHash:     entry.SpecHash,
-		TargetCellID: cellID,
-	})
-
-	if err != nil {
-		return dal.TaskExecutionRecord{}, false, err
-	}
-
-	if child.ExecutionID != "" && record.ExecutionID != child.ExecutionID {
-		return dal.TaskExecutionRecord{}, false, fmt.Errorf(
-			"%w: child execution %s materialized as %s",
-			dal.ErrConflict,
-			child.ExecutionID,
-			record.ExecutionID,
-		)
-	}
-
-	return record, created, nil
 }
 
 func shouldInlineContinuationJob(j *api.Job, maxBytes int64) bool {
@@ -2785,21 +2742,6 @@ func (w *worker) prepareContinuationDispatch(
 	source *cell.ExecutionEnvelope,
 	child dal.TaskExecutionRecord,
 ) (dal.ExecutionDispatchRecord, error) {
-	if w.store != nil {
-		activated, _, err := w.activateOrEnsureContinuationTask(ctx, j, source, child)
-		if err != nil {
-			w.noteDBError(err)
-			trace.SpanFromContext(ctx).RecordError(err)
-			return dal.ExecutionDispatchRecord{}, fmt.Errorf(
-				"activate child task execution %s: %w",
-				child.ExecutionID,
-				err,
-			)
-		}
-		if activated.ExecutionID != "" {
-			child = activated
-		}
-	}
 
 	dispatch := executionDispatchRecordFromTaskExecution(j, source, child)
 	deadline := dispatchmeta.DeadlineUnixNano(w.deadlineBaseNow(), config.DispatchStartTTL())
@@ -2898,6 +2840,7 @@ func executionDispatchRecordFromTaskExecution(
 	rec dal.TaskExecutionRecord,
 ) dal.ExecutionDispatchRecord {
 	return dal.ExecutionDispatchRecord{
+		RootExecutionID:   source.RunAttemptExecutionID(),
 		RunID:             rec.RunID,
 		JobID:             j.GetId(),
 		RunIndex:          source.RunIndex,
@@ -3721,10 +3664,15 @@ func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *a
 	}
 }
 
-func (w *worker) markRunFailedWithRetry(runID, failureCode, reason string) error {
+func (w *worker) markRunFailedWithRetry(env *cell.ExecutionEnvelope, failureCode, reason string) error {
+	if env == nil {
+		return fmt.Errorf("%w: missing execution identity", dal.ErrConflict)
+	}
+
+	runID := env.RunID
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunFailed(w.runCtx, runID, failureCode, reason)
+		err := w.store.ReportRunAttempt(w.runCtx, runID, env.RunAttemptExecutionID(), dal.RunStatusFailed, failureCode, reason)
 		if err == nil {
 			w.noteDBRecovered()
 			w.recordRunCatalogEvent(
@@ -3735,8 +3683,10 @@ func (w *worker) markRunFailedWithRetry(runID, failureCode, reason string) error
 					Reason:      reason,
 				},
 			)
+
 			return nil
 		}
+
 		w.noteDBError(err)
 
 		lastErr = err
@@ -3760,10 +3710,14 @@ func (w *worker) markRunFailedWithRetry(runID, failureCode, reason string) error
 	return lastErr
 }
 
-func (w *worker) markRunOrphanedWithRetry(runID, reason string) error {
+func (w *worker) markRunOrphanedWithRetry(env *cell.ExecutionEnvelope, reason string) error {
+	if env == nil {
+		return fmt.Errorf("%w: missing execution identity", dal.ErrConflict)
+	}
+	runID := env.RunID
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunOrphaned(w.runCtx, runID, reason)
+		err := w.store.ReportRunAttempt(w.runCtx, runID, env.RunAttemptExecutionID(), dal.RunStatusOrphaned, "", reason)
 		if err == nil {
 			w.noteDBRecovered()
 			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusOrphaned, Reason: reason})

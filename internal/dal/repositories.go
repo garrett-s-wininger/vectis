@@ -313,6 +313,11 @@ type TaskAttemptRecord struct {
 	SecurityEvents  []ExecutionSecurityEvent
 }
 
+type ContinuationTask struct {
+	Create      TaskExecutionCreate
+	ExecutionID string
+}
+
 type TaskExecutionCreate struct {
 	RunID                 string
 	ParentTaskID          string
@@ -390,6 +395,7 @@ type ExecutionPayloadRecord struct {
 }
 
 type ExecutionDispatchRecord struct {
+	RootExecutionID       string
 	RunID                 string
 	JobID                 string
 	NamespacePath         string
@@ -1066,6 +1072,8 @@ type RunsRepository interface {
 	MarkRunCancelled(ctx context.Context, runID, reason string) error
 	MarkRunAborted(ctx context.Context, runID, reason string) error
 	MarkRunOrphaned(ctx context.Context, runID, reason string) error
+	ReportRunAttempt(ctx context.Context, runID, rootExecutionID, status, failureCode, reason string) error
+	PersistTaskContinuation(ctx context.Context, runID, rootExecutionID, sourceExecutionID string, children []ContinuationTask) error
 	RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailed(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailedWithCode(ctx context.Context, runID, failureCode, reason string) error
@@ -1523,6 +1531,7 @@ func rootDispatchRecord(
 	}
 
 	return ExecutionDispatchRecord{
+		RootExecutionID:       root.ExecutionID,
 		RunID:                 runID,
 		JobID:                 jobID,
 		NamespacePath:         namespacePath,

@@ -161,9 +161,11 @@ The worker that completes a task owns the event-path decisions for that completi
 
 1. It completes the task execution through the orchestrator.
 2. Successful task completion may activate planned child task executions in the orchestrator.
-3. The worker directly enqueues activated child executions to the local queue with execution envelopes.
+3. The worker atomically persists the successful parent, child execution rows, and queued run state before enqueuing the children. The transaction checks the delivery’s root execution identity against the current retry generation and rejects pending cancellation. Stale worker failure and orphan reports use the same generation fence; operator force-fail remains a separate operation.
 4. If there is no immediate continuation, the task reduce service summarizes task state. Terminal failure dominates incomplete siblings; all-succeeded reduces to run success; incomplete work leaves the run available for later continuation.
 5. The task finalization boundary records the finalization outcome before the worker records status catalog events.
+
+If cancellation is accepted before continuation persistence, the worker does not enqueue children. It uses the completed source claim to cancel the remaining hot graph, then persists the terminal snapshot and retirement receipt before acknowledging persistence to the orchestrator. A delivery without execution identity cannot change durable run state.
 
 The reconciler remains a repair loop for durable queued work. It is not the normal event path for task fan-out or fan-in.
 

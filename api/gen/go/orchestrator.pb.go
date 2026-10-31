@@ -806,16 +806,19 @@ func (x *RenewExecutionLeaseRequest) GetLeaseUntilUnixNano() int64 {
 }
 
 type CompleteExecutionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	ExecutionId   *string                `protobuf:"bytes,2,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
-	Owner         *string                `protobuf:"bytes,3,opt,name=owner" json:"owner,omitempty"`
-	ClaimToken    *string                `protobuf:"bytes,4,opt,name=claim_token,json=claimToken" json:"claim_token,omitempty"`
-	Status        *string                `protobuf:"bytes,5,opt,name=status" json:"status,omitempty"`
-	FailureCode   *string                `protobuf:"bytes,6,opt,name=failure_code,json=failureCode" json:"failure_code,omitempty"`
-	Reason        *string                `protobuf:"bytes,7,opt,name=reason" json:"reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Convert a completed continuation to cancellation after durable intent is observed.
+	CancelContinuation *bool   `protobuf:"varint,8,opt,name=cancel_continuation,json=cancelContinuation" json:"cancel_continuation,omitempty"`
+	RootExecutionId    *string `protobuf:"bytes,9,opt,name=root_execution_id,json=rootExecutionId" json:"root_execution_id,omitempty"`
+	RunId              *string `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	ExecutionId        *string `protobuf:"bytes,2,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
+	Owner              *string `protobuf:"bytes,3,opt,name=owner" json:"owner,omitempty"`
+	ClaimToken         *string `protobuf:"bytes,4,opt,name=claim_token,json=claimToken" json:"claim_token,omitempty"`
+	Status             *string `protobuf:"bytes,5,opt,name=status" json:"status,omitempty"`
+	FailureCode        *string `protobuf:"bytes,6,opt,name=failure_code,json=failureCode" json:"failure_code,omitempty"`
+	Reason             *string `protobuf:"bytes,7,opt,name=reason" json:"reason,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *CompleteExecutionRequest) Reset() {
@@ -846,6 +849,20 @@ func (x *CompleteExecutionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CompleteExecutionRequest.ProtoReflect.Descriptor instead.
 func (*CompleteExecutionRequest) Descriptor() ([]byte, []int) {
 	return file_orchestrator_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *CompleteExecutionRequest) GetCancelContinuation() bool {
+	if x != nil && x.CancelContinuation != nil {
+		return *x.CancelContinuation
+	}
+	return false
+}
+
+func (x *CompleteExecutionRequest) GetRootExecutionId() string {
+	if x != nil && x.RootExecutionId != nil {
+		return *x.RootExecutionId
+	}
+	return ""
 }
 
 func (x *CompleteExecutionRequest) GetRunId() string {
@@ -1490,8 +1507,10 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x05owner\x18\x03 \x01(\tR\x05owner\x12\x1f\n" +
 	"\vclaim_token\x18\x04 \x01(\tR\n" +
 	"claimToken\x121\n" +
-	"\x15lease_until_unix_nano\x18\x05 \x01(\x03R\x12leaseUntilUnixNano\"\xde\x01\n" +
-	"\x18CompleteExecutionRequest\x12\x15\n" +
+	"\x15lease_until_unix_nano\x18\x05 \x01(\x03R\x12leaseUntilUnixNano\"\xbb\x02\n" +
+	"\x18CompleteExecutionRequest\x12/\n" +
+	"\x13cancel_continuation\x18\b \x01(\bR\x12cancelContinuation\x12*\n" +
+	"\x11root_execution_id\x18\t \x01(\tR\x0frootExecutionId\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12!\n" +
 	"\fexecution_id\x18\x02 \x01(\tR\vexecutionId\x12\x14\n" +
 	"\x05owner\x18\x03 \x01(\tR\x05owner\x12\x1f\n" +

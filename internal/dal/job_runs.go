@@ -5759,7 +5759,8 @@ func (r *SQLRunsRepository) ListPendingExecutions(
 			jr.definition_version,
 			jr.definition_hash,
 			jr.owning_cell,
-			se.start_deadline_unix_nano
+			se.start_deadline_unix_nano,
+			(SELECT root.execution_id FROM segment_executions root WHERE root.run_id = jr.run_id AND root.task_id = jr.run_id || ':root' ORDER BY root.attempt DESC, root.id DESC LIMIT 1)
 		FROM job_runs jr
 		JOIN run_segments rs ON rs.run_id = jr.run_id
 		JOIN segment_executions se ON se.segment_id = rs.segment_id
@@ -5827,7 +5828,8 @@ func (r *SQLRunsRepository) GetExecutionDispatch(
 			jr.definition_version,
 			jr.definition_hash,
 			jr.owning_cell,
-			se.start_deadline_unix_nano
+			se.start_deadline_unix_nano,
+			(SELECT root.execution_id FROM segment_executions root WHERE root.run_id = jr.run_id AND root.task_id = jr.run_id || ':root' ORDER BY root.attempt DESC, root.id DESC LIMIT 1)
 		FROM segment_executions se
 		JOIN job_runs jr ON jr.run_id = se.run_id
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
@@ -5885,7 +5887,8 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(
 				jr.definition_version,
 				jr.definition_hash,
 				jr.owning_cell,
-				se.start_deadline_unix_nano
+				se.start_deadline_unix_nano,
+			(SELECT root.execution_id FROM segment_executions root WHERE root.run_id = jr.run_id AND root.task_id = jr.run_id || ':root' ORDER BY root.attempt DESC, root.id DESC LIMIT 1)
 		FROM segment_executions se
 		JOIN job_runs jr ON jr.run_id = se.run_id
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
@@ -5959,6 +5962,7 @@ func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (Execut
 		&rec.DefinitionHash,
 		&rec.OwningCell,
 		&startDeadline,
+		&rec.RootExecutionID,
 	); err != nil {
 		return ExecutionDispatchRecord{}, err
 	}

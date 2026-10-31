@@ -3485,7 +3485,7 @@ func TestWorkerHandleJob_RunlessDeliveryIsMalformed(t *testing.T) {
 	}
 }
 
-func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
+func TestWorkerRunTaskExecution_MissingExecutionEnvelopeDoesNotMutateRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -3546,16 +3546,10 @@ func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 		t.Fatalf("query run status: %v", err)
 	}
 
-	if runStatus != dal.RunStatusFailed {
-		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusFailed)
-	}
-
-	if failureCode != dal.FailureCodeInvalidEnvelope {
-		t.Fatalf("failure code: got %q, want %q", failureCode, dal.FailureCodeInvalidEnvelope)
-	}
-
-	if !failureReason.Valid || !strings.Contains(failureReason.String, "execution envelope") {
-		t.Fatalf("failure reason should describe missing envelope, got %+v", failureReason)
+	// Without delivery identity a worker cannot distinguish a stale malformed
+	// message from the current run attempt. Drop it without changing SQL state.
+	if runStatus != dal.RunStatusQueued || failureCode != "" || failureReason.Valid {
+		t.Fatalf("unscoped delivery changed run: status=%s code=%s reason=%v", runStatus, failureCode, failureReason)
 	}
 
 	if queue.ackCalls != 1 {

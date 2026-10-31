@@ -25,6 +25,7 @@ const (
 
 type ExecutionEnvelope struct {
 	EnvelopeVersion       int                         `json:"envelope_version"`
+	RootExecutionID       string                      `json:"root_execution_id,omitempty"`
 	RunID                 string                      `json:"run_id"`
 	RunIndex              int                         `json:"run_index,omitempty"`
 	TaskID                string                      `json:"task_id"`
@@ -76,7 +77,12 @@ func NewExecutionEnvelopeWithActions(
 		actionLocks = locks
 	}
 
+	rootExecutionID := dispatch.RootExecutionID
+	if defaultTaskKey(dispatch.TaskKey) == dal.RootTaskKey {
+		rootExecutionID = dispatch.ExecutionID
+	}
 	env := &ExecutionEnvelope{
+		RootExecutionID: rootExecutionID,
 		EnvelopeVersion: ExecutionEnvelopeVersion,
 		RunID:           dispatch.RunID,
 		RunIndex:        dispatch.RunIndex,
@@ -263,6 +269,7 @@ func executionEnvelopesMatchSubmission(a, b *ExecutionEnvelope) bool {
 	}
 
 	if a.EnvelopeVersion != b.EnvelopeVersion ||
+		a.RootExecutionID != b.RootExecutionID ||
 		a.RunID != b.RunID ||
 		a.RunIndex != b.RunIndex ||
 		a.TaskID != b.TaskID ||
@@ -514,4 +521,17 @@ func preservedActionLocks(metadata map[string]string) []actionregistry.ActionLoc
 	}
 
 	return actionregistry.CloneActionLocks(env.ActionLocks)
+}
+
+// RunAttemptExecutionID returns the immutable root generation from this delivery.
+// Older root envelopes already contain the required identity; child deliveries
+// without a root generation cannot authorize run-level mutations.
+func (e *ExecutionEnvelope) RunAttemptExecutionID() string {
+	if e == nil {
+		return ""
+	}
+	if e.TaskKey == dal.RootTaskKey {
+		return e.ExecutionID
+	}
+	return e.RootExecutionID
 }

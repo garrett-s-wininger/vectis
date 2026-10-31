@@ -88,6 +88,8 @@ message RenewExecutionLeaseRequest {
 }
 
 message CompleteExecutionRequest {
+    bool cancel_continuation = 8;
+    string root_execution_id = 9;
     string run_id = 1;
     string execution_id = 2;
     string owner = 3;

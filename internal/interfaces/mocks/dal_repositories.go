@@ -2210,3 +2210,33 @@ func (m *MockSchedulesRepository) ReleaseClaim(ctx context.Context, scheduleID i
 }
 
 var _ dal.SchedulesRepository = (*MockSchedulesRepository)(nil)
+
+func (m *MockRunsRepository) ReportRunAttempt(ctx context.Context, runID, rootExecutionID, status, failureCode, reason string) error {
+	if rootExecutionID == "" {
+		return dal.ErrConflict
+	}
+
+	if status == dal.RunStatusFailed {
+		return m.MarkRunFailed(ctx, runID, failureCode, reason)
+	}
+
+	return m.MarkRunOrphaned(ctx, runID, reason)
+}
+
+func (m *MockRunsRepository) PersistTaskContinuation(ctx context.Context, runID, rootExecutionID, sourceExecutionID string, children []dal.ContinuationTask) error {
+	if rootExecutionID == "" {
+		return dal.ErrConflict
+	}
+
+	if err := m.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{ExecutionID: sourceExecutionID, Status: dal.ExecutionStatusSucceeded}); err != nil {
+		return err
+	}
+
+	for _, child := range children {
+		if _, _, err := m.EnsurePendingTaskExecution(ctx, child.Create); err != nil {
+			return err
+		}
+	}
+
+	return m.MarkRunQueuedForContinuation(ctx, runID)
+}

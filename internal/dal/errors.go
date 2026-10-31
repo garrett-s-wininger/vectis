@@ -11,6 +11,7 @@ var (
 	ErrNotFound             = errors.New("not found")
 	ErrConflict             = errors.New("conflict")
 	ErrPasswordAuthDisabled = errors.New("password auth disabled")
+	ErrRunCancelRequested   = errors.New("run cancellation requested")
 	ErrDispatchExpired      = errors.New("dispatch expired")
 )
 
