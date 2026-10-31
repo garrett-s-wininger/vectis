@@ -51,6 +51,20 @@ test.describe("app smoke", () => {
     await page.goto("/health");
 
     await expect(page.getByRole("heading", { name: "Health" })).toBeVisible();
+    const accents = await page.locator("article").evaluateAll((cards) =>
+      cards.map((card) => {
+        const accent = getComputedStyle(card, "::before");
+        return { height: parseFloat(accent.height), background: accent.backgroundImage };
+      })
+    );
+
+    expect(accents).toHaveLength(3);
+
+    for (const accent of accents) {
+      expect(accent.height).toBeGreaterThan(0);
+      expect(accent.background).toContain("linear-gradient");
+    }
+
     await expect(page.getByRole("navigation", { name: "Primary" })).toContainText("Jobs");
     await expect(page.getByRole("region", { name: "Cells" })).toContainText("Gateway");
 
@@ -79,7 +93,7 @@ test.describe("app smoke", () => {
 
     await page.goto("/jobs/create");
     await expect(page.getByRole("heading", { name: "Create Job" })).toBeVisible();
-    await expectDropdownUsesOverlaySafePanel(page, "Cadence: None");
+    await expectDropdownUsesOverlaySafePanel(page, "Repository ID: Select a repository");
   });
 });
 

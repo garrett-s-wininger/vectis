@@ -51,3 +51,12 @@ test.describe('axe (dark)', () => {
     });
   }
 });
+
+
+for (const preference of ['light', 'dark', 'no-preference'] as const) {
+  test(`initial theme follows browser ${preference} preference`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: preference });
+    await page.goto('/', { waitUntil: 'load' });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', preference === 'dark' ? 'dark' : 'light');
+  });
+}

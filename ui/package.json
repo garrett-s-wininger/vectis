@@ -4,19 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "storybook": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6006 --ci --no-open --initial-path='/?path=/story/components-layout-appshell--dashboard'",
-    "storybook:build": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook build --disable-telemetry",
-    "storybook:smoke": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6101 --ci --no-open",
-    "dev:smoke": "vite --host 127.0.0.1 --port 5174 --strictPort",
-    "format": "prettier --write \"src/**/*.{css,ts,tsx}\" \"smoke/**/*.ts\" \".storybook/**/*.ts\" \"mock/**/*.{css,html}\" \"*.{html,js,json,ts}\"",
-    "format:check": "prettier --check \"src/**/*.{css,ts,tsx}\" \"smoke/**/*.ts\" \".storybook/**/*.ts\" \"mock/**/*.{css,html}\" \"*.{html,js,json,ts}\"",
+    "dev": "npm run build:theme && vite",
+    "build": "npm run build:theme && tsc -b && vite build",
+    "storybook": "npm run build:theme && mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6006 --ci --no-open --initial-path='/?path=/story/components-layout-appshell--dashboard'",
+    "storybook:build": "npm run build:theme && mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook build --disable-telemetry",
+    "storybook:smoke": "npm run build:theme && mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6101 --ci --no-open",
+    "dev:smoke": "npm run build:theme && vite --host 127.0.0.1 --port 5174 --strictPort",
+    "format": "prettier --write \"src/**/*.{css,ts,tsx}\" \"smoke/**/*.ts\" \".storybook/**/*.{html,ts}\" \"mock/**/*.{css,html}\" \"*.{html,js,json,ts}\"",
+    "format:check": "prettier --check \"src/**/*.{css,ts,tsx}\" \"smoke/**/*.ts\" \".storybook/**/*.{html,ts}\" \"mock/**/*.{css,html}\" \"*.{html,js,json,ts}\"",
     "lint": "eslint -c eslint.config.js \"src/**/*.{ts,tsx}\" \"smoke/**/*.ts\" \".storybook/**/*.ts\" \"*.{js,ts}\" && stylelint \"src/**/*.css\" \"mock/**/*.css\"",
     "smoke": "env -u NO_COLOR PLAYWRIGHT_BROWSERS_PATH=$PWD/node_modules/.cache/ms-playwright playwright test",
     "test": "vitest run",
     "test:watch": "vitest",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:theme": "tsc -p tsconfig.theme.json"
   },
   "dependencies": {
     "lucide-react": "^1.17.0",
@@ -24,6 +25,7 @@
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
     "@rolldown/plugin-babel": "^0.2.3",

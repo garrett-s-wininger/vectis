@@ -2,6 +2,7 @@ import type { FormEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import "./index.css";
 import vectisLogo from "../../assets/brand/public/vectis.png";
+import vectisDarkLogo from "../../assets/brand/public/vectis-dark.png";
 import { completeSetup, loadUIContext, login, logout } from "./api/auth";
 import { Button } from "./components";
 import { AppShell } from "./components";
@@ -17,6 +18,8 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
 import { NamespacesPage } from "./pages/NamespacesPage";
+import { ProfilePage } from "./pages/ProfilePage";
+import { useResolvedTheme } from "./theme";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
@@ -555,7 +558,6 @@ export function App() {
       navItems={primaryNavItems}
       onNavigate={handleShellNavigate}
       onSignOut={authEnabled ? signOut : undefined}
-      showProfile={authEnabled}
       utilityNavItems={adminNavItems}
     >
       <RouteContent
@@ -694,10 +696,11 @@ function LoginPage({
 }
 
 function AuthHeader({ subtitle, title, titleID }: { subtitle: string; title: string; titleID: string }) {
+  const theme = useResolvedTheme();
   return (
     <div className="auth-panel__header">
       <div className="auth-panel__logo-frame">
-        <img alt="Vectis" className="auth-panel__logo" src={vectisLogo} />
+        <img alt="Vectis" className="auth-panel__logo" src={theme === "dark" ? vectisDarkLogo : vectisLogo} />
       </div>
       <div>
         <p className="eyebrow">{subtitle}</p>
@@ -931,11 +934,7 @@ function RouteContent({
         />
       );
     case "profile":
-      return withActionAlert(
-        <PageStateRail>
-          <AppState description="Account preferences and session details will live here." title="Profile" />
-        </PageStateRail>
-      );
+      return withActionAlert(<ProfilePage />);
     default:
       return (
         <PageStateRail>

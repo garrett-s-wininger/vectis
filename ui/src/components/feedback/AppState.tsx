@@ -7,10 +7,12 @@ type AppStateProps = {
   actions?: ReactNode;
   description?: string;
   title: string;
+  headingLevel?: 1 | 2;
   tone?: AppStateTone;
 };
 
-export function AppState({ actions, description, title, tone = "neutral" }: AppStateProps) {
+export function AppState({ actions, description, title, tone = "neutral", headingLevel = 2 }: AppStateProps) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   const className =
     tone === "neutral" || tone === "loading"
       ? `${styles.root} polished-panel polished-panel--accent-top`
@@ -19,7 +21,7 @@ export function AppState({ actions, description, title, tone = "neutral" }: AppS
   return (
     <section className={className} aria-label={title}>
       <div className={styles.copy}>
-        <h2>{title}</h2>
+        <Heading>{title}</Heading>
         {description ? <p>{description}</p> : null}
       </div>
       {actions ? <div className={styles.actions}>{actions}</div> : null}

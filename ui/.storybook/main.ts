@@ -2,6 +2,7 @@ import type { StorybookConfig } from "@storybook/react-vite";
 import { mergeConfig } from "vite";
 
 const config: StorybookConfig = {
+  staticDirs: ["../public"],
   stories: ["../src/**/*.stories.@(ts|tsx)"],
   features: {
     sidebarOnboardingChecklist: false

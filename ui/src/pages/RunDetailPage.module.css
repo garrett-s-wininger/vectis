@@ -133,7 +133,9 @@
 
 .timelineMarker {
   align-items: center;
-  background: linear-gradient(180deg, #ffffff, #eef4f7), linear-gradient(180deg, #f8fbfc, #e9f0f4);
+  background:
+    linear-gradient(180deg, var(--surface-panel, #ffffff), var(--chrome-surface-high, #eef4f7)),
+    linear-gradient(180deg, var(--chrome-surface-high, #f8fbfc), var(--chrome-surface-low, #e9f0f4));
   border: 1px solid rgb(151 168 177 / 28%);
   border-radius: 50%;
   box-sizing: border-box;
@@ -193,7 +195,7 @@
 }
 
 .eventTime small {
-  background: rgb(255 255 255 / 54%);
+  background: rgb(var(--chrome-sheen-rgb, 255 255 255) / 54%);
   border: 1px solid rgb(151 168 177 / 28%);
   border-radius: var(--radius-pill);
   color: var(--text-subtle);
@@ -309,7 +311,7 @@
 
 .definitionIcon {
   align-items: center;
-  background: rgb(255 255 255 / 58%);
+  background: rgb(var(--chrome-sheen-rgb, 255 255 255) / 58%);
   border: 1px solid rgb(151 168 177 / 28%);
   border-radius: 50%;
   display: grid;
@@ -327,11 +329,11 @@
 
 .definitionDisclosure {
   align-items: center;
-  background: rgb(255 255 255 / 54%);
+  background: rgb(var(--chrome-sheen-rgb, 255 255 255) / 54%);
   border: 1px solid rgb(151 168 177 / 28%);
   border-radius: 50%;
   box-sizing: border-box;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 64%);
+  box-shadow: inset 0 1px 0 rgb(var(--chrome-sheen-rgb, 255 255 255) / 64%);
   color: var(--text-subtle);
   display: grid;
   height: var(--space-3xl);
@@ -351,7 +353,7 @@
 }
 
 .definitionSummary:hover .definitionDisclosure {
-  background: rgb(255 255 255 / 72%);
+  background: rgb(var(--chrome-sheen-rgb, 255 255 255) / 72%);
   border-color: rgb(74 116 138 / 34%);
   color: var(--text-navigation);
 }

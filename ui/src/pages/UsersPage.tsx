@@ -229,7 +229,7 @@ export function UsersPage({
             <h2>Access</h2>
             <p>Account state for the local authentication provider.</p>
           </div>
-          <div className={styles.summaryFacts} aria-label="User totals">
+          <div className={styles.summaryFacts} role="group" aria-label="User totals">
             <MetricCard detail="Local console accounts" label="Total" value={userStats.total} variant="plain" />
             <MetricCard detail="Can sign in" label="Active" value={userStats.active} variant="plain" />
             <MetricCard detail="Cannot sign in" label="Disabled" value={userStats.disabled} variant="plain" />

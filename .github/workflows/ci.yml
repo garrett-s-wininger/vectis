@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       docs_changed: ${{ steps.changes.outputs.docs }}
+      ui_changed: ${{ steps.changes.outputs.ui }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -128,6 +129,36 @@ jobs:
         run: npm run test:a11y
         env:
           CI: true
+
+  ui-a11y:
+    needs: ci-quick
+    if: needs.ci-quick.outputs.ui_changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/ui/node_modules/.cache/ms-playwright
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Check themes, keyboard focus, and WCAG AA rules
+        run: npm run smoke -- --workers=2
+        env:
+          CI: true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ui-accessibility-results
+          path: ui/test-results/
+          retention-days: 7
 
   deep-validation:
     if: github.event_name == 'workflow_dispatch' && inputs.deep_checks

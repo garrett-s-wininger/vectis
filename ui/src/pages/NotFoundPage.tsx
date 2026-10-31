@@ -5,6 +5,7 @@ import { navigateTo } from "../routing/routes";
 export function NotFoundPage() {
   return (
     <AppState
+      headingLevel={1}
       actions={
         <Button onClick={() => navigateTo("/jobs")} type="button" variant="quiet">
           Go to Jobs

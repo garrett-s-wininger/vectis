@@ -37,7 +37,7 @@ export const MixedStatus: Story = {};
 
 export const SingleHealthyCell: Story = {
   args: {
-    cells: singleHealthyCell,
+    cells: singleHealthyCell.map((cell) => ({ ...cell, endpoint: "Route configured" })),
     countLabel: "1 cell"
   }
 };

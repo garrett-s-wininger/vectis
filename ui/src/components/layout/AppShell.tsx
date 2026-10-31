@@ -9,6 +9,7 @@ import {
   isInsideCoordinatedDropdown
 } from "../navigation/dropdownCoordination";
 import styles from "./AppShell.module.css";
+import { useResolvedTheme } from "../../theme";
 
 export type NavItem = {
   href: string;
@@ -50,6 +51,7 @@ export function AppShell({
   utilityNavItems = []
 }: AppShellProps) {
   const isAccountActive = activeHref === "/profile";
+  const theme = useResolvedTheme();
   const hasAccountMenu = showProfile || onSignOut;
 
   useEffect(() => {
@@ -85,7 +87,12 @@ export function AppShell({
           aria-label={`${brand} home`}
           onClick={(event) => onNavigate?.("/jobs", event)}
         >
-          <img className={styles.brandLogo} src="/img/vectis.png" alt="" aria-hidden="true" />
+          <img
+            className={styles.brandLogo}
+            src={theme === "dark" ? "/img/vectis-dark.png" : "/img/vectis.png"}
+            alt=""
+            aria-hidden="true"
+          />
           <span className={styles.brandText}>
             <strong>{brand}</strong>
             <small>local console</small>
@@ -102,7 +109,7 @@ export function AppShell({
             </nav>
           ) : null}
           {accountName && !hasAccountMenu ? (
-            <div className={styles.accountIndicator} title={accountDetail}>
+            <div className={`${styles.accountSummary} ${styles.accountIndicator}`} title={accountDetail}>
               <span className={styles.accountAvatar}>{accountName.slice(0, 1).toUpperCase()}</span>
               <span className={styles.accountName}>{accountName}</span>
             </div>

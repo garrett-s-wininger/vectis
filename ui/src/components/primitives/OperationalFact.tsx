@@ -11,13 +11,13 @@ type OperationalFactProps = {
 export function OperationalFact({ emphasis, icon: Icon, label, value }: OperationalFactProps) {
   return (
     <div className={emphasis ? `${styles.root} ${styles.emphasis}` : styles.root}>
-      <span className={styles.icon} aria-hidden="true">
-        <Icon />
-      </span>
-      <div className={styles.body}>
-        <dt className={styles.label}>{label}</dt>
-        <dd className={styles.value}>{value}</dd>
-      </div>
+      <dt className={styles.label}>
+        <span className={styles.icon} aria-hidden="true">
+          <Icon />
+        </span>
+        {label}
+      </dt>
+      <dd className={styles.value}>{value}</dd>
     </div>
   );
 }

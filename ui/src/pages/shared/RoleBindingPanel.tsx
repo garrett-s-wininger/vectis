@@ -68,7 +68,7 @@ export function RoleBindingPanel({
           Grant
         </Button>
       </form>
-      <div className={styles.list} aria-label={ariaLabel}>
+      <div className={styles.list} role="group" aria-label={ariaLabel}>
         {rows.length > 0 ? (
           rows.map((row) => (
             <div className={styles.row} key={row.id}>

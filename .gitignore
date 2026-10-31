@@ -29,6 +29,8 @@ ui/.cache/
 ui/.vite/
 ui/coverage/
 ui/dist/
+# Generated from ui/src/theme-bootstrap.ts before frontend dev/build.
+ui/public/theme-bootstrap.js
 ui/node_modules/
 ui/playwright-report/
 ui/storybook-static/

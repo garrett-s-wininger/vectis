@@ -16,15 +16,21 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  render: (args) => (
+    <dl>
+      <OperationalFact {...args} />
+    </dl>
+  )
+};
 
 export const FactSet: Story = {
   render: () => (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "24px" }}>
+    <dl style={{ display: "flex", flexWrap: "wrap", gap: "24px" }}>
       <OperationalFact emphasis icon={Clock} label="Elapsed" value="4m 12s" />
       <OperationalFact icon={Server} label="Cell" value="local" />
       <OperationalFact icon={Zap} label="Trigger" value="UI" />
       <OperationalFact icon={User} label="Actor" value="admin" />
-    </div>
+    </dl>
   )
 };

@@ -224,7 +224,7 @@ export function NamespacesPage({
             <h2>Hierarchy</h2>
             <p>Boundaries and inheritance at a glance.</p>
           </div>
-          <div className={styles.summaryFacts} aria-label="Namespace totals">
+          <div className={styles.summaryFacts} role="group" aria-label="Namespace totals">
             <MetricCard detail="Available boundaries" label="Total" value={namespaceStats.total} variant="plain" />
             <MetricCard
               detail="Directly under Root"
@@ -448,7 +448,7 @@ function NamespaceDetail({
               {namespace.breakInheritance ? "Stopped Inheritance" : "Inherited Access"}
             </ResourceStatus>
           </div>
-          <div className={styles.summaryFacts} aria-label="Namespace summary">
+          <div className={styles.summaryFacts} role="group" aria-label="Namespace summary">
             <MetricCard
               detail="Immediate descendants"
               label="Child Namespaces"

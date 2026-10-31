@@ -1,4 +1,5 @@
 .root {
+  background: linear-gradient(180deg, var(--surface-subtle), var(--surface-metal));
   align-items: end;
   display: grid;
   gap: var(--space-xl);

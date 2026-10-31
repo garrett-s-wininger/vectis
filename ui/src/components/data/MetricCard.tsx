@@ -13,7 +13,11 @@ export type MetricCardProps = {
 };
 
 export function MetricCard({ label, value, detail, tone = "neutral", variant = "default" }: MetricCardProps) {
-  const className = [styles.root, variant === "plain" ? styles.plain : "", tone === "neutral" ? "" : styles[tone]]
+  const className = [
+    styles.root,
+    variant === "plain" ? styles.plain : "polished-panel polished-panel--accent-top",
+    tone === "neutral" ? "" : styles[tone]
+  ]
     .filter(Boolean)
     .join(" ");
 

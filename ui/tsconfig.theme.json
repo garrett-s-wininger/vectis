@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": [],
+    "noEmitOnError": true,
+    "moduleDetection": "legacy",
+    "moduleResolution": "Bundler",
+    "rootDir": "src",
+    "outDir": "public"
+  },
+  "include": ["src/theme-bootstrap.ts"]
+}

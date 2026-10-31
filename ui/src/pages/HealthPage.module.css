@@ -44,7 +44,7 @@
   border-radius: var(--radius-pill);
   box-shadow:
     inset 0 1px 2px rgb(23 32 38 / 14%),
-    0 1px 0 rgb(255 255 255 / 72%);
+    0 1px 0 rgb(var(--chrome-sheen-rgb, 255 255 255) / 72%);
   display: flex;
   height: var(--space-md);
   margin-top: var(--space-2xs);

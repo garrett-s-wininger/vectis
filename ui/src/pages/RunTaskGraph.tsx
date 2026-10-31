@@ -24,7 +24,7 @@ export function RunTaskGraph({ onSelectTask, selectedTaskID, tasks }: RunTaskGra
           {graphDescription ? <p>{graphDescription}</p> : null}
         </div>
       </div>
-      <div className={styles.graph} aria-label="Execution graph">
+      <div className={styles.graph} role="group" aria-label="Execution graph">
         <div className={styles.tree}>
           {tree.map((task) => (
             <TaskGraphBranch
@@ -70,6 +70,7 @@ function TaskGraphBranch({
       {task.children.length > 0 ? (
         <div
           className={`${styles.children} ${task.children.length > 1 ? styles.childrenMultiple : ""}`}
+          role="group"
           aria-label={`${taskLabel} child tasks`}
         >
           {task.children.map((child) => (

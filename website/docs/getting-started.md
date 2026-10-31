@@ -105,6 +105,8 @@ Then open the API, UI, or docs using the dev machine's address. If you open docs
 
 `vectis-local` serves the UI from the `vectis-ui` binary and docs from the `vectis-docs` binary when those binaries are present. A backend-only `mage build` omits them, so `vectis-local` logs a warning and continues without those web servers. You can also start the stack with `./bin/vectis-local --ui=false` or `./bin/vectis-local --docs=false`.
 
+Open **Profile → Preferences** for the **Theme** setting: **System**, **Light**, or **Dark**. The choice is saved in this browser across reloads and sign-out. **System** follows browser preferences and uses light when no preference is available.
+
 ### UI Development With Hot Assets
 
 When you are changing the browser UI, run the local stack with Vite assets proxied through `vectis-ui`:

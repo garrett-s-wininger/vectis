@@ -4,9 +4,13 @@ import { OperationalFact } from "./OperationalFact";
 
 describe("OperationalFact", () => {
   it("renders a labelled operational value", () => {
-    render(<OperationalFact icon={Clock} label="Elapsed" value="4m 12s" />);
+    render(
+      <dl>
+        <OperationalFact icon={Clock} label="Elapsed" value="4m 12s" />
+      </dl>
+    );
 
-    expect(screen.getByText("Elapsed")).toBeInTheDocument();
-    expect(screen.getByText("4m 12s")).toBeInTheDocument();
+    expect(screen.getByRole("term")).toHaveTextContent("Elapsed");
+    expect(screen.getByRole("definition")).toHaveTextContent("4m 12s");
   });
 });

@@ -788,7 +788,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Anonymous")).toBeInTheDocument();
-    expect(screen.queryByText("Auth disabled")).not.toBeInTheDocument();
+    expect(screen.getByText("Auth disabled")).not.toBeVisible();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 });

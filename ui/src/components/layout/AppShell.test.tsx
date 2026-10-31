@@ -74,6 +74,7 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByText("admin"));
 
     expect(screen.getByRole("link", { name: "Profile" })).toHaveAttribute("href", "/profile");
+    expect(screen.queryByLabelText("Theme", { exact: true })).not.toBeInTheDocument();
   });
 
   it("can delegate navigation", () => {

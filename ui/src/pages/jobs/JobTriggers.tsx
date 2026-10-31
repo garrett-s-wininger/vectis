@@ -7,7 +7,7 @@ export function JobTriggers({ job }: { job: Job }) {
   const hiddenTriggerCount = job.triggers.length - visibleTriggers.length;
 
   return (
-    <div className={styles.triggerList} aria-label={`${job.name} triggers`}>
+    <div className={styles.triggerList} role="group" aria-label={`${job.name} triggers`}>
       {visibleTriggers.map((trigger) => (
         <span className={styles.triggerItem} key={`${job.id}-${trigger.kind}`} title={trigger.detail}>
           {triggerKindLabel[trigger.kind]}
