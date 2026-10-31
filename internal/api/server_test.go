@@ -1047,7 +1047,7 @@ func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
 
 	runfixture.FinalizeExecutionByClaim(t, ctx, repos, dispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "lease expired"); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET status = ?, orphan_reason = ? WHERE run_id = ?`, dal.RunStatusOrphaned, dal.OrphanReasonLeaseExpired, runID); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 
@@ -3368,7 +3368,7 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 
 	runfixture.FinalizeExecutionByClaim(t, ctx, repos, dispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, dal.OrphanReasonLeaseExpired); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET status = ?, orphan_reason = ? WHERE run_id = ?`, dal.RunStatusOrphaned, dal.OrphanReasonLeaseExpired, runID); err != nil {
 		t.Fatalf("mark run orphaned: %v", err)
 	}
 

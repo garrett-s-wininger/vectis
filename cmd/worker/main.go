@@ -3876,6 +3876,7 @@ func (w *worker) tryClaimExecution(
 	if executionEnvelope.TaskKey == dal.RootTaskKey && !w.executionChoreographer().RequiresDurableTaskRows() {
 		if err := w.checkRunCanLoadHotState(ctx, executionEnvelope.RunID); err != nil {
 			if errors.Is(err, errRunNotExecutable) {
+				w.retireRejectedAdmission(ctx, executionEnvelope, claim.ClaimToken)
 				return "", false, false, nil
 			}
 

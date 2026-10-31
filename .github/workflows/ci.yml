@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      deep_checks:
+        description: Run Postgres integration and focused race tests (uses additional runner minutes)
+        type: boolean
+        default: false
   pull_request:
     types:
       - opened
@@ -9,11 +15,45 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci-quick:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      docs_changed: ${{ steps.changes.outputs.docs }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Select frontend checks
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            echo 'ui=true' >> "$GITHUB_OUTPUT"
+            echo 'docs=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git cat-file -e "$BASE_SHA^{commit}"; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          changed=$(git diff --name-only --no-renames "$BASE_SHA" HEAD)
+          if rg -q '^(ui/|internal/api/|api/proto/|cmd/ui/|\.github/workflows/)' <<< "$changed"; then
+            echo 'ui=true' >> "$GITHUB_OUTPUT"
+          fi
+          if rg -q '^(website/|cmd/docs/|internal/httpsecurity/|\.github/workflows/)' <<< "$changed"; then
+            echo 'docs=true' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.10"
@@ -33,9 +73,22 @@ jobs:
           prek-version: "0.5.6"
       - name: Run Vectis dogfood gate
         run: mage ciQuick
+      - uses: actions/setup-node@v6
+        if: steps.changes.outputs.ui == 'true'
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Check UI when its code or API contract changes
+        if: steps.changes.outputs.ui == 'true'
+        run: |
+          npm ci --prefix ui --ignore-scripts --no-audit --no-fund
+          mage testUI
+          npm run build --prefix ui
 
   vulncheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -46,9 +99,17 @@ jobs:
         run: go install github.com/magefile/mage@v1.17.2
       - name: Run govulncheck
         run: mage vulncheck
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Audit JavaScript lockfiles without installing dependencies
+        run: mage auditDependencies
 
   website-a11y:
+    needs: ci-quick
+    if: needs.ci-quick.outputs.docs_changed == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/website/node_modules/.cache/ms-playwright
     defaults:
@@ -67,3 +128,20 @@ jobs:
         run: npm run test:a11y
         env:
           CI: true
+
+  deep-validation:
+    if: github.event_name == 'workflow_dispatch' && inputs.deep_checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VECTIS_REQUIRE_POSTGRES_TESTS: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.10"
+          cache: true
+      - name: Verify Postgres and recovery races
+        run: |
+          go test -tags=integration -count=1 -timeout=10m ./tests/integration/postgres
+          go test -race -short -count=1 -timeout=120s ./cmd/worker ./internal/orchestrator ./internal/dal

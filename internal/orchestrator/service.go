@@ -542,6 +542,40 @@ func (s *Service) AcknowledgeRunPersistence(ctx context.Context, runID, token st
 	return err
 }
 
+func (s *Service) DiscardRunAdmission(ctx context.Context, runID, token string) error {
+	runID, token = strings.TrimSpace(runID), strings.TrimSpace(token)
+	if runID == "" || token == "" {
+		return fmt.Errorf("%w: run_id and claim_token are required", dal.ErrConflict)
+	}
+
+	_, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, ok := state.runs[runID]
+		if !ok || run.terminalClaim != nil {
+			return struct{}{}, nil
+		}
+
+		root := run.tasks[dal.RootTaskKey]
+		if root.status != dal.ExecutionStatusRunning || root.claimToken != token {
+			return struct{}{}, nil
+		}
+
+		for key, task := range run.tasks {
+			if key != dal.RootTaskKey && task.status != dal.ExecutionStatusPlanned {
+				return struct{}{}, nil
+			}
+		}
+
+		delete(state.runs, runID)
+		s.retainedRuns.Add(-1)
+		s.retainedTasks.Add(-int64(len(run.tasks)))
+		s.reclaimedRuns.Add(1)
+
+		return struct{}{}, nil
+	})
+
+	return err
+}
+
 func (s *Service) RetentionStats() (runs, tasks, awaitingPersistence, reclaimed int64) {
 	return s.retainedRuns.Load(), s.retainedTasks.Load(), s.awaitingPersistence.Load(), s.reclaimedRuns.Load()
 }
@@ -753,6 +787,30 @@ func (r *runState) addTask(taskKey string, task *taskState) {
 }
 
 func (r *runState) applySnapshots(snapshots []TaskExecutionSnapshot, now time.Time) error {
+	// Validate and apply against staged state: a later invalid snapshot must not
+	// leave earlier mutations or stale summary counters in the live graph.
+	if len(snapshots) == 0 {
+		r.recomputeSummary()
+		return nil
+	}
+	staged := *r
+	staged.tasks = make(map[string]*taskState, len(r.tasks))
+	staged.executions = make(map[string]*taskState, len(r.executions))
+	for key, task := range r.tasks {
+		copyTask := *task
+		staged.tasks[key] = &copyTask
+	}
+	for id, task := range r.executions {
+		staged.executions[id] = staged.tasks[task.record.TaskKey]
+	}
+	if err := staged.applySnapshotsInPlace(snapshots, now); err != nil {
+		return err
+	}
+	*r = staged
+	return nil
+}
+
+func (r *runState) applySnapshotsInPlace(snapshots []TaskExecutionSnapshot, now time.Time) error {
 	for _, snapshot := range snapshots {
 		status := normalizeSnapshotStatus(snapshot.Status)
 		if status == "" {
@@ -766,6 +824,24 @@ func (r *runState) applySnapshots(snapshots []TaskExecutionSnapshot, now time.Ti
 
 		if err := r.validateSnapshotRecord(task, snapshot.Record); err != nil {
 			return err
+		}
+		record := snapshot.Record
+		identityChanged := (record.ExecutionID != "" && record.ExecutionID != task.record.ExecutionID) ||
+			(record.TaskAttemptID != "" && record.TaskAttemptID != task.record.TaskAttemptID) ||
+			(record.SegmentID != "" && record.SegmentID != task.record.SegmentID) ||
+			(record.CellID != "" && record.CellID != task.record.CellID) ||
+			(record.Attempt > 0 && record.Attempt != task.record.Attempt)
+		if identityChanged && !now.IsZero() && task.hasActiveClaim(task.leaseOwner, task.claimToken, now) {
+			return fmt.Errorf("%w: snapshot cannot replace an actively claimed execution", dal.ErrConflict)
+		}
+		if record.Attempt > 0 && record.Attempt < task.record.Attempt {
+			return fmt.Errorf("%w: snapshot cannot restore an older execution attempt", dal.ErrConflict)
+		}
+		if record.Attempt > task.record.Attempt {
+			task.status = dal.ExecutionStatusPlanned
+			task.leaseOwner, task.claimToken = "", ""
+			task.leaseUntil, task.acceptedAt, task.startedAt, task.finishedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}
+			task.completion = nil
 		}
 
 		if shouldApplySnapshotStatus(task, status, now) {

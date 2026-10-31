@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,6 +11,21 @@ import (
 	"sort"
 	"strings"
 )
+
+func AuditDependencies() error {
+	var failures []error
+	for _, dir := range []string{"ui", "website"} {
+		if err := run(dir, nil, "npm", "audit", "--package-lock-only", "--audit-level=high"); err != nil {
+			failures = append(failures, fmt.Errorf("%s dependencies: %w", dir, err))
+		}
+	}
+
+	return errors.Join(failures...)
+}
+
+func TestUI() error {
+	return run("ui", nil, "npm", "test", "--", "--maxWorkers=2")
+}
 
 // WebsiteA11y runs the website accessibility test suite.
 func WebsiteA11y() error {

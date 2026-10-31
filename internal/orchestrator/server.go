@@ -186,6 +186,18 @@ func (s *grpcServer) AcknowledgeRunPersistence(ctx context.Context, req *api.Ack
 	return &api.Empty{}, nil
 }
 
+func (s *grpcServer) DiscardRunAdmission(ctx context.Context, req *api.DiscardRunAdmissionRequest) (*api.Empty, error) {
+	if req == nil || strings.TrimSpace(req.GetRunId()) == "" || strings.TrimSpace(req.GetClaimToken()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id and claim_token are required")
+	}
+
+	if err := s.service.DiscardRunAdmission(ctx, req.GetRunId(), req.GetClaimToken()); err != nil {
+		return nil, grpcError(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
 func (s *grpcServer) GetRunTaskCompletion(
 	ctx context.Context,
 	req *api.GetRunTaskCompletionRequest,

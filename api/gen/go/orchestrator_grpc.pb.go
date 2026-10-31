@@ -25,6 +25,7 @@ const (
 	OrchestratorService_RenewExecutionLease_FullMethodName       = "/OrchestratorService/RenewExecutionLease"
 	OrchestratorService_CompleteExecution_FullMethodName         = "/OrchestratorService/CompleteExecution"
 	OrchestratorService_AcknowledgeRunPersistence_FullMethodName = "/OrchestratorService/AcknowledgeRunPersistence"
+	OrchestratorService_DiscardRunAdmission_FullMethodName       = "/OrchestratorService/DiscardRunAdmission"
 	OrchestratorService_GetRunTaskCompletion_FullMethodName      = "/OrchestratorService/GetRunTaskCompletion"
 	OrchestratorService_GetRunTaskSnapshot_FullMethodName        = "/OrchestratorService/GetRunTaskSnapshot"
 	OrchestratorService_ExecutionStream_FullMethodName           = "/OrchestratorService/ExecutionStream"
@@ -40,6 +41,7 @@ type OrchestratorServiceClient interface {
 	RenewExecutionLease(ctx context.Context, in *RenewExecutionLeaseRequest, opts ...grpc.CallOption) (*Empty, error)
 	CompleteExecution(ctx context.Context, in *CompleteExecutionRequest, opts ...grpc.CallOption) (*CompleteExecutionResponse, error)
 	AcknowledgeRunPersistence(ctx context.Context, in *AcknowledgeRunPersistenceRequest, opts ...grpc.CallOption) (*Empty, error)
+	DiscardRunAdmission(ctx context.Context, in *DiscardRunAdmissionRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetRunTaskCompletion(ctx context.Context, in *GetRunTaskCompletionRequest, opts ...grpc.CallOption) (*OrchestratorRunTaskCompletion, error)
 	GetRunTaskSnapshot(ctx context.Context, in *GetRunTaskSnapshotRequest, opts ...grpc.CallOption) (*GetRunTaskSnapshotResponse, error)
 	ExecutionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecutionStreamRequest, ExecutionStreamResponse], error)
@@ -113,6 +115,16 @@ func (c *orchestratorServiceClient) AcknowledgeRunPersistence(ctx context.Contex
 	return out, nil
 }
 
+func (c *orchestratorServiceClient) DiscardRunAdmission(ctx context.Context, in *DiscardRunAdmissionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, OrchestratorService_DiscardRunAdmission_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *orchestratorServiceClient) GetRunTaskCompletion(ctx context.Context, in *GetRunTaskCompletionRequest, opts ...grpc.CallOption) (*OrchestratorRunTaskCompletion, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OrchestratorRunTaskCompletion)
@@ -156,6 +168,7 @@ type OrchestratorServiceServer interface {
 	RenewExecutionLease(context.Context, *RenewExecutionLeaseRequest) (*Empty, error)
 	CompleteExecution(context.Context, *CompleteExecutionRequest) (*CompleteExecutionResponse, error)
 	AcknowledgeRunPersistence(context.Context, *AcknowledgeRunPersistenceRequest) (*Empty, error)
+	DiscardRunAdmission(context.Context, *DiscardRunAdmissionRequest) (*Empty, error)
 	GetRunTaskCompletion(context.Context, *GetRunTaskCompletionRequest) (*OrchestratorRunTaskCompletion, error)
 	GetRunTaskSnapshot(context.Context, *GetRunTaskSnapshotRequest) (*GetRunTaskSnapshotResponse, error)
 	ExecutionStream(grpc.BidiStreamingServer[ExecutionStreamRequest, ExecutionStreamResponse]) error
@@ -186,6 +199,9 @@ func (UnimplementedOrchestratorServiceServer) CompleteExecution(context.Context,
 }
 func (UnimplementedOrchestratorServiceServer) AcknowledgeRunPersistence(context.Context, *AcknowledgeRunPersistenceRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AcknowledgeRunPersistence not implemented")
+}
+func (UnimplementedOrchestratorServiceServer) DiscardRunAdmission(context.Context, *DiscardRunAdmissionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DiscardRunAdmission not implemented")
 }
 func (UnimplementedOrchestratorServiceServer) GetRunTaskCompletion(context.Context, *GetRunTaskCompletionRequest) (*OrchestratorRunTaskCompletion, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRunTaskCompletion not implemented")
@@ -325,6 +341,24 @@ func _OrchestratorService_AcknowledgeRunPersistence_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrchestratorService_DiscardRunAdmission_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DiscardRunAdmissionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestratorServiceServer).DiscardRunAdmission(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestratorService_DiscardRunAdmission_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestratorServiceServer).DiscardRunAdmission(ctx, req.(*DiscardRunAdmissionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OrchestratorService_GetRunTaskCompletion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetRunTaskCompletionRequest)
 	if err := dec(in); err != nil {
@@ -398,6 +432,10 @@ var OrchestratorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AcknowledgeRunPersistence",
 			Handler:    _OrchestratorService_AcknowledgeRunPersistence_Handler,
+		},
+		{
+			MethodName: "DiscardRunAdmission",
+			Handler:    _OrchestratorService_DiscardRunAdmission_Handler,
 		},
 		{
 			MethodName: "GetRunTaskCompletion",

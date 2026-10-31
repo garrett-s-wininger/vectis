@@ -363,7 +363,7 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 		"failed branch",
 	)
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "lease expired"); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET status = ?, orphan_reason = ?, failure_code = '', failure_reason = ? WHERE run_id = ?`, dal.RunStatusOrphaned, dal.OrphanReasonLeaseExpired, "lease expired", runID); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 

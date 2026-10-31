@@ -51,9 +51,13 @@ func choreographerCompletesExecutionDurably(ch executionChoreographer) bool {
 	return ok && durable.completesExecutionDurably()
 }
 
+const orchestratorRPCTimeout = 10 * time.Second
+
 type grpcExecutionChoreographer struct {
 	client         api.OrchestratorServiceClient
-	streamMu       sync.Mutex
+	streamOnce     sync.Once
+	streamGate     chan struct{}
+	streamCancel   context.CancelFunc
 	stream         api.OrchestratorService_ExecutionStreamClient
 	streamDisabled bool
 }
@@ -68,6 +72,9 @@ func (c *grpcExecutionChoreographer) LoadRun(
 	env *cell.ExecutionEnvelope,
 	snapshots []orchestrator.TaskExecutionSnapshot,
 ) error {
+	ctx, cancel := context.WithTimeout(ctx, orchestratorRPCTimeout)
+	defer cancel()
+
 	spec, err := orchestrator.RunSpecFromJobAndEnvelope(job, env)
 	if err != nil {
 		return err
@@ -104,6 +111,9 @@ func (c *grpcExecutionChoreographer) ClaimAndStartExecution(
 	owner string,
 	leaseUntil time.Time,
 ) (dal.ExecutionClaimResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, orchestratorRPCTimeout)
+	defer cancel()
+
 	req := &api.ClaimExecutionRequest{
 		RunId:              stringPtr(env.RunID),
 		ExecutionId:        stringPtr(env.ExecutionID),
@@ -130,6 +140,9 @@ func (c *grpcExecutionChoreographer) RenewExecutionLease(
 	owner, claimToken string,
 	leaseUntil time.Time,
 ) error {
+	ctx, cancel := context.WithTimeout(ctx, orchestratorRPCTimeout)
+	defer cancel()
+
 	req := &api.RenewExecutionLeaseRequest{
 		RunId:              stringPtr(env.RunID),
 		ExecutionId:        stringPtr(env.ExecutionID),
@@ -146,6 +159,9 @@ func (c *grpcExecutionChoreographer) CompleteExecution(
 	env *cell.ExecutionEnvelope,
 	owner, claimToken, status, failureCode, reason string,
 ) (dal.ExecutionFinalizationResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, orchestratorRPCTimeout)
+	defer cancel()
+
 	req := &api.CompleteExecutionRequest{
 		RunId:       stringPtr(env.RunID),
 		ExecutionId: stringPtr(env.ExecutionID),
@@ -174,10 +190,21 @@ func (c *grpcExecutionChoreographer) CompleteExecution(
 }
 
 func (c *grpcExecutionChoreographer) AcknowledgeRunPersistence(ctx context.Context, runID, token string) error {
+	ctx, cancel := context.WithTimeout(ctx, orchestratorRPCTimeout)
+	defer cancel()
+
 	_, err := c.client.AcknowledgeRunPersistence(ctx, &api.AcknowledgeRunPersistenceRequest{
 		RunId: stringPtr(runID), PersistenceToken: stringPtr(token),
 	})
 
+	return err
+}
+
+func (c *grpcExecutionChoreographer) DiscardRunAdmission(ctx context.Context, runID, token string) error {
+	ctx, cancel := context.WithTimeout(ctx, orchestratorRPCTimeout)
+	defer cancel()
+
+	_, err := c.client.DiscardRunAdmission(ctx, &api.DiscardRunAdmissionRequest{RunId: stringPtr(runID), ClaimToken: stringPtr(token)})
 	return err
 }
 
@@ -274,8 +301,19 @@ func (c *grpcExecutionChoreographer) tryExecutionStream(
 		return nil, false, fmt.Errorf("execution choreographer is not configured")
 	}
 
-	c.streamMu.Lock()
-	defer c.streamMu.Unlock()
+	c.streamOnce.Do(func() { c.streamGate = make(chan struct{}, 1) })
+
+	select {
+	case c.streamGate <- struct{}{}:
+	case <-ctx.Done():
+		return nil, true, ctx.Err()
+	}
+
+	defer func() { <-c.streamGate }()
+
+	if err := ctx.Err(); err != nil {
+		return nil, true, err
+	}
 
 	if c.streamDisabled {
 		return nil, false, nil
@@ -291,8 +329,19 @@ func (c *grpcExecutionChoreographer) tryExecutionStream(
 		return nil, true, err
 	}
 
+	stopCancellation := context.AfterFunc(ctx, c.streamCancel)
+	defer func() {
+		if !stopCancellation() {
+			c.resetExecutionStreamLocked()
+		}
+	}()
+
 	if err := stream.Send(req); err != nil {
 		c.resetExecutionStreamLocked()
+		if ctx.Err() != nil {
+			return nil, true, ctx.Err()
+		}
+
 		if status.Code(err) == codes.Unimplemented {
 			c.streamDisabled = true
 			return nil, false, nil
@@ -304,6 +353,10 @@ func (c *grpcExecutionChoreographer) tryExecutionStream(
 	resp, err := stream.Recv()
 	if err != nil {
 		c.resetExecutionStreamLocked()
+		if ctx.Err() != nil {
+			return nil, true, ctx.Err()
+		}
+
 		if status.Code(err) == codes.Unimplemented {
 			c.streamDisabled = true
 			return nil, false, nil
@@ -322,16 +375,32 @@ func (c *grpcExecutionChoreographer) executionStreamLocked(
 		return c.stream, nil
 	}
 
-	stream, err := c.client.ExecutionStream(ctx)
-	if err != nil {
+	streamCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopCancellation := context.AfterFunc(ctx, cancel)
+	stream, err := c.client.ExecutionStream(streamCtx)
+	stopped := stopCancellation()
+	if err != nil || !stopped {
+		cancel()
+
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		return nil, err
 	}
 
+	c.streamCancel = cancel
 	c.stream = stream
+
 	return stream, nil
 }
 
 func (c *grpcExecutionChoreographer) resetExecutionStreamLocked() {
+	if c.streamCancel != nil {
+		c.streamCancel()
+		c.streamCancel = nil
+	}
+
 	if c.stream == nil {
 		return
 	}

@@ -4,13 +4,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 )
 
 type runPersistenceAcknowledger interface {
 	AcknowledgeRunPersistence(ctx context.Context, runID, token string) error
+}
+
+type runAdmissionDiscarder interface {
+	DiscardRunAdmission(ctx context.Context, runID, claimToken string) error
+}
+
+const admissionReceiptPrefix = "discard-admission:"
+
+func (w *worker) retireRejectedAdmission(ctx context.Context, env *cell.ExecutionEnvelope, claimToken string) {
+	if w.retirements == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	token := admissionReceiptPrefix + claimToken
+	recorded, err := w.retirements.RecordRejectedAdmission(ctx, env.RunID, env.ExecutionID, token)
+	if err != nil {
+		w.logger.Warn("Record rejected run admission %s: %v", env.RunID, err)
+		return
+	}
+
+	if !recorded {
+		return
+	}
+
+	ack, ok := w.executionChoreographer().(runPersistenceAcknowledger)
+	if !ok {
+		return
+	}
+
+	if err := w.acknowledgeRetirement(ctx, ack, dal.OrchestratorRetirement{RunID: env.RunID, PersistenceToken: token}); err != nil {
+		w.logger.Warn("Rejected run admission %s discard will be retried: %v", env.RunID, err)
+	}
 }
 
 var errRunNotExecutable = errors.New("run has completed or been deleted")
@@ -52,7 +89,19 @@ func (w *worker) acknowledgePersistedRun(ctx context.Context, result dal.Executi
 }
 
 func (w *worker) acknowledgeRetirement(ctx context.Context, ack runPersistenceAcknowledger, receipt dal.OrchestratorRetirement) error {
-	if err := ack.AcknowledgeRunPersistence(ctx, receipt.RunID, receipt.PersistenceToken); err != nil {
+	var err error
+	if claimToken, admission := strings.CutPrefix(receipt.PersistenceToken, admissionReceiptPrefix); admission {
+		discarder, ok := w.executionChoreographer().(runAdmissionDiscarder)
+		if !ok {
+			return fmt.Errorf("admission discard is not supported")
+		}
+
+		err = discarder.DiscardRunAdmission(ctx, receipt.RunID, claimToken)
+	} else {
+		err = ack.AcknowledgeRunPersistence(ctx, receipt.RunID, receipt.PersistenceToken)
+	}
+
+	if err != nil {
 		return err
 	}
 

@@ -191,7 +191,7 @@ func TestFault() error {
 		"./internal/orchestrator",
 		"./internal/queue",
 		"./internal/reconciler",
-		"-run", "Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable|OrchestratorRestart|WorkerRestartMidRun|PersistenceFailure|LostPersistenceAcknowledgment|ReclaimedRun|ReclaimsOnlyAcknowledged|CompletedHistory|GRPCAcknowledge|FailedAndCancelled|FencesRetryGeneration|ReplaysAfterActivatingChildren",
+		"-run", "Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable|OrchestratorRestart|WorkerRestartMidRun|PersistenceFailure|LostPersistenceAcknowledgment|ReclaimedRun|ReclaimsOnlyAcknowledged|CompletedHistory|GRPCAcknowledge|FailedAndCancelled|FencesRetryGeneration|ReplaysAfterActivatingChildren|SnapshotPreservesActiveClaimIdentity|SnapshotRejectionIsAtomic|DiscardAdmissionFencesGenerations",
 	)
 }
 

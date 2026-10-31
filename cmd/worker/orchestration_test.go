@@ -90,6 +90,14 @@ type localOrchestratorChoreographer struct {
 	service *orchestrator.Service
 }
 
+func (c *localOrchestratorChoreographer) DiscardRunAdmission(ctx context.Context, runID, token string) error {
+	return c.service.DiscardRunAdmission(ctx, runID, token)
+}
+
+func (c *localOrchestratorChoreographer) AcknowledgeRunPersistence(ctx context.Context, runID, token string) error {
+	return c.service.AcknowledgeRunPersistence(ctx, runID, token)
+}
+
 func newLocalOrchestratorChoreographer(t cleanupTestingT) *localOrchestratorChoreographer {
 	t.Helper()
 

@@ -59,7 +59,7 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `vectis_orchestrator_retained_runs` | Gauge | none | Run graphs retained in memory. | Compare growth with active runs and pending persistence acknowledgments. |
 | `vectis_orchestrator_retained_tasks` | Gauge | none | Tasks in retained graphs. | Track graph size and memory pressure. |
 | `vectis_orchestrator_runs_awaiting_persistence` | Gauge | none | Terminal graphs awaiting durable persistence acknowledgment. | Sustained growth suggests failed SQL persistence, unavailable workers, or failed acknowledgment delivery. |
-| `vectis_orchestrator_reclaimed_runs_total` | Counter | none | Graphs released after durable persistence acknowledgment. | Compare the rate with completed runs; resets on orchestrator restart. |
+| `vectis_orchestrator_reclaimed_runs_total` | Counter | none | Graphs released after terminal persistence acknowledgment or durable rejection of a late root admission. | Compare the rate with completed runs; resets on orchestrator restart. |
 
 ## Retained Evidence Textfile Metrics
 

@@ -113,6 +113,37 @@ mage test
 
 On Windows, `mage testQuick` defaults to a longer timeout because filesystem and process creation are slower than on Unix. Keeping `GOCACHE`, `GOMODCACHE`, and optionally `VECTIS_TEST_TEMPDIR` on a fast local filesystem gives the best feedback loop.
 
+### CI Scope And Dependency Checks
+
+Routine pull requests use the existing quick, vulnerability, and docs jobs.
+`mage auditDependencies` audits both JavaScript lockfiles without installing
+packages and fails on high or critical advisories. Lower-severity findings are
+still printed for triage. `mage vulncheck` remains the Go reachability check.
+
+UI code and API-contract changes additionally run `mage testUI` with two workers
+and a UI build in the existing quick job. Docs accessibility runs when website,
+docs-serving, security middleware, or workflow files change. Dependency install
+caches are reused, superseded runs are cancelled, and job timeouts cap runaway
+checks. These path filters reduce ordinary pull-request runner usage.
+
+For heavier validation, manually run the CI workflow with `deep_checks=true`.
+That optional job runs Postgres integration with missing prerequisites treated
+as errors, followed by focused worker/orchestrator/DAL race tests. It is not a
+scheduled or per-pull-request job. The same checks remain runnable locally:
+
+```bash
+mage auditDependencies
+mage testUI
+VECTIS_REQUIRE_POSTGRES_TESTS=true mage testPostgresIntegration
+go test -race -short -count=1 -timeout=120s ./cmd/worker ./internal/orchestrator ./internal/dal
+```
+
+Docs dependencies keep official Docusaurus packages on one patch release. The
+Tinypool and serialization overrides address transitive advisories; validate
+upgrades with `DOCUSAURUS_SSG_WORKER_THREAD_COUNT=2 npm run build:workers` in `website` so the
+worker-pool override is exercised. The lockfile audit is separate from the UI
+and docs builds: neither a successful build nor an audit establishes the other.
+
 ### Deterministic Failure And Recovery Tests
 
 `mage testFault` runs a focused regression suite without containers. Failures are
@@ -132,6 +163,10 @@ bound a hung test; elapsed time does not trigger the new RPC failure scenarios.
 | A fan-out completion takes effect but its response is lost | `TestWorkerFault_LostFanoutCompletionResponse` | Accepted completion is replayed over either RPC transport; activated children reach the queue without rerunning the parent. |
 | An old final snapshot arrives after requeue | `TestRunsRepository_TerminalSnapshotFencesRetryGeneration` and its Postgres counterpart | A snapshot from an older root attempt is rejected before writes; the current claim and final facts remain intact. |
 | A delayed delivery targets a terminal run | `TestWorkerFault_TerminalRunCannotExecuteDelayedDelivery` | Every terminal status, including `aborted` and `abandoned`, skips execution and graph loading. |
+| A late orphan report arrives after completion | `TestWorkerFault_LateOrphanPreservesTerminalResult` and Postgres retirement contracts | Terminal SQL outcomes remain unchanged. |
+| A snapshot batch changes active identity or contains a later invalid entry | `internal/orchestrator/snapshot_atomicity_test.go` | Active claims retain their identity; a rejected batch leaves the graph unchanged. |
+| A choreography response stalls while another caller waits | `TestWorkerFault_StalledStreamCancellationReleasesGate` | Cancellation releases the gate, resets the stream, and permits reconnection; production exchanges have a timeout. |
+| A late root admission is rejected after graph reclamation | Admission fault and retirement tests | A durable claim-fenced discard receipt releases the graph, including after worker replacement. |
 | Acknowledgment is duplicated or belongs to an old generation | `internal/orchestrator/retention_test.go` | Reclamation is idempotent and cannot remove a newer graph. |
 | Log forwarding acknowledgment is lost | `internal/logforwarder/forwarder_fault_test.go` | Durable spool remains available for retry. |
 

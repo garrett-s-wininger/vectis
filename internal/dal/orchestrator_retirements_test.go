@@ -1,11 +1,44 @@
 package dal_test
 
 import (
+	"errors"
 	"testing"
 
 	"vectis/internal/dal"
 	"vectis/internal/testutil/dbtest"
 )
+
+func TestOrchestratorRetirementsRejectActiveAdmissionAndWrongCell(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := t.Context()
+	repos := dal.NewSQLRepositories(db)
+	runID, _, err := repos.Runs().CreateRun(ctx, "admission", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if recorded, err := repos.OrchestratorRetirements().RecordRejectedAdmission(ctx, runID, root.ExecutionID, "active"); recorded || err != nil {
+		t.Fatalf("active admission recorded: %v %v", recorded, err)
+	}
+
+	wrongCell := dal.NewSQLRepositoriesWithCellID(db, "other").OrchestratorRetirements()
+	if _, err := wrongCell.RecordRejectedAdmission(ctx, runID, root.ExecutionID, "wrong-cell"); !errors.Is(err, dal.ErrConflict) {
+		t.Fatalf("wrong cell accepted: %v", err)
+	}
+
+	if err := repos.Runs().RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatal(err)
+	}
+
+	if recorded, err := repos.OrchestratorRetirements().RecordRejectedAdmission(ctx, runID, root.ExecutionID, "superseded"); !recorded || err != nil {
+		t.Fatalf("superseded admission not recorded: %v %v", recorded, err)
+	}
+}
 
 func TestOrchestratorRetirementsCellScopeAndRetry(t *testing.T) {
 	db := dbtest.NewTestDB(t)

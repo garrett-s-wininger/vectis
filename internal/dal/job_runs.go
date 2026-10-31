@@ -1503,16 +1503,34 @@ func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, reason s
 	}
 	orphanReason := classifyOrphanReason(reason)
 
-	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET status = ?, failure_reason = ?,
 		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?
+		AND status IN ('queued', 'running', 'orphaned')
 	`), RunStatusOrphaned, reason, orphanReason, runID)
 
 	if err != nil {
 		return normalizeSQLError(err)
 	}
 
-	return r.ClearRunHotStateOwner(ctx, runID)
+	changed, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if changed > 0 {
+		if err := clearRunHotStateOwnerTx(ctx, tx, runID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func classifyOrphanReason(reason string) string {

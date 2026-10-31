@@ -26,7 +26,7 @@ func RegisterOrchestratorRetentionMetrics(stats func() (int64, int64, int64, int
 	}
 
 	reclaimed, err := m.Int64ObservableCounter("vectis_orchestrator_reclaimed_runs_total",
-		metric.WithDescription("Run graphs reclaimed after durable persistence acknowledgment"))
+		metric.WithDescription("Run graphs reclaimed after durable state acknowledgment"))
 
 	if err != nil {
 		return nil, err

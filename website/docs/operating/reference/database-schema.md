@@ -420,11 +420,11 @@ Constraints and indexes: `run_id` unique; `replay_of_run_id` references `job_run
 
 ### `orchestrator_retirements`
 
-Durable delivery receipts for releasing completed orchestrator graphs. These rows are inserted in the same transaction as the terminal execution snapshot and deleted only after the orchestrator acknowledges them.
+Durable delivery receipts for releasing completed orchestrator graphs or root admissions rejected against durable SQL state. These rows are inserted in the same transaction as the terminal execution snapshot and deleted only after the orchestrator acknowledges them.
 
 | Column | Meaning |
 | --- | --- |
-| `persistence_token` | Primary key; unique token for one terminal graph generation. |
+| `persistence_token` | Primary key; terminal graph token, or a `discard-admission:` prefix followed by the rejected root claim token. |
 | `run_id` | Run whose graph can be released. |
 | `cell_id` | Cell whose workers deliver this receipt. |
 | `next_attempt_unix` | Earliest retry time in Unix seconds; zero for a new receipt. |

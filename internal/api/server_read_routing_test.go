@@ -75,6 +75,10 @@ func (f *fakeOrchestratorReadClient) AcknowledgeRunPersistence(
 	return nil, status.Error(codes.Unimplemented, "acknowledge persistence not implemented")
 }
 
+func (f *fakeOrchestratorReadClient) DiscardRunAdmission(context.Context, *apigen.DiscardRunAdmissionRequest, ...grpc.CallOption) (*apigen.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "discard admission not implemented")
+}
+
 func (f *fakeOrchestratorReadClient) GetRunTaskCompletion(
 	context.Context,
 	*apigen.GetRunTaskCompletionRequest,

@@ -115,6 +115,13 @@ message AcknowledgeRunPersistenceRequest {
     string persistence_token = 2;
 }
 
+// Discard only a root admission rejected against durable SQL state. The claim
+// token fences this request from every later graph or execution generation.
+message DiscardRunAdmissionRequest {
+    string run_id = 1;
+    string claim_token = 2;
+}
+
 message GetRunTaskCompletionRequest {
     string run_id = 1;
 }
@@ -153,6 +160,7 @@ service OrchestratorService {
     rpc RenewExecutionLease(RenewExecutionLeaseRequest) returns (common.Empty);
     rpc CompleteExecution(CompleteExecutionRequest) returns (CompleteExecutionResponse);
     rpc AcknowledgeRunPersistence(AcknowledgeRunPersistenceRequest) returns (common.Empty);
+    rpc DiscardRunAdmission(DiscardRunAdmissionRequest) returns (common.Empty);
     rpc GetRunTaskCompletion(GetRunTaskCompletionRequest) returns (OrchestratorRunTaskCompletion);
     rpc GetRunTaskSnapshot(GetRunTaskSnapshotRequest) returns (GetRunTaskSnapshotResponse);
     rpc ExecutionStream(stream ExecutionStreamRequest) returns (stream ExecutionStreamResponse);

@@ -3,6 +3,7 @@ package dal
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -16,6 +17,7 @@ type OrchestratorRetirementsRepository interface {
 	ListDue(ctx context.Context, nowUnix int64, limit int) ([]OrchestratorRetirement, error)
 	Delete(ctx context.Context, token string) error
 	RetryAfter(ctx context.Context, token string, nextUnix int64) error
+	RecordRejectedAdmission(ctx context.Context, runID, executionID, token string) (bool, error)
 }
 
 type SQLOrchestratorRetirementsRepository struct {
@@ -25,6 +27,55 @@ type SQLOrchestratorRetirementsRepository struct {
 
 func (r *SQLRepositories) OrchestratorRetirements() OrchestratorRetirementsRepository {
 	return &SQLOrchestratorRetirementsRepository{db: r.runs.db, cellID: r.runs.cellID}
+}
+
+func (r *SQLOrchestratorRetirementsRepository) RecordRejectedAdmission(ctx context.Context, runID, executionID, token string) (bool, error) {
+	if runID == "" || executionID == "" || token == "" {
+		return false, fmt.Errorf("%w: run, execution, and receipt token are required", ErrConflict)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var status, cell string
+	err = tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status, owning_cell FROM job_runs WHERE run_id = ?`+forUpdateClause()), runID).Scan(&status, &cell)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, normalizeSQLError(err)
+	}
+
+	rejected := errors.Is(err, sql.ErrNoRows)
+	if !rejected {
+		if cell != r.cellID {
+			return false, fmt.Errorf("%w: admission belongs to another cell", ErrConflict)
+		}
+
+		rejected = isTerminalRunStatus(status)
+		if !rejected {
+			var current string
+			if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT execution_id FROM segment_executions WHERE run_id = ? AND task_id = ? ORDER BY attempt DESC, id DESC LIMIT 1`), runID, rootTaskID(runID)).Scan(&current); err != nil {
+				return false, normalizeSQLError(err)
+			}
+
+			rejected = current != executionID
+		}
+	}
+
+	if !rejected {
+		return false, nil
+	}
+
+	if err := recordOrchestratorRetirementTx(ctx, tx, TerminalExecutionSnapshotUpdate{RunID: runID, PersistenceToken: token}, r.cellID); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (r *SQLOrchestratorRetirementsRepository) ListDue(ctx context.Context, nowUnix int64, limit int) ([]OrchestratorRetirement, error) {
