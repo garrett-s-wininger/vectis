@@ -129,6 +129,9 @@ bound a hung test; elapsed time does not trigger the new RPC failure scenarios.
 | SQL commits before acknowledgment request or response is lost | The same RPC fault matrix | A fresh worker delivers the durable receipt; graph reclamation and receipt deletion complete without changing the run outcome. |
 | Orchestrator restarts after SQL commits, before receipt recovery | The same RPC fault matrix | Receipts for absent graphs are consumed safely; delayed deliveries do not rerun the task. |
 | Final snapshot transaction fails | `TestTerminalPersistenceFailureDoesNotReleaseState` | Run state rolls back and the graph stays available until persistence succeeds. |
+| A fan-out completion takes effect but its response is lost | `TestWorkerFault_LostFanoutCompletionResponse` | Accepted completion is replayed over either RPC transport; activated children reach the queue without rerunning the parent. |
+| An old final snapshot arrives after requeue | `TestRunsRepository_TerminalSnapshotFencesRetryGeneration` and its Postgres counterpart | A snapshot from an older root attempt is rejected before writes; the current claim and final facts remain intact. |
+| A delayed delivery targets a terminal run | `TestWorkerFault_TerminalRunCannotExecuteDelayedDelivery` | Every terminal status, including `aborted` and `abandoned`, skips execution and graph loading. |
 | Acknowledgment is duplicated or belongs to an old generation | `internal/orchestrator/retention_test.go` | Reclamation is idempotent and cannot remove a newer graph. |
 | Log forwarding acknowledgment is lost | `internal/logforwarder/forwarder_fault_test.go` | Durable spool remains available for retry. |
 

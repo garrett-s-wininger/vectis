@@ -113,6 +113,7 @@ func (r *SQLRunsRepository) VerifyCatalogExecutionSourceCell(
 	if executionID == "" {
 		return fmt.Errorf("%w: execution_id is required", ErrNotFound)
 	}
+
 	if sourceCell == "" {
 		return fmt.Errorf("%w: source_cell is required", ErrConflict)
 	}
@@ -257,7 +258,7 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(
 	defer func() { _ = tx.Rollback() }()
 
 	var owningCell string
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), runUpdate.RunID).
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"+forUpdateClause()), runUpdate.RunID).
 		Scan(&owningCell); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: run %s", ErrNotFound, runUpdate.RunID)
@@ -271,11 +272,15 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(
 		return err
 	}
 
+	rootRows := terminalSnapshotRootRows(rows)
+	if err := verifyTerminalSnapshotRootGenerationTx(ctx, tx, runUpdate.RunID, rootRows); err != nil {
+		return err
+	}
+
 	if err := insertTerminalSnapshotFinalFactsTx(ctx, tx, rows); err != nil {
 		return err
 	}
 
-	rootRows := terminalSnapshotRootRows(rows)
 	if err := verifyTerminalSnapshotExecutionsTx(ctx, tx, rootRows); err != nil {
 		return err
 	}
@@ -730,6 +735,28 @@ func insertTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, rows []
 		VALUES `, values, `
 		ON CONFLICT(task_attempt_id) DO NOTHING
 	`)
+}
+
+func verifyTerminalSnapshotRootGenerationTx(ctx context.Context, tx *sql.Tx, runID string, rows []terminalSnapshotRow) error {
+	if len(rows) != 1 || rows[0].taskID != rootTaskID(runID) {
+		return fmt.Errorf("%w: terminal snapshot requires exactly one root execution", ErrConflict)
+	}
+
+	var executionID, taskAttemptID string
+	var attempt int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT execution_id, task_attempt_id, attempt FROM segment_executions
+		WHERE run_id = ? AND task_id = ? ORDER BY attempt DESC, id DESC LIMIT 1
+	`), runID, rootTaskID(runID)).Scan(&executionID, &taskAttemptID, &attempt); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	root := rows[0]
+	if root.executionID != executionID || root.taskAttemptID != taskAttemptID || root.attempt != attempt {
+		return fmt.Errorf("%w: terminal snapshot root does not match the current retry generation", ErrConflict)
+	}
+
+	return nil
 }
 
 func verifyTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
@@ -1521,7 +1548,7 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 		SELECT status, owning_cell
 		FROM job_runs
 		WHERE run_id = ?
-	`), runID).Scan(&status, &owningCell); err != nil {
+	`+forUpdateClause()), runID).Scan(&status, &owningCell); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
 		}

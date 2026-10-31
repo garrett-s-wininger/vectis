@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -702,7 +703,7 @@ func TestServiceCompleteExecutionHonorsSequenceReadiness(t *testing.T) {
 	}
 }
 
-func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *testing.T) {
+func TestServiceCompleteExecutionReplaysAfterActivatingChildren(t *testing.T) {
 	ctx := context.Background()
 	clock := newManualClock()
 	svc := orchestrator.New(2, orchestrator.WithClock(clock))
@@ -752,7 +753,7 @@ func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *test
 		t.Fatalf("root result: %+v", rootResult)
 	}
 
-	if _, err := svc.CompleteExecutionByClaim(
+	replayed, err := svc.CompleteExecutionByClaim(
 		ctx,
 		loaded.RunID,
 		loaded.Root.ExecutionID,
@@ -761,11 +762,10 @@ func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *test
 		dal.ExecutionStatusSucceeded,
 		"",
 		"",
-	); !errors.Is(
-		err,
-		dal.ErrConflict,
-	) {
-		t.Fatalf("expected duplicate completion conflict, got %v", err)
+	)
+
+	if err != nil || !reflect.DeepEqual(rootResult, replayed) {
+		t.Fatalf("completion replay = %+v, %v; want %+v", replayed, err, rootResult)
 	}
 
 	pending, err := svc.ListPending(ctx, loaded.RunID, 10)
@@ -775,6 +775,28 @@ func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *test
 
 	if len(pending) != 1 || pending[0].ExecutionID != rootResult.Children[0].ExecutionID {
 		t.Fatalf("pending children after duplicate completion = %+v, want only %+v", pending, rootResult.Children[0])
+	}
+
+	for _, mismatch := range []struct{ owner, token, status string }{
+		{"another-worker", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded},
+		{"worker-root", "stale-token", dal.ExecutionStatusSucceeded},
+		{"worker-root", rootClaim.ClaimToken, dal.ExecutionStatusFailed},
+	} {
+		if _, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID,
+			mismatch.owner, mismatch.token, mismatch.status, "", ""); !errors.Is(err, dal.ErrConflict) {
+			t.Fatalf("mismatched completion replay accepted: %+v, %v", mismatch, err)
+		}
+	}
+
+	wantChild := rootResult.Children[0]
+	rootResult.Children[0].ExecutionID = "mutated-original"
+	replayed.Children[0].ExecutionID = "mutated-replay"
+	claimAndCompleteForTest(t, ctx, svc, clock, loaded.RunID, wantChild, "worker-child")
+
+	again, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID,
+		"worker-root", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil || len(again.Children) != 1 || again.Children[0] != wantChild || again.Summary != replayed.Summary {
+		t.Fatalf("accepted result changed after later completion: %+v, %v", again, err)
 	}
 }
 

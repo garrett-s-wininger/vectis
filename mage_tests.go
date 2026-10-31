@@ -185,12 +185,13 @@ func TestFault() error {
 		"./internal/artifact",
 		"./internal/catalog",
 		"./internal/cron",
+		"./internal/dal",
 		"./internal/job",
 		"./internal/logforwarder",
 		"./internal/orchestrator",
 		"./internal/queue",
 		"./internal/reconciler",
-		"-run", "Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable|OrchestratorRestart|WorkerRestartMidRun|PersistenceFailure|LostPersistenceAcknowledgment|ReclaimedRun|ReclaimsOnlyAcknowledged|CompletedHistory|GRPCAcknowledge|FailedAndCancelled",
+		"-run", "Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable|OrchestratorRestart|WorkerRestartMidRun|PersistenceFailure|LostPersistenceAcknowledgment|ReclaimedRun|ReclaimsOnlyAcknowledged|CompletedHistory|GRPCAcknowledge|FailedAndCancelled|FencesRetryGeneration|ReplaysAfterActivatingChildren",
 	)
 }
 

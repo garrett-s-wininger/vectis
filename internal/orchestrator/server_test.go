@@ -14,9 +14,7 @@ import (
 	"vectis/internal/orchestrator"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -120,14 +118,17 @@ func TestGRPCServiceClaimComplete(t *testing.T) {
 		t.Fatalf("complete root result: %+v", completed)
 	}
 
-	if _, err := client.CompleteExecution(ctx, &api.CompleteExecutionRequest{
+	replayed, err := client.CompleteExecution(ctx, &api.CompleteExecutionRequest{
 		RunId:       testString(loaded.GetRunId()),
 		ExecutionId: testString(loaded.GetRoot().GetExecutionId()),
 		Owner:       testString("worker-a"),
 		ClaimToken:  testString(claim.GetClaimToken()),
 		Status:      testString(dal.ExecutionStatusSucceeded),
-	}); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("stale completion status: got %v, want %s", err, codes.FailedPrecondition)
+	})
+
+	if err != nil || replayed.GetOutcome() != completed.GetOutcome() || len(replayed.GetChildren()) != 1 ||
+		replayed.GetChildren()[0].GetExecutionId() != completed.GetChildren()[0].GetExecutionId() {
+		t.Fatalf("completion replay = %+v, %v; want %+v", replayed, err, completed)
 	}
 }
 

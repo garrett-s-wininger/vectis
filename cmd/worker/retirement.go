@@ -25,7 +25,8 @@ func (w *worker) checkRunCanLoadHotState(ctx context.Context, runID string) erro
 		return err
 	}
 
-	if !found || status == dal.RunStatusSucceeded || status == dal.RunStatusFailed || status == dal.RunStatusCancelled {
+	if !found || status == dal.RunStatusSucceeded || status == dal.RunStatusFailed ||
+		status == dal.RunStatusCancelled || status == dal.RunStatusAborted || status == dal.RunStatusAbandoned {
 		return fmt.Errorf("%w: %w: %s", dal.ErrConflict, errRunNotExecutable, runID)
 	}
 

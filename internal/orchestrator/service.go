@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -114,9 +115,11 @@ type completedClaim struct {
 	claimToken  string
 	status      string
 	outcome     dal.ExecutionFinalizationOutcome
+	result      dal.ExecutionFinalizationResult
 }
 
 type taskState struct {
+	completion    *completedClaim
 	record        dal.TaskExecutionRecord
 	status        string
 	uses          string
@@ -416,18 +419,28 @@ func (s *Service) CompleteExecutionByClaim(
 			return dal.ExecutionFinalizationResult{}, err
 		}
 
-		if completed := run.terminalClaim; completed != nil {
-			if completed.executionID == executionID && completed.owner == owner &&
-				completed.claimToken == claimToken && completed.status == status {
-				return run.terminalResult(), nil
-			}
-
-			return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: run %s is already complete", dal.ErrConflict, runID)
-		}
-
 		task, err := run.getExecution(executionID)
 		if err != nil {
 			return dal.ExecutionFinalizationResult{}, err
+		}
+
+		if completed := task.completion; completed != nil {
+			if completed.executionID == executionID && completed.owner == owner &&
+				completed.claimToken == claimToken && completed.status == status {
+				if run.terminalClaim == completed {
+					return run.terminalResult(), nil
+				}
+
+				result := completed.result
+				result.Children = slices.Clone(result.Children)
+				return result, nil
+			}
+
+			return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: execution %s is already complete", dal.ErrConflict, executionID)
+		}
+
+		if run.terminalClaim != nil {
+			return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: run %s is already complete", dal.ErrConflict, runID)
 		}
 
 		if task.status != dal.ExecutionStatusRunning || !task.hasActiveClaim(owner, claimToken, now) {
@@ -468,12 +481,16 @@ func (s *Service) CompleteExecutionByClaim(
 		}
 
 		run.applyRunStatus(result.Outcome)
+		completed := &completedClaim{
+			executionID: executionID, owner: owner, claimToken: claimToken,
+			status: status, outcome: result.Outcome, result: result,
+		}
+
+		completed.result.Children = slices.Clone(result.Children)
+		task.completion = completed
 		if isTerminalFinalizationOutcome(result.Outcome) {
 			run.persistenceToken = uuid.NewString()
-			run.terminalClaim = &completedClaim{
-				executionID: executionID, owner: owner, claimToken: claimToken,
-				status: status, outcome: result.Outcome,
-			}
+			run.terminalClaim = completed
 
 			s.awaitingPersistence.Add(1)
 			return run.terminalResult(), nil
@@ -935,6 +952,7 @@ func (r *runState) applySnapshotRecord(task *taskState, record dal.TaskExecution
 	}
 
 	if task.record.ExecutionID != "" && task.record.ExecutionID != oldExecutionID {
+		task.completion = nil
 		delete(r.executions, oldExecutionID)
 		r.executions[task.record.ExecutionID] = task
 	}
