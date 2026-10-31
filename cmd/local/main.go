@@ -725,7 +725,7 @@ func localBrowserTLS(material *localpki.Material, mode string, logger interfaces
 		enabled = trusted
 		if !trusted {
 			logger.Warn(
-				"Local API and docs will use HTTP because the generated CA is not trusted. Run vectis-local init and then run vectis-local install-cert with elevated privileges, or set --http-tls=on.",
+				"Local API, UI, and docs will use HTTP because the generated CA is not trusted. Run vectis-local init and then run vectis-local install-cert with elevated privileges, or set --http-tls=on.",
 			)
 		}
 	}
@@ -742,6 +742,9 @@ func localBrowserTLS(material *localpki.Material, mode string, logger interfaces
 		"VECTIS_API_SESSION_COOKIE_SECURE=true",
 		"VECTIS_DOCS_TLS_CERT_FILE=" + material.ServerCert,
 		"VECTIS_DOCS_TLS_KEY_FILE=" + material.ServerKey,
+		"VECTIS_UI_TLS_CERT_FILE=" + material.ServerCert,
+		"VECTIS_UI_TLS_KEY_FILE=" + material.ServerKey,
+		"VECTIS_UI_API_CA_FILE=" + material.CAFile,
 	}
 
 	return cfg
@@ -1055,15 +1058,28 @@ func docsEnv() []string {
 	return env
 }
 
-func uiEnv() []string {
+func uiEnv(browserTLS ...localBrowserTLSConfig) []string {
 	if !viper.GetBool("ui_enabled") {
 		return nil
+	}
+
+	scheme := "http"
+	if len(browserTLS) > 0 && browserTLS[0].Enabled {
+		scheme = "https"
 	}
 
 	env := []string{
 		"VECTIS_UI_HOST=" + localHost(),
 		fmt.Sprintf("VECTIS_UI_PORT=%d", viper.GetInt("ui_port")),
-		fmt.Sprintf("VECTIS_UI_API_URL=http://%s:%d", localAPIProxyHost(), config.APIEffectiveListenPort()),
+		fmt.Sprintf("VECTIS_UI_API_URL=%s://%s:%d", scheme, localAPIProxyHost(), config.APIEffectiveListenPort()),
+	}
+
+	if publicURL := strings.TrimSpace(viper.GetString("ui_public_url")); publicURL != "" {
+		env = append(env, "VECTIS_UI_PUBLIC_URL="+publicURL)
+	}
+
+	if viper.GetBool("allow_insecure_http") {
+		env = append(env, "VECTIS_UI_ALLOW_INSECURE_HTTP=true")
 	}
 
 	if dir := strings.TrimSpace(viper.GetString("ui_dir")); dir != "" {
@@ -1495,7 +1511,7 @@ func localPlainHTTPAuthEnv(browserTLSEnabled bool) []string {
 		return nil
 	}
 
-	return []string{"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true"}
+	return []string{"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true", "VECTIS_UI_SESSION_ALLOW_INSECURE_COOKIES=true"}
 }
 
 func localAPIExited() bool {
@@ -1735,10 +1751,13 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Info("Bootstrapped gRPC TLS for local stack (material under %s)", tlsDir)
 	}
 	browserTLS := localBrowserTLS(material, httpTLSMode, logger)
+	if err := validateLocalHTTPDemo(browserTLS.Enabled); err != nil {
+		logger.Fatal("Invalid HTTP demo configuration: %v", err)
+	}
 	tlsEnv = append(tlsEnv, browserTLS.Env...)
 	if plainHTTPAuth := localPlainHTTPAuthEnv(browserTLS.Enabled); len(plainHTTPAuth) > 0 {
 		tlsEnv = append(tlsEnv, plainHTTPAuth...)
-		logger.Info("Local API auth is using HTTP, so insecure session cookies are allowed for this process.")
+		logger.Info("Local API and UI auth are using HTTP; UI network demos require explicit opt-in and a fixed public URL.")
 	}
 
 	embeddedSPIFFE, err := startEmbeddedLocalSPIFFE(logger)
@@ -1847,7 +1866,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
-	tlsEnv = append(tlsEnv, uiEnv()...)
+	tlsEnv = append(tlsEnv, uiEnv(browserTLS)...)
 	logger.Info("Starting vectis-local profile: %s", profile)
 	logger.Info("API will be available at %s://%s:%d", browserTLS.Scheme, localHost(), config.APIEffectiveListenPort())
 
@@ -1882,7 +1901,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 	}
 
 	if hasService(services, "vectis-ui") {
-		logger.Info("UI will be available at http://%s:%d", localHost(), viper.GetInt("ui_port"))
+		logLocalUIEndpoints(logger, browserTLS.Scheme)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -2209,9 +2228,11 @@ func init() {
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().String("profile", localProfileSimple, "Local deployment profile: simple or ha")
 	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "Use plaintext gRPC instead of bootstrapped local TLS")
-	rootCmd.PersistentFlags().String("http-tls", localHTTPSTLSAuto, "Local API/docs HTTPS mode: auto, on, or off")
+	rootCmd.PersistentFlags().String("http-tls", localHTTPSTLSAuto, "Local API/docs/UI HTTPS mode: auto, on, or off")
+	rootCmd.PersistentFlags().Bool("allow-insecure-http", false, "Allow an unencrypted network demo; requires HTTP mode and --ui-public-url")
+	rootCmd.PersistentFlags().String("ui-public-url", "", "Browser-facing UI origin, including the port; does not change --ui-port")
 	rootCmd.PersistentFlags().String("tls-dir", "", "Directory for vectis-local generated TLS material")
-	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the local API and docs sites to bind")
+	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the local API, UI, and docs sites to bind")
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().
@@ -2254,6 +2275,8 @@ func init() {
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
+	_ = viper.BindPFlag("allow_insecure_http", rootCmd.PersistentFlags().Lookup("allow-insecure-http"))
+	_ = viper.BindPFlag("ui_public_url", rootCmd.PersistentFlags().Lookup("ui-public-url"))
 	_ = viper.BindPFlag("http_tls", rootCmd.PersistentFlags().Lookup("http-tls"))
 	_ = viper.BindPFlag("tls_dir", rootCmd.PersistentFlags().Lookup("tls-dir"))
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
@@ -2283,6 +2306,8 @@ func init() {
 	_ = viper.BindPFlag("auth_enabled", rootCmd.PersistentFlags().Lookup("auth"))
 	_ = viper.BindPFlag("setup", rootCmd.PersistentFlags().Lookup("setup"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
+	_ = viper.BindEnv("allow_insecure_http", "VECTIS_LOCAL_ALLOW_INSECURE_HTTP")
+	_ = viper.BindEnv("ui_public_url", "VECTIS_LOCAL_UI_PUBLIC_URL")
 	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
 	_ = viper.BindEnv("tls_dir", "VECTIS_LOCAL_TLS_DIR")
 	_ = viper.BindEnv("profile", "VECTIS_LOCAL_PROFILE")

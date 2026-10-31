@@ -61,6 +61,14 @@ You can list reusable jobs from a repository with:
 ./bin/vectis-cli jobs list --repository vectis-local --ref main
 ```
 
+## Creating A Job In The UI
+
+Open **Jobs → Create**, enter the job name and JSON payload, and select a registered repository such as `vectis-local` from **Repository ID**. The repository must use managed checkout mode and `local_commit` authoring. Creation writes a local Git commit on the repository's configured default ref, and the job then appears in the list. Push that commit separately when you want to share it upstream.
+
+The picker marks repositories without authoring support as unavailable. The job editor loads the repository definition before displaying its configuration. Description, pause, and scheduling inputs are not offered because source authoring does not save separate database-only fields.
+
+Reusable job creation and updates require a repository; Vectis does not offer database-only job authoring. For a definition you do not want to commit, use **Run Once** or `vectis-cli jobs run`.
+
 ## Multiple Steps
 
 Use `builtins/sequence` when you want child steps to run in order. Each child is another node.

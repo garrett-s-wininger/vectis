@@ -622,6 +622,7 @@
       "post": {
         "operationId": "createSourceRepository",
         "summary": "Register a source repository",
+        "description": "Requires job:write in the target namespace and admin:* on the root namespace. Repository registration grants server filesystem, credential, and remote access.",
         "tags": [
           "Source"
         ],
@@ -674,6 +675,7 @@
       "put": {
         "operationId": "updateSourceRepository",
         "summary": "Update a source repository",
+        "description": "Requires job:write in the repository namespace and admin:* on the root namespace. Namespace users may operate approved repositories but cannot change their deployment bindings.",
         "tags": [
           "Source"
         ],
@@ -968,7 +970,28 @@
         "x-vectis-auth-action": "run:read",
         "responses": {
           "200": {
-            "$ref": "#/components/responses/JSONOK"
+            "description": "Paginated runs with durable submitter attribution when known",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RunRead"
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Error"
@@ -1052,11 +1075,25 @@
         "x-vectis-auth-action": "run:read",
         "responses": {
           "200": {
-            "description": "Server-Sent Events stream",
+            "description": "Paginated runs with durable submitter attribution when known",
             "content": {
-              "text/event-stream": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RunRead"
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1367,7 +1404,28 @@
         ],
         "responses": {
           "200": {
-            "$ref": "#/components/responses/PaginatedJSON"
+            "description": "Paginated runs with durable submitter attribution when known",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RunRead"
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Error"
@@ -1426,7 +1484,28 @@
         ],
         "responses": {
           "200": {
-            "$ref": "#/components/responses/PaginatedJSON"
+            "description": "Paginated runs with durable submitter attribution when known",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RunRead"
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Error"
@@ -1454,7 +1533,14 @@
         ],
         "responses": {
           "200": {
-            "$ref": "#/components/responses/JSONOK"
+            "description": "Run detail, including durable submitter attribution when known",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Error"
@@ -3802,6 +3888,19 @@
           "user:admin",
           "api:any"
         ]
+      },
+      "RunRead": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "submitted_by": {
+            "type": "string",
+            "description": "Authenticated submitter captured when the run was accepted; anonymous for auth-disabled API submissions, system for automatic triggers. Omitted when attribution is unknown. Independent of the current viewer."
+          }
+        },
+        "additionalProperties": true
       }
     }
   }

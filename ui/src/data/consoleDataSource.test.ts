@@ -68,6 +68,7 @@ describe("console data source", () => {
           data: [
             {
               run_id: "run-1",
+              submitted_by: "mira",
               job_id: "smoke-test",
               namespace: "/",
               run_index: 4,
@@ -116,7 +117,7 @@ describe("console data source", () => {
       finishedAt: "2026-05-31T12:00:42Z",
       status: "succeeded",
       startedAt: "2026-05-31T12:00:00Z",
-      submittedBy: "anonymous",
+      submittedBy: "mira",
       trigger: "api",
       duration: "42s"
     });
@@ -267,12 +268,9 @@ describe("console data source", () => {
     await createConsoleDataSource().createJob({
       branch: "",
       definition: JSON.stringify({ root: { id: "root", uses: "builtins/script" } }),
-      description: "Shown in the editor, not written into the definition.",
       name: "database-vacuum",
       namespacePath: "/",
-      repository: "",
-      schedule: "Manual",
-      status: "enabled"
+      repository: "vectis-local"
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -282,6 +280,7 @@ describe("console data source", () => {
         method: "POST",
         body: JSON.stringify({
           namespace: "/",
+          repository_id: "vectis-local",
           job: {
             root: { id: "root", uses: "builtins/script" },
             id: "database-vacuum"
@@ -289,6 +288,23 @@ describe("console data source", () => {
         })
       })
     );
+  });
+
+  it("rejects reusable job writes without a source repository before any request", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    const input = {
+      branch: "",
+      definition: JSON.stringify({ root: {} }),
+      name: "missing-source",
+      namespacePath: "/",
+      repository: " ",
+      schedule: "Manual",
+      status: "enabled" as const
+    };
+    const source = createConsoleDataSource();
+    await expect(source.createJob(input)).rejects.toThrow("source repository is required");
+    await expect(source.updateJob(input.name, input)).rejects.toThrow("source repository is required");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("creates namespaces through the API source", async () => {
@@ -307,8 +323,8 @@ describe("console data source", () => {
           {
             id: 2,
             name: "platform",
-            path: "/platform",
             description: "Platform-owned definitions.",
+            path: "/platform",
             parent_id: 1,
             break_inheritance: false
           }
@@ -452,16 +468,13 @@ describe("console data source", () => {
       definition: JSON.stringify({
         root: { id: "root", uses: "builtins/script" }
       }),
-      description: "Do not write this back into JSON.",
       name: "ignored-by-update",
-      repository: "",
-      schedule: "Manual",
-      status: "enabled"
+      repository: "vectis-local"
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "/api/v1/jobs/database-vacuum",
+      "/api/v1/jobs/database-vacuum?repository_id=vectis-local",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
@@ -523,7 +536,7 @@ describe("console data source", () => {
       namespacePath: "/",
       source: "ephemeral",
       status: "queued",
-      submittedBy: "anonymous",
+      submittedBy: undefined,
       trigger: "api"
     });
 

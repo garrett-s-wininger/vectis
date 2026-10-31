@@ -54,6 +54,10 @@ Use release notes when they are more specific. Otherwise:
 7. Run the upgrade smoke test: check versions, API health, job list, run list, trigger a safe job, wait for terminal status, and stream logs.
 8. Watch queue backlog, due cron schedules, stuck runs, DB pool waits, worker failures, log/artifact failures, and security gate failures for at least one reconciler interval.
 
+## Orchestrator Graph Reclamation
+
+Before 1.0, graph reclamation state is part of the initial migration. Recreate disposable development databases when their schema predates this state; for retained data, back up first and follow the migration and repair guidance below. Roll orchestrators and workers together so final graph persistence and acknowledgment use matching contracts. See [Scaling And Restarts](../deployment/scaling-and-restarts.md) for retention behavior and outage limits.
+
 ## Schema Readiness
 
 Runtime services wait for the expected schema; they do not apply migrations themselves. Use:

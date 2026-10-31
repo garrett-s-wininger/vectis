@@ -420,6 +420,7 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 	created, err := repos.Runs().
 		CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{"iad-a", "pdx-b"}, dal.RunAuditMetadata{
 			TriggerInvocationID:   rec.InvocationID,
+			SubmittedBy:           "mira",
 			StartDeadlineUnixNano: startDeadlineUnixNano,
 		})
 	if err != nil {
@@ -447,6 +448,10 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 	}
 
 	for _, run := range created {
+		persisted, err := repos.Runs().GetRun(ctx, run.RunID)
+		if err != nil || persisted.SubmittedBy != "mira" {
+			t.Fatalf("run actor was not persisted: actor=%q err=%v", persisted.SubmittedBy, err)
+		}
 		var invocationID, payloadHash string
 		if err := db.QueryRowContext(ctx, "SELECT trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", run.RunID).
 			Scan(&invocationID, &payloadHash); err != nil {
@@ -1136,6 +1141,7 @@ func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
 
 	replay, err := repos.Runs().CreateReplayRun(ctx, sourceRunID, "", dal.RunAuditMetadata{
 		TriggerInvocationID: invocation.InvocationID,
+		SubmittedBy:         "replay-operator",
 	})
 
 	if err != nil {
@@ -1157,6 +1163,10 @@ func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
 
 	if run.DefinitionVersion != 1 || run.DefinitionHash != dal.DefinitionHash(defV1) {
 		t.Fatalf("replay definition snapshot: got version=%d hash=%q", run.DefinitionVersion, run.DefinitionHash)
+	}
+
+	if run.SubmittedBy != "replay-operator" {
+		t.Fatalf("replay actor=%q", run.SubmittedBy)
 	}
 
 	if run.ReplayOfRunID == nil || *run.ReplayOfRunID != sourceRunID {

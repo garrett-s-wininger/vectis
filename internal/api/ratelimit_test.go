@@ -140,26 +140,37 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 	})
 
 	t.Run("auth_endpoint_rate_limited", func(t *testing.T) {
-		// Auth endpoints have burst=5 and each route has its own bucket.
-		// Exhaust the bucket for /api/v1/setup/status with 5 requests.
 		for i := range 5 {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader(`{"username":"missing","password":"invalid"}`))
+			req.Header.Set("Content-Type", "application/json")
 			h.ServeHTTP(rec, req)
+
 			if rec.Code == http.StatusTooManyRequests {
 				t.Fatalf("request %d should not be rate limited yet, got 429", i+1)
 			}
 		}
 
-		// 6th request to the same route should be rate limited.
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader(`{"username":"missing","password":"invalid"}`))
+		req.Header.Set("Content-Type", "application/json")
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusTooManyRequests {
 			t.Fatalf("expected 429, got %d", rec.Code)
 		}
+
 		if rec.Header().Get("Retry-After") == "" {
 			t.Fatal("expected Retry-After header")
+		}
+	})
+
+	t.Run("setup_status_supports_browser_refreshes", func(t *testing.T) {
+		for i := range 20 {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("setup status request %d: status=%d body=%s", i+1, rec.Code, rec.Body.String())
+			}
 		}
 	})
 

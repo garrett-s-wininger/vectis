@@ -313,6 +313,12 @@ export function createMockConsoleDataSnapshot(): MockConsoleData {
     cloneData({
       cells,
       jobs,
+      repositories: [
+        { id: "vectis-local", namespacePath: "/", canAuthor: true },
+        ...jobs
+          .filter((job) => job.repository)
+          .map((job) => ({ id: job.repository, namespacePath: job.namespacePath, canAuthor: true }))
+      ],
       namespaces,
       progress: workloadProgress,
       roleBindings,
@@ -572,18 +578,18 @@ export function createMockJob(data: MockConsoleData, input: NewMockJob): MockCon
   const job: MockJob = {
     id: uniqueMockJobID(data, name),
     name,
-    description: input.description?.trim() || "Reusable job definition stored in Vectis.",
+    description: "Reusable job definition read from source control.",
     repository: input.repository.trim(),
     branch: input.branch.trim(),
     definition: input.definition.trim(),
-    sourceDetail: "Stored definition",
-    sourceKind: "db",
+    sourceDetail: input.repository.trim() || "Stored definition",
+    sourceKind: "repo",
     namespacePath: input.namespacePath,
-    schedule: input.schedule.trim(),
-    nextRun: nextRunForSchedule(input.schedule),
-    triggers: triggersForJobInput(input),
+    schedule: "Manual",
+    nextRun: "On demand",
+    triggers: [{ kind: "manual", detail: "On demand" }],
     lastRunStatus: "queued",
-    status: input.status
+    status: "enabled"
   };
 
   return {
@@ -605,14 +611,9 @@ export function updateMockJob(data: MockConsoleData, jobID: string, input: Updat
         ? {
             ...job,
             name,
-            description: input.description?.trim() || undefined,
             repository: input.repository.trim(),
             branch: input.branch.trim(),
-            definition: input.definition.trim(),
-            schedule: input.schedule.trim(),
-            nextRun: nextRunForSchedule(input.schedule),
-            triggers: triggersForJobInput(input),
-            status: input.status
+            definition: input.definition.trim()
           }
         : job
     )
@@ -704,6 +705,7 @@ export function nextMockRunID(data: MockConsoleData) {
 
 function cloneData(data: MockConsoleData): MockConsoleData {
   return {
+    repositories: data.repositories.map((repository) => ({ ...repository })),
     cells: data.cells.map((cell) => ({
       ...cell,
       components: cell.components.map((component) => ({ ...component })),
@@ -761,37 +763,6 @@ function uniqueMockJobID(data: MockConsoleData, name: string) {
   }
 
   return id;
-}
-
-function nextRunForSchedule(schedule: string) {
-  const normalized = schedule.trim().toLowerCase();
-  if (normalized === "hourly") {
-    return "1h";
-  }
-
-  if (normalized === "nightly") {
-    return "Tonight";
-  }
-
-  if (normalized === "none") {
-    return "No trigger";
-  }
-
-  return "Manual";
-}
-
-function triggersForJobInput(input: NewJob | UpdateJob) {
-  const triggers: Job["triggers"] = [];
-  if (input.manualEnabled ?? true) {
-    triggers.push({ kind: "manual", detail: "On demand" });
-  }
-
-  const schedule = input.schedule.trim();
-  if (schedule === "Hourly" || schedule === "Nightly" || schedule.startsWith("Cron:")) {
-    triggers.push({ kind: "schedule", detail: schedule });
-  }
-
-  return triggers;
 }
 
 function jobNameFromDefinition(definition: string) {

@@ -1,24 +1,18 @@
-import { emptyJobForm, jobInputFromValues } from "./JobEditorModel";
+import { emptyJobForm, jobInputFromValues, valuesFromJob } from "./JobEditorModel";
+import { createMockConsoleDataSnapshot } from "../../mocks/consoleData";
 
 describe("JobEditorModel", () => {
-  it("serializes manual-only jobs for the API", () => {
-    expect(jobInputFromValues({ ...emptyJobForm, manualEnabled: true, schedule: "None" })).toEqual(
-      expect.objectContaining({ schedule: "Manual" })
-    );
+  it("submits only source-authoring fields", () => {
+    expect(jobInputFromValues({ ...emptyJobForm, name: "build", repository: "demo" })).toEqual({
+      name: "build",
+      repository: "demo",
+      branch: "",
+      definition: emptyJobForm.definition
+    });
   });
-
-  it("starts with a runnable script definition by default", () => {
-    const input = jobInputFromValues({ ...emptyJobForm, name: "hello-vectis" });
-    const definition = JSON.parse(input.definition) as {
-      root?: {
-        uses?: string;
-        with?: {
-          script?: string;
-        };
-      };
-    };
-
-    expect(definition.root?.uses).toBe("builtins/script");
-    expect(definition.root?.with?.script).toBe("echo 'Hello from Vectis'");
+  it("uses the loaded source definition when configuring a job", () => {
+    const job = createMockConsoleDataSnapshot().jobs[0];
+    expect(valuesFromJob(job).definition).toBe(job.definition);
+    expect(valuesFromJob({ ...job, definition: undefined }).definition).toBe("");
   });
 });

@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"vectis/internal/api/audit"
+	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
+	"vectis/internal/config"
 	"vectis/internal/dal"
 )
 
@@ -244,6 +246,11 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 
 		dalScopes := make([]*dal.TokenScopeRecord, len(req.Scopes))
 		for i, scopeReq := range req.Scopes {
+			if scopeReq == nil {
+				writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidScopeAction)
+				return
+			}
+
 			action, ok := authz.ParseAction(scopeReq.Action)
 			if !ok || action == authz.ActionSetupStatus || action == authz.ActionSetupComplete {
 				writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidScopeAction)
@@ -296,6 +303,13 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if !s.authorizeAction(ctx, w, p, action, scopeRes) {
+				return
+			}
+
+			if config.APIAuthEnabled() && !authz.CanDelegateTokenScope(ctx, p, authn.TokenScope{
+				Action: scope.Action, NamespaceID: scope.NamespaceID.Int64, Propagate: scope.Propagate,
+			}, s.namespaces) {
+				writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 				return
 			}
 

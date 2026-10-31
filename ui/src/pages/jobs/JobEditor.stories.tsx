@@ -8,12 +8,13 @@ function JobEditorStory({ error: initialError = "", mode }: { error?: string; mo
   const [error, setError] = useState(initialError);
   const [values, setValues] = useState<JobFormValues>(() => ({
     ...emptyJobForm,
-    cronSpec: "0 2 * * *",
+    repository: "vectis-local",
     name: mode.kind === "edit" ? "worker-image" : ""
   }));
 
   return (
     <JobEditor
+      repositories={[{ id: "vectis-local", namespacePath: "/", canAuthor: true }]}
       error={error}
       mode={mode}
       namespacePath="/"

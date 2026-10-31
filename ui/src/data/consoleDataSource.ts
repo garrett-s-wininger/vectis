@@ -40,6 +40,9 @@ type PaginatedResponse<T> = {
 };
 
 type APISourceRepository = {
+  authoring?: { write_definitions: boolean };
+  authoring_mode?: string;
+  checkout_mode?: string;
   default_ref?: string;
   enabled?: boolean;
   namespace?: string;
@@ -68,6 +71,8 @@ type APINamespace = {
 
 type APIRun = {
   created_at?: string;
+  submitted_by?: string;
+  trigger_type?: string;
   definition?: unknown;
   definition_version?: number;
   finished_at?: string;
@@ -158,6 +163,7 @@ export type ConsoleDataSource = {
   loadCells(): Promise<Cell[]>;
   loadConsole(): Promise<ConsoleData>;
   loadRun(runID: string): Promise<RunListItem>;
+  loadJob(job: Job): Promise<Job>;
   revokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
   triggerRun(jobID: string, repositoryID?: string): Promise<ConsoleData>;
@@ -224,6 +230,9 @@ function createMockConsoleDataSource(): ConsoleDataSource {
     async loadConsole() {
       return cloneConsoleData(data);
     },
+    async loadJob(job) {
+      return { ...job };
+    },
     async loadRun(runID) {
       const run = data.runs.find((candidate) => candidate.id === runID);
       if (!run) {
@@ -264,17 +273,13 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       const definition = parseJobDefinition(input.definition);
       definition.id = input.name;
 
-      const repositoryID = input.repository.trim();
+      const repositoryID = requireSourceRepository(input.repository);
       await requestNoContent("/api/v1/jobs", {
         method: "POST",
         body: JSON.stringify({
           namespace: input.namespacePath,
-          ...(repositoryID
-            ? {
-                repository_id: repositoryID,
-                ...(input.branch.trim() ? { ref: input.branch.trim() } : {})
-              }
-            : {}),
+          repository_id: repositoryID,
+          ...(input.branch.trim() ? { ref: input.branch.trim() } : {}),
           job: definition
         })
       });
@@ -338,6 +343,16 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     },
     loadConsole: loadAPIConsoleData,
     loadCells: loadAPICells,
+    async loadJob(job) {
+      const params = new URLSearchParams({ repository_id: job.repository });
+      if (job.branch) params.set("ref", job.branch);
+      if (job.sourceDetail) params.set("path", job.sourceDetail);
+      const response = await requestJSON<{ definition: unknown }>(
+        `/api/v1/jobs/${encodeURIComponent(job.id)}?${params}`
+      );
+      const definition = normalizeJobDefinition(response.definition, job.id);
+      return { ...job, definition: JSON.stringify(definition, null, 2) };
+    },
     async loadRun(runID) {
       const [run, jobsPage, tasks] = await Promise.all([loadAPIRun(runID), loadAPIJobs(), loadAPIRunTasks(runID)]);
       const jobs = jobsPage.data;
@@ -386,7 +401,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     async updateJob(jobID, input) {
       const definition = parseJobDefinition(input.definition);
       definition.id = jobID;
-      const repositoryID = input.repository.trim();
+      const repositoryID = requireSourceRepository(input.repository);
       const params = new URLSearchParams();
       if (repositoryID) {
         params.set("repository_id", repositoryID);
@@ -446,6 +461,7 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
   return {
     ...mockBase,
     cells: [],
+    repositories: jobsPage.repositories,
     jobs: jobs.map((job) => ({
       ...job,
       lastRunStatus: runs.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)?.status
@@ -470,6 +486,14 @@ async function loadAPIJobs() {
   const pages = await Promise.all(enabled.map((repository) => loadAPISourceJobs(repository)));
 
   return {
+    repositories: repositories.map((repository) => ({
+      id: repository.repository_id,
+      namespacePath: repository.namespace || "/",
+      canAuthor:
+        repository.enabled !== false &&
+        (repository.authoring?.write_definitions ??
+          (repository.authoring_mode === "local_commit" && repository.checkout_mode === "managed"))
+    })),
     data: pages.flat()
   };
 }
@@ -815,7 +839,8 @@ function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
     source: job.sourceDetail === "Inline" ? "ephemeral" : "stored",
     startedAt: run.started_at,
     definition: apiRunDefinition(run) ?? job.definition,
-    submittedBy: "anonymous",
+    submittedBy:
+      run.submitted_by || (run.trigger_type === "cron" || run.trigger_type === "scm_poll" ? "system" : undefined),
     trigger: "api"
   };
 }
@@ -996,4 +1021,12 @@ function normalizeJobDefinition(definition: unknown, fallbackID: string) {
 
 function cloneConsoleData(data: MockConsoleData) {
   return scopeMockConsoleData(data, "/");
+}
+
+function requireSourceRepository(repository: string) {
+  const id = repository.trim();
+  if (!id) {
+    throw new Error("A registered source repository is required for reusable jobs.");
+  }
+  return id;
 }

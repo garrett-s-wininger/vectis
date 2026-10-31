@@ -2166,7 +2166,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(
 		_, err = tx.ExecContext(
 			ctx,
 			rebindQueryForPgx(
-				`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path, submitted_by) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			),
 			runID,
 			jobID,
@@ -2179,6 +2179,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(
 			nullableString(triggerInvocationID),
 			executionPayloadHash,
 			namespacePath,
+			strings.TrimSpace(audit.SubmittedBy),
 		)
 
 		if err != nil {
@@ -2586,7 +2587,7 @@ func createRunTx(
 	_, err = tx.ExecContext(
 		ctx,
 		rebindQueryForPgx(
-			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path, submitted_by) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		),
 		runID,
 		jobID,
@@ -2599,6 +2600,7 @@ func createRunTx(
 		nullableString(triggerInvocationID),
 		executionPayloadHash,
 		namespacePath,
+		strings.TrimSpace(audit.SubmittedBy),
 	)
 
 	if err != nil {
@@ -2691,7 +2693,7 @@ func (r *SQLRunsRepository) CreateReplayRun(
 	_, err = tx.ExecContext(
 		ctx,
 		rebindQueryForPgx(
-			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path, submitted_by) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		),
 		runID,
 		jobID,
@@ -2704,6 +2706,7 @@ func (r *SQLRunsRepository) CreateReplayRun(
 		nullableString(audit.TriggerInvocationID),
 		strings.TrimSpace(audit.ExecutionPayloadHash),
 		namespacePath,
+		strings.TrimSpace(audit.SubmittedBy),
 	)
 
 	if err != nil {
@@ -3226,6 +3229,7 @@ func (r *SQLRunsRepository) ListByJob(
 			jr.replay_of_run_id,
 			jr.trigger_invocation_id,
 			jr.execution_payload_hash,
+			jr.submitted_by,
 			ti.trigger_id,
 			jt.trigger_key,
 			jt.display_name,
@@ -3293,7 +3297,7 @@ func (r *SQLRunsRepository) ListByJob(
 			&rec.OwningCell,
 			&replayOfRunID,
 			&triggerInvocationID,
-			&rec.ExecutionPayloadHash,
+			&rec.ExecutionPayloadHash, &rec.SubmittedBy,
 			&triggerID,
 			&triggerKey,
 			&triggerName,
@@ -3388,6 +3392,7 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(
 			jr.replay_of_run_id,
 			jr.trigger_invocation_id,
 			jr.execution_payload_hash,
+			jr.submitted_by,
 			ti.trigger_id,
 			jt.trigger_key,
 			jt.display_name,
@@ -3459,7 +3464,7 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(
 			&rec.OwningCell,
 			&replayOfRunID,
 			&triggerInvocationID,
-			&rec.ExecutionPayloadHash,
+			&rec.ExecutionPayloadHash, &rec.SubmittedBy,
 			&triggerID,
 			&triggerKey,
 			&triggerName,
@@ -3533,6 +3538,7 @@ func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int
 			jr.replay_of_run_id,
 			jr.trigger_invocation_id,
 			jr.execution_payload_hash,
+			jr.submitted_by,
 			ti.trigger_id,
 			jt.trigger_key,
 			jt.display_name,
@@ -3584,7 +3590,7 @@ func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int
 			&rec.OwningCell,
 			&replayOfRunID,
 			&triggerInvocationID,
-			&rec.ExecutionPayloadHash,
+			&rec.ExecutionPayloadHash, &rec.SubmittedBy,
 			&triggerID,
 			&triggerKey,
 			&triggerName,
@@ -7588,6 +7594,7 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 				jr.replay_of_run_id,
 				jr.trigger_invocation_id,
 				jr.execution_payload_hash,
+			jr.submitted_by,
 				ti.trigger_id,
 				jt.trigger_key,
 				jt.display_name,
@@ -7601,7 +7608,7 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 			WHERE jr.run_id = ?
 		`),
 		runID,
-	).Scan(&rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerKey, &triggerName, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells)
+	).Scan(&rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &rec.SubmittedBy, &triggerID, &triggerKey, &triggerName, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells)
 
 	if err != nil {
 		if err == sql.ErrNoRows {

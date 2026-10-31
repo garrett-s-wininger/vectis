@@ -116,9 +116,7 @@ describe("mock console data", () => {
       definition: JSON.stringify({ id: "cache-warmup", root: {} }),
       name: "cache-warmup",
       namespacePath: "/team-a",
-      repository: "github.com/vectis/cache",
-      schedule: "Manual",
-      status: "enabled"
+      repository: "github.com/vectis/cache"
     });
     const job = created.jobs[0];
 
@@ -126,33 +124,29 @@ describe("mock console data", () => {
       id: "job-cache-warmup",
       name: "cache-warmup",
       namespacePath: "/team-a",
-      nextRun: "Manual"
+      nextRun: "On demand"
     });
 
     const updated = updateMockJob(created, job.id, {
       branch: "release",
       definition: JSON.stringify({ id: "cache-prime", root: {} }),
       name: "cache-prime",
-      repository: "github.com/vectis/cache",
-      schedule: "Hourly",
-      status: "paused"
+      repository: "github.com/vectis/cache"
     });
 
     expect(updated.jobs[0]).toMatchObject({
       id: "job-cache-warmup",
       name: "cache-prime",
       branch: "release",
-      nextRun: "1h",
-      status: "paused"
+      nextRun: "On demand",
+      status: "enabled"
     });
 
     const enabled = updateMockJob(updated, job.id, {
       branch: "release",
       definition: JSON.stringify({ id: "cache-prime", root: {} }),
       name: "cache-prime",
-      repository: "github.com/vectis/cache",
-      schedule: "Hourly",
-      status: "enabled"
+      repository: "github.com/vectis/cache"
     });
     const triggered = triggerMockRun(enabled, job.id);
 

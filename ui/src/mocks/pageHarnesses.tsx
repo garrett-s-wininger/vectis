@@ -51,6 +51,7 @@ export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: strin
 
   return (
     <JobsPage
+      repositories={data.repositories}
       detailJobID={detailJobID}
       editorMode={editorMode}
       jobs={scopedData.jobs}

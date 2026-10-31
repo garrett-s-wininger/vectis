@@ -589,6 +589,10 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, "/") {
+		return
+	}
+
 	namespacePath := req.Namespace
 	if namespacePath == "" {
 		namespacePath = "/"
@@ -1991,8 +1995,9 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		loaded.DefinitionJSON,
 		sourceRec,
 		targetCellID,
-		dal.RunAuditMetadata{TriggerInvocationID: invocationID},
+		dal.RunAuditMetadata{TriggerInvocationID: invocationID, SubmittedBy: runSubmitter(p)},
 	)
+
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -2479,6 +2484,10 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, false)
 	if !ok {
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, "/") {
 		return
 	}
 

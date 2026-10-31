@@ -21,6 +21,7 @@ describe("JobsPage", () => {
         jobs={[]}
         namespaces={namespaces}
         namespacePath="/"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={() => undefined}
         onCreateJob={createJob}
         onOpenCreate={openCreate}
@@ -55,6 +56,7 @@ describe("JobsPage", () => {
         jobs={[]}
         namespaces={namespaces}
         namespacePath="/platform"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={() => undefined}
         onCreateJob={createJob}
         onOpenCreate={() => undefined}
@@ -70,13 +72,11 @@ describe("JobsPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Source" })).toBeInTheDocument();
-    expect(screen.getByText("Source Control")).toBeInTheDocument();
-    expect(screen.getByText("Triggers")).toBeInTheDocument();
+    expect(screen.getByLabelText("Repository ID")).toBeInTheDocument();
+    expect(screen.queryByText("Cadence")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "worker-image" } });
-    fireEvent.click(screen.getByLabelText("Manual"));
-    fireEvent.change(screen.getByLabelText("Cadence"), { target: { value: "Custom" } });
-    fireEvent.change(screen.getByLabelText("Cron Spec"), { target: { value: "*/15 * * * *" } });
+    fireEvent.change(screen.getByLabelText("Repository ID"), { target: { value: "vectis-local" } });
     fireEvent.change(screen.getByLabelText("Payload"), {
       target: {
         value: JSON.stringify({
@@ -94,10 +94,7 @@ describe("JobsPage", () => {
     expect(createJob).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "worker-image",
-        manualEnabled: false,
-        namespacePath: "/platform",
-        schedule: "Cron: */15 * * * *",
-        status: "enabled"
+        namespacePath: "/platform"
       })
     );
   });
@@ -123,6 +120,7 @@ describe("JobsPage", () => {
         jobs={[job]}
         namespaces={namespaces}
         namespacePath="/"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={() => undefined}
         onCreateJob={() => undefined}
         onOpenCreate={() => undefined}
@@ -168,6 +166,7 @@ describe("JobsPage", () => {
         jobs={[job]}
         namespaces={namespaces}
         namespacePath="/"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={() => undefined}
         onCreateJob={() => undefined}
         onOpenCreate={() => undefined}
@@ -213,6 +212,7 @@ describe("JobsPage", () => {
         jobs={[]}
         namespaces={namespaces}
         namespacePath="/"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={() => undefined}
         onCreateJob={() => undefined}
         onOpenCreate={() => undefined}
@@ -266,6 +266,7 @@ describe("JobsPage", () => {
         jobs={[scopedJob]}
         namespaces={namespaces}
         namespacePath="/"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={() => undefined}
         onCreateJob={() => undefined}
         onOpenCreate={() => undefined}
@@ -308,6 +309,7 @@ describe("JobsPage", () => {
         jobs={[job]}
         namespaces={namespaces}
         namespacePath="/"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={closeEditor}
         onCreateJob={() => undefined}
         onOpenCreate={() => undefined}
@@ -337,6 +339,7 @@ describe("JobsPage", () => {
         jobs={[]}
         namespaces={namespaces}
         namespacePath="/"
+        repositories={[{ id: "vectis-local", namespacePath: "/platform", canAuthor: true }]}
         onCloseEditor={() => undefined}
         onCreateJob={() => undefined}
         onOpenCreate={() => undefined}

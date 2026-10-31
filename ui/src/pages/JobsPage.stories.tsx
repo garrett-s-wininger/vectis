@@ -11,6 +11,7 @@ const meta = {
   component: JobsPage,
   args: {
     jobs: data.jobs,
+    repositories: data.repositories,
     namespaces: data.namespaces,
     namespacePath: "/",
     onCloseEditor: () => undefined,

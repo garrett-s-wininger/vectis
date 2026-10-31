@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"vectis/internal/cli"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 
 	"github.com/spf13/cobra"
@@ -52,38 +54,52 @@ func runUI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Invalid API URL: %v", err)
 	}
 
-	mux := http.NewServeMux()
-	api := backend.apiProxyHandler()
-	mux.Handle("GET /ui/api/context", http.HandlerFunc(backend.context))
-	mux.Handle("POST /ui/api/setup/complete", http.HandlerFunc(backend.completeSetup))
-	mux.Handle("POST /ui/api/login", http.HandlerFunc(backend.login))
-	mux.Handle("POST /ui/api/logout", http.HandlerFunc(backend.logout))
-	mux.Handle("GET /api/", api)
-	mux.Handle("POST /api/", api)
-	mux.Handle("PUT /api/", api)
-	mux.Handle("PATCH /api/", api)
-	mux.Handle("DELETE /api/", api)
-	mux.Handle("GET /", backend.spaGateWithDevAssets(ui, devAssets))
-	mux.Handle("GET /health/live", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	}))
+	backend.allowNetworkHTTP = viper.GetBool("allow_insecure_http")
+	if err := backend.configureTransport(viper.GetString("public-url"), viper.GetString("api-ca-file")); err != nil {
+		logger.Fatal("Invalid UI transport: %v", err)
+	}
+
+	if err := backend.configureLocalHTTP(viper.GetString("host"), viper.GetBool("session_allow_insecure_cookies")); err != nil {
+		logger.Fatal("Invalid UI session configuration: %v", err)
+	}
+
+	if backend.allowNetworkHTTP {
+		logger.Info("HTTP network demo enabled for browser origin %s", backend.publicURL.String())
+	}
+
+	certFile, keyFile := strings.TrimSpace(viper.GetString("tls_cert_file")), strings.TrimSpace(viper.GetString("tls_key_file"))
+	if backend.allowNetworkHTTP && certFile != "" {
+		logger.Fatal("--allow-insecure-http requires an HTTP listener")
+	}
+
+	if (certFile == "") != (keyFile == "") {
+		logger.Fatal("UI HTTPS requires both certificate and key files")
+	}
 
 	addr := net.JoinHostPort(viper.GetString("host"), fmt.Sprintf("%d", viper.GetInt("port")))
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           backend.handler(ui, devAssets),
+		MaxHeaderBytes:    httpsecurity.DefaultMaxHeaderBytes,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
 
-	logger.Info("UI listening on http://%s (%s)", addr, source)
+	scheme := "http"
+	serve := srv.ListenAndServe
+	if certFile != "" {
+		scheme = "https"
+		serve = func() error { return srv.ListenAndServeTLS(certFile, keyFile) }
+	}
+
+	logger.Info("UI listening on %s://%s (%s)", scheme, addr, source)
 	if err := cli.ServeHTTP(
 		cmd.Context(),
 		srv,
-		srv.ListenAndServe,
+		serve,
 		defaultShutdownTimeout,
 		"UI HTTP",
 		logger,
@@ -113,7 +129,7 @@ func devAssetsHandler(rawURL string) (http.Handler, string, error) {
 func uiHandlerWithFS(configuredDir string, logger interfaces.Logger, uiFS fs.FS) (http.Handler, string) {
 	if dir := strings.TrimSpace(configuredDir); dir != "" {
 		if hasUIIndex(dir) {
-			return spaFileServer(http.Dir(dir)), fmt.Sprintf("serving %s", dir)
+			return spaFileServer(httpsecurity.LocalStaticFileSystem(dir)), fmt.Sprintf("serving %s", dir)
 		}
 
 		logger.Warn("configured UI dir %s does not contain index.html; falling back to embedded UI", dir)
@@ -121,7 +137,7 @@ func uiHandlerWithFS(configuredDir string, logger interfaces.Logger, uiFS fs.FS)
 
 	if env := strings.TrimSpace(os.Getenv("VECTIS_UI_DIR")); env != "" && env != strings.TrimSpace(configuredDir) {
 		if hasUIIndex(env) {
-			return spaFileServer(http.Dir(env)), fmt.Sprintf("serving %s", env)
+			return spaFileServer(httpsecurity.LocalStaticFileSystem(env)), fmt.Sprintf("serving %s", env)
 		}
 
 		logger.Warn("VECTIS_UI_DIR %s does not contain index.html; falling back to embedded UI", env)
@@ -156,6 +172,7 @@ func uiHandlerWithFS(configuredDir string, logger interfaces.Logger, uiFS fs.FS)
 }
 
 func spaFileServer(fsys http.FileSystem) http.Handler {
+	fsys = httpsecurity.StaticFileSystem(fsys)
 	files := http.FileServer(fsys)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
@@ -167,6 +184,11 @@ func spaFileServer(fsys http.FileSystem) http.Handler {
 		if err == nil {
 			_ = file.Close()
 			files.ServeHTTP(w, r)
+			return
+		}
+
+		if isStaticAssetPath(r.URL.Path) || strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
 			return
 		}
 
@@ -209,6 +231,12 @@ func init() {
 	rootCmd.PersistentFlags().String("dir", "", "Directory containing a UI build to serve instead of embedded UI")
 	rootCmd.PersistentFlags().String("dev-assets-url", "", "Vite dev server URL for hot-reloaded UI assets")
 	rootCmd.PersistentFlags().String("api-url", defaultAPIURL, "Base URL for proxied API requests")
+	rootCmd.PersistentFlags().String("api-ca-file", "", "CA bundle for the upstream HTTPS API")
+	rootCmd.PersistentFlags().String("public-url", "", "Browser-facing UI origin for a reverse proxy or explicit HTTP network demo")
+	rootCmd.PersistentFlags().Bool("session-allow-insecure-cookies", false, "Allow HTTP browser sessions on a loopback listener for local development")
+	rootCmd.PersistentFlags().Bool("allow-insecure-http", false, "Allow unencrypted network demo sessions; requires an explicit HTTP --public-url")
+	rootCmd.PersistentFlags().String("tls-cert-file", "", "Certificate file for UI HTTPS")
+	rootCmd.PersistentFlags().String("tls-key-file", "", "Private key file for UI HTTPS")
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
@@ -216,6 +244,19 @@ func init() {
 	_ = viper.BindPFlag("dir", rootCmd.PersistentFlags().Lookup("dir"))
 	_ = viper.BindPFlag("dev-assets-url", rootCmd.PersistentFlags().Lookup("dev-assets-url"))
 	_ = viper.BindPFlag("api-url", rootCmd.PersistentFlags().Lookup("api-url"))
+	for _, key := range []string{"api-ca-file", "public-url", "tls-cert-file", "tls-key-file"} {
+		configKey := key
+		if strings.HasPrefix(key, "tls-") {
+			configKey = strings.ReplaceAll(key, "-", "_")
+		}
+		_ = viper.BindPFlag(configKey, rootCmd.PersistentFlags().Lookup(key))
+		_ = viper.BindEnv(configKey, "VECTIS_UI_"+strings.ToUpper(strings.ReplaceAll(key, "-", "_")))
+	}
+
+	_ = viper.BindPFlag("allow_insecure_http", rootCmd.PersistentFlags().Lookup("allow-insecure-http"))
+	_ = viper.BindEnv("allow_insecure_http", "VECTIS_UI_ALLOW_INSECURE_HTTP")
+	_ = viper.BindPFlag("session_allow_insecure_cookies", rootCmd.PersistentFlags().Lookup("session-allow-insecure-cookies"))
+	_ = viper.BindEnv("session_allow_insecure_cookies", "VECTIS_UI_SESSION_ALLOW_INSECURE_COOKIES")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindEnv("dir", "VECTIS_UI_DIR")
 	_ = viper.BindEnv("dev-assets-url", "VECTIS_UI_DEV_ASSETS_URL")

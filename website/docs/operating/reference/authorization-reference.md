@@ -77,7 +77,7 @@ Unscoped API tokens act as the owning user. Scoped API tokens are an intersectio
 | Namespace path forbidden | `api:any`, `catalog:ingest`, and `user:admin` scopes cannot include a `namespace_path`. |
 | Exact namespace | A namespace scope applies to the exact namespace it names. |
 | Propagation | `propagate=true` lets the scope apply to descendants unless inheritance is broken between the scoped namespace and the target namespace. |
-| Creation guard | A caller can only create scopes for actions and namespaces the caller is already authorized to use. Scoped tokens cannot create broader scopes or unscoped escalation tokens. |
+| Creation guard | A caller can only create scopes for actions and namespaces the caller is already authorized to use. Scoped tokens cannot create broader scopes or unscoped escalation tokens. Delegation checks propagation as well as the exact namespace; a non-propagating scope cannot mint a propagating scope. |
 
 Example scoped token request:
 
@@ -119,6 +119,8 @@ Example scoped token request:
 | Logout, token management, and password changes | `api:any` |
 | User administration | `user:admin` |
 | Namespace creation, deletion, and role-binding administration | `admin:*` |
+
+Source repository registration and configuration updates additionally require `admin:*` on the root namespace. Namespace `job:write` authorizes work within an approved repository, but does not authorize selecting deployment paths, credentials, or remote destinations.
 
 Use [API Reference](../../using/api-reference.md#routes) for the exact method and path list.
 

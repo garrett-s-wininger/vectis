@@ -540,7 +540,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Handler:   http.HandlerFunc(s.GetSetupStatus),
 			Auth:      routeAuthPolicy{Action: authz.ActionSetupStatus},
 			Cache:     routeCachePolicy{mode: routeCacheNoStore},
-			RateLimit: defaultLimits.Auth,
+			RateLimit: defaultLimits.General,
 		},
 		{
 			Pattern:   "POST /api/v1/setup/complete",

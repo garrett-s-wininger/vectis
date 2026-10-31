@@ -67,8 +67,15 @@ export function App() {
   const [actionError, setActionError] = useState("");
   const [healthCells, setHealthCells] = useState<Cell[] | null>(null);
   const [missingRunID, setMissingRunID] = useState<string | null>(null);
+  const [jobDefinitionError, setJobDefinitionError] = useState<{ id: string; message: string } | null>(null);
+  const definitionJobID =
+    route.kind === "jobs"
+      ? (route.jobID ?? (route.jobEditor?.kind === "edit" ? route.jobEditor.jobID : undefined))
+      : undefined;
+  const definitionJob = consoleData?.jobs.find((job) => job.id === definitionJobID);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
   const loadingRunIDRef = useRef<string | null>(null);
+  const consoleActive = route.kind !== "login" && route.kind !== "setup" && route.kind !== "health";
 
   useEffect(() => {
     const onPopState = () => {
@@ -120,7 +127,7 @@ export function App() {
   useEffect(() => {
     let ignore = false;
 
-    if (route.kind === "login" || route.kind === "setup" || route.kind === "health") {
+    if (!consoleActive) {
       return () => {
         ignore = true;
       };
@@ -149,7 +156,7 @@ export function App() {
     return () => {
       ignore = true;
     };
-  }, [route.kind]);
+  }, [consoleActive]);
 
   useEffect(() => {
     if (route.kind !== "health") {
@@ -176,6 +183,30 @@ export function App() {
       ignore = true;
     };
   }, [route.kind]);
+
+  useEffect(() => {
+    if (!definitionJob || definitionJob.definition !== undefined) return;
+    let ignore = false;
+    consoleDataSourceRef.current
+      .loadJob(definitionJob)
+      .then((loaded) => {
+        if (ignore) return;
+        setJobDefinitionError(null);
+        setConsoleData((data) =>
+          data ? { ...data, jobs: data.jobs.map((job) => (job === definitionJob ? loaded : job)) } : data
+        );
+      })
+      .catch((error: unknown) => {
+        if (!ignore)
+          setJobDefinitionError({
+            id: definitionJob.id,
+            message: errorMessage(error, "Unable to load job definition.")
+          });
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [definitionJob]);
 
   useEffect(() => {
     if (route.kind !== "runs" || !route.runID || !consoleData) {
@@ -371,6 +402,7 @@ export function App() {
   async function handleCreateJob(input: NewJob) {
     try {
       setConsoleData(await consoleDataSourceRef.current.createJob(input));
+      setSelectedNamespacePath(input.namespacePath);
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -449,7 +481,7 @@ export function App() {
       const nextData = await consoleDataSourceRef.current.submitEphemeralRun({
         definition,
         namespacePath: selectedNamespacePath,
-        submittedBy: "admin"
+        submittedBy: accountName
       });
       const runID = nextData.runs[0]?.id ?? fallbackRunID;
 
@@ -530,6 +562,9 @@ export function App() {
         actionError={actionError}
         consoleData={consoleData}
         consoleError={consoleError}
+        jobDefinitionError={
+          jobDefinitionError && jobDefinitionError.id === definitionJobID ? jobDefinitionError.message : ""
+        }
         healthCells={healthCells}
         loadingHealthCells={route.kind === "health" && healthCells === null && !actionError}
         missingRunID={missingRunID}
@@ -674,6 +709,7 @@ function AuthHeader({ subtitle, title, titleID }: { subtitle: string; title: str
 
 function RouteContent({
   actionError,
+  jobDefinitionError,
   consoleData,
   consoleError,
   healthCells,
@@ -696,6 +732,7 @@ function RouteContent({
   route
 }: {
   actionError: string;
+  jobDefinitionError: string;
   consoleData: MockConsoleData | null;
   consoleError: string;
   healthCells: Cell[] | null;
@@ -816,10 +853,24 @@ function RouteContent({
           runs={scopedConsoleData.runs}
         />
       );
-    case "jobs":
+    case "jobs": {
+      const targetID = route.jobID ?? (route.jobEditor?.kind === "edit" ? route.jobEditor.jobID : undefined);
+      const targetJob = consoleData.jobs.find((job) => job.id === targetID);
+      if (targetJob && targetJob.definition === undefined) {
+        return (
+          <PageStateRail>
+            <AppState
+              title={jobDefinitionError ? "Unable to Load Job Definition" : "Loading Job Definition"}
+              description={jobDefinitionError || undefined}
+              tone={jobDefinitionError ? "error" : "loading"}
+            />
+          </PageStateRail>
+        );
+      }
       return withActionAlert(
         <JobsPage
           detailJobID={route.jobID}
+          repositories={consoleData.repositories}
           editorMode={route.jobEditor ?? null}
           allJobs={consoleData.jobs}
           jobs={scopedConsoleData.jobs}
@@ -838,6 +889,7 @@ function RouteContent({
           runs={consoleData.runs}
         />
       );
+    }
     case "users":
       return withActionAlert(
         <UsersPage

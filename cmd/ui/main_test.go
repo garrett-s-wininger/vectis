@@ -215,10 +215,13 @@ func TestBFFLoginCreatesHTTPSessionAndProxiesBearerToken(t *testing.T) {
 	loginBody := strings.NewReader(`{"username":"root","password":"longenough"}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/ui/api/login", loginBody)
+	req.Header.Set("Origin", "http://example.com")
+	req.Header.Set("Content-Type", "application/json")
 	backend.login(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login code=%d body=%s", rec.Code, rec.Body.String())
 	}
+
 	if strings.Contains(rec.Body.String(), "api-token") {
 		t.Fatalf("login response leaked API token: %s", rec.Body.String())
 	}
@@ -262,13 +265,17 @@ func TestBFFSetupCreatesSessionWithoutLeakingAPIToken(t *testing.T) {
 	body := strings.NewReader(`{"bootstrap_token":"bootstrap","admin_username":"root","admin_password":"longenough"}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/ui/api/setup/complete", body)
+	req.Header.Set("Origin", "http://example.com")
+	req.Header.Set("Content-Type", "application/json")
 	backend.completeSetup(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("setup code=%d body=%s", rec.Code, rec.Body.String())
 	}
+
 	if strings.Contains(rec.Body.String(), "setup-api-token") {
 		t.Fatalf("setup response leaked API token: %s", rec.Body.String())
 	}
+
 	if findCookie(rec.Result().Cookies(), uiSessionCookieName) == nil {
 		t.Fatal("setup did not set UI session cookie")
 	}
@@ -291,6 +298,8 @@ func TestBFFLogoutClearsSession(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/ui/api/logout", nil)
+	req.Header.Set("Origin", "http://example.com")
+	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: uiSessionCookieName, Value: sessionID})
 	backend.logout(rec, req)
 	if rec.Code != http.StatusNoContent {
@@ -382,6 +391,8 @@ func TestBFFAuthRoutesDisabledWhenAuthDisabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(`{}`))
+			req.Header.Set("Origin", "http://example.com")
+			req.Header.Set("Content-Type", "application/json")
 			tc.handler(rec, req)
 			if rec.Code != http.StatusNotFound {
 				t.Fatalf("%s code=%d body=%s, want 404", tc.name, rec.Code, rec.Body.String())
@@ -408,6 +419,8 @@ func TestBFFBlocksTokenRoutesThroughBrowserProxy(t *testing.T) {
 	for _, path := range []string{"/api/v1/login", "/api/v1/setup/complete", "/api/v1/tokens"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Origin", "http://example.com")
+		req.Header.Set("Content-Type", "application/json")
 		backend.apiProxyHandler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s code=%d want 404", path, rec.Code)
@@ -665,15 +678,22 @@ func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
 func assertUISessionCookie(t *testing.T, cookie *http.Cookie) {
 	t.Helper()
 
+	if !cookie.Secure || cookie.Domain != "" || !strings.HasPrefix(cookie.Name, "__Host-") {
+		t.Fatal("session cookie must use the secure host-only boundary")
+	}
+
 	if !cookie.HttpOnly {
 		t.Fatal("session cookie must be HttpOnly")
 	}
+
 	if cookie.Path != "/" {
 		t.Fatalf("session cookie path = %q, want /", cookie.Path)
 	}
+
 	if cookie.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("session cookie SameSite = %v, want Lax", cookie.SameSite)
 	}
+
 	if cookie.Value == "api-token" {
 		t.Fatal("session cookie must not contain API token")
 	}

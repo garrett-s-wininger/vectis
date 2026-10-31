@@ -1,3 +1,4 @@
+import type { SourceRepository } from "../domain/console";
 import { Button } from "../components";
 import { BreadcrumbTrail } from "../components";
 import { EmptyStatePanel } from "../components";
@@ -16,6 +17,7 @@ import { RoutedJobEditor } from "./jobs/RoutedJobEditor";
 type ActiveJobEditorMode = JobEditorMode | null;
 
 type JobsPageProps = {
+  repositories?: SourceRepository[];
   allJobs?: Job[];
   detailJobID?: string;
   editorMode?: ActiveJobEditorMode;
@@ -36,6 +38,7 @@ type JobsPageProps = {
 };
 
 export function JobsPage({
+  repositories = [],
   allJobs,
   detailJobID,
   editorMode = null,
@@ -155,6 +158,7 @@ export function JobsPage({
         <RoutedJobEditor
           key={editorKey}
           initialValues={editorInitialValues}
+          repositories={repositories}
           mode={editorMode}
           namespacePath={namespacePath}
           onCancel={onCloseEditor}

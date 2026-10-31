@@ -313,6 +313,7 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	}
 
 	var runResp struct {
+		SubmittedBy       string `json:"submitted_by"`
 		RunID             string `json:"run_id"`
 		DefinitionVersion int    `json:"definition_version"`
 		Source            *struct {
@@ -328,7 +329,7 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if runResp.RunID != triggerResp.RunID || runResp.DefinitionVersion != 1 || runResp.Source == nil ||
+	if runResp.SubmittedBy != "anonymous" || runResp.RunID != triggerResp.RunID || runResp.DefinitionVersion != 1 || runResp.Source == nil ||
 		runResp.Source.ResolvedCommit != secondCommit {
 		t.Fatalf("run detail source provenance mismatch: %+v", runResp)
 	}
@@ -580,6 +581,26 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 
 	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "build", 1); !dal.IsNotFound(err) {
 		t.Fatalf("source create facade should not create definition snapshot, got err=%v", err)
+	}
+
+	listCreatedRec := httptest.NewRecorder()
+	handler.ServeHTTP(listCreatedRec, httptest.NewRequest(http.MethodGet, "/api/v1/jobs?repository_id=managed-repo", nil))
+	if listCreatedRec.Code != http.StatusOK {
+		t.Fatalf("list after creation: status=%d body=%s", listCreatedRec.Code, listCreatedRec.Body.String())
+	}
+
+	var listed struct {
+		Jobs []struct {
+			JobID string `json:"job_id"`
+		} `json:"jobs"`
+	}
+
+	if err := json.Unmarshal(listCreatedRec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(listed.Jobs) != 1 || listed.Jobs[0].JobID != "build" {
+		t.Fatalf("created source job missing from default ref: %s", listCreatedRec.Body.String())
 	}
 
 	readCreateRec := httptest.NewRecorder()
@@ -1266,6 +1287,8 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 		body   any
 	}{
 		{name: "list reusable jobs without repository", method: http.MethodGet, path: "/api/v1/jobs"},
+		{name: "create reusable job without repository", method: http.MethodPost, path: "/api/v1/jobs", body: map[string]any{"job": map[string]any{"id": "missing-source", "root": map[string]any{"uses": "builtins/script", "with": map[string]any{"script": "true"}}}}},
+		{name: "update reusable job without repository", method: http.MethodPut, path: "/api/v1/jobs/missing-source", body: map[string]any{"id": "missing-source", "root": map[string]any{"uses": "builtins/script", "with": map[string]any{"script": "true"}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var rec *httptest.ResponseRecorder

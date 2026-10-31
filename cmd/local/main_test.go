@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -263,6 +264,9 @@ func TestLocalBrowserTLSOnSetsHTTPSVars(t *testing.T) {
 		"VECTIS_API_SESSION_COOKIE_SECURE=true",
 		"VECTIS_DOCS_TLS_CERT_FILE=" + m.ServerCert,
 		"VECTIS_DOCS_TLS_KEY_FILE=" + m.ServerKey,
+		"VECTIS_UI_TLS_CERT_FILE=" + m.ServerCert,
+		"VECTIS_UI_TLS_KEY_FILE=" + m.ServerKey,
+		"VECTIS_UI_API_CA_FILE=" + m.CAFile,
 	} {
 		if !hasEnv(cfg.Env, want) {
 			t.Fatalf("browser TLS env missing %q: %v", want, cfg.Env)
@@ -288,7 +292,7 @@ func TestLocalPlainHTTPAuthAllowsInsecureCookies(t *testing.T) {
 	viper.Set("auth_enabled", true)
 
 	env := localPlainHTTPAuthEnv(false)
-	if !slices.Contains(env, "VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true") {
+	if !slices.Contains(env, "VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true") || !slices.Contains(env, "VECTIS_UI_SESSION_ALLOW_INSECURE_COOKIES=true") {
 		t.Fatalf("plain HTTP auth env = %v", env)
 	}
 
@@ -1179,4 +1183,84 @@ func containsEnv(env []string, want string) bool {
 	}
 
 	return false
+}
+
+func TestLocalUIUsesHTTPSUpstreamWithBrowserTLS(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("ui_enabled", true)
+	env := uiEnv(localBrowserTLSConfig{Enabled: true, Scheme: "https"})
+	want := fmt.Sprintf("VECTIS_UI_API_URL=https://%s:%d", localAPIProxyHost(), config.APIEffectiveListenPort())
+	if !hasEnv(env, want) {
+		t.Fatalf("UI upstream is not HTTPS: %v", env)
+	}
+}
+
+func TestLocalAutoUntrustedCertificateKeepsHTTPAuthentication(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("auth_enabled", true)
+	viper.Set("ui_enabled", true)
+	material, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := localBrowserTLS(material, localHTTPSTLSAuto, mocks.NopLogger{})
+	if cfg.Enabled || cfg.Scheme != "http" {
+		t.Fatal("untrusted local CA did not select HTTP")
+	}
+
+	env := mergeEnv(cfg.Env, uiEnv(cfg), localPlainHTTPAuthEnv(cfg.Enabled))
+	for _, want := range []string{
+		"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true",
+		"VECTIS_UI_SESSION_ALLOW_INSECURE_COOKIES=true",
+		fmt.Sprintf("VECTIS_UI_API_URL=http://%s:%d", localAPIProxyHost(), config.APIEffectiveListenPort()),
+	} {
+		if !hasEnv(env, want) {
+			t.Fatalf("HTTP fallback missing %s: %v", want, env)
+		}
+	}
+
+	if len(localPlainHTTPAuthEnv(true)) != 0 {
+		t.Fatal("HTTPS mode enabled the HTTP exception")
+	}
+}
+
+func TestLocalNetworkHTTPDemoConfiguration(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("ui_enabled", true)
+	if err := validateLocalHTTPDemo(false); err != nil {
+		t.Fatal(err)
+	}
+
+	if hasEnv(uiEnv(), "VECTIS_UI_ALLOW_INSECURE_HTTP=true") {
+		t.Fatal("network demo enabled by default")
+	}
+
+	viper.Set("allow_insecure_http", true)
+	if err := validateLocalHTTPDemo(false); err == nil {
+		t.Fatal("network demo accepted a missing browser URL")
+	}
+
+	for _, origin := range []string{"https://dev-vm:8089", "http://user:pass@dev-vm:8089", "http://dev-vm:8089/path", "http://dev-vm:8089?query=1"} {
+		viper.Set("ui_public_url", origin)
+		if err := validateLocalHTTPDemo(false); err == nil {
+			t.Fatalf("invalid demo origin accepted: %s", origin)
+		}
+	}
+
+	viper.Set("ui_public_url", "http://dev-vm:8089")
+	viper.Set("host", "0.0.0.0")
+	if err := validateLocalHTTPDemo(true); err == nil {
+		t.Fatal("network HTTP demo accepted HTTPS mode")
+	}
+
+	if err := validateLocalHTTPDemo(false); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"VECTIS_UI_ALLOW_INSECURE_HTTP=true", "VECTIS_UI_PUBLIC_URL=http://dev-vm:8089", "VECTIS_UI_HOST=0.0.0.0"} {
+		if !hasEnv(uiEnv(localBrowserTLSConfig{Scheme: "http"}), want) {
+			t.Fatalf("missing demo environment: %s", want)
+		}
+	}
 }

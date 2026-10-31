@@ -1,9 +1,11 @@
+import type { SourceRepository } from "../../domain/console";
 import { useState } from "react";
 import type { NewJob, UpdateJob } from "../../domain/console";
 import { JobEditor } from "./JobEditor";
 import type { JobEditorMode, JobFormValues } from "./JobEditorModel";
 
 type RoutedJobEditorProps = {
+  repositories?: SourceRepository[];
   initialValues: JobFormValues;
   mode: JobEditorMode;
   namespacePath: string;
@@ -13,6 +15,7 @@ type RoutedJobEditorProps = {
 };
 
 export function RoutedJobEditor({
+  repositories = [],
   initialValues,
   mode,
   namespacePath,
@@ -26,6 +29,7 @@ export function RoutedJobEditor({
   return (
     <JobEditor
       error={formError}
+      repositories={repositories}
       mode={mode}
       namespacePath={namespacePath}
       onCancel={onCancel}

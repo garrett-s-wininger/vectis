@@ -193,3 +193,9 @@ For narrow work, prefer package-level tests:
 ```bash
 go test ./internal/api/...
 ```
+
+## Security Boundary Tests
+
+`mage testQuick` includes deterministic security regressions for token delegation, source repository registration, browser authentication and proxying, and static file containment. Each regression pairs denied requests with authorized operations. UI tests include a real API, an HTTPS listener, and a cookie jar, so mocked upstream responses cannot hide authentication contract failures. Secret and repository tests use temporary fixtures and synthetic credentials; they do not contact deployed services.
+
+When changing these boundaries, run `mage testQuick` and `mage lint`, and use focused race tests for affected concurrent state. Preserve the negative cases for scope propagation, cross-namespace repository and credential selection, cross-site browser requests, secure cookies behind TLS termination, hidden files, directory listings, and symlink escapes. New credential delivery or proxy paths need authorization at the point where privileged access is granted.

@@ -78,7 +78,7 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
 	body []byte,
 	fallbackJobID string,
 	createOnly bool,
-) bool {
+) {
 	trimmed := bytes.TrimSpace(body)
 
 	var req sourceJobDefinitionFacadeRequest
@@ -93,11 +93,17 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
 		repositoryID = queryRepositoryID
 	} else if queryRepositoryID != "" && queryRepositoryID != repositoryID {
 		writeAPIError(w, http.StatusBadRequest, "repository_id_mismatch", "repository_id mismatch", nil)
-		return true
+		return
 	}
 
 	if repositoryID == "" {
-		return false
+		writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
+		return
+	}
+
+	if !json.Valid(trimmed) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
+		return
 	}
 
 	definition := bytes.TrimSpace(req.Job)
@@ -112,11 +118,11 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
 	if len(definition) == 0 {
 		if !parsedWrapper {
 			writeAPIError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
-			return true
+			return
 		}
 
 		writeAPIError(w, http.StatusBadRequest, "missing_job_definition", "job definition is required", nil)
-		return true
+		return
 	}
 
 	jobID := strings.TrimSpace(fallbackJobID)
@@ -125,7 +131,7 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
 		jobID = bodyJobID
 	} else if bodyJobID != "" && bodyJobID != jobID {
 		writeAPIError(w, http.StatusBadRequest, "job_id_mismatch", "job id mismatch", nil)
-		return true
+		return
 	}
 
 	definitionJobID := sourceJobIDFromDefinition(definition)
@@ -133,12 +139,12 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
 		jobID = definitionJobID
 	} else if definitionJobID != "" && definitionJobID != jobID {
 		writeAPIError(w, http.StatusBadRequest, "job_id_mismatch", "job id mismatch", nil)
-		return true
+		return
 	}
 
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job_id is required", nil)
-		return true
+		return
 	}
 
 	q := r.URL.Query()
@@ -154,7 +160,7 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
 	payload, err := json.Marshal(writeReq)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
-		return true
+		return
 	}
 
 	setSourceJobPathValues(r, repositoryID, jobID)
@@ -162,7 +168,6 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
 	r.ContentLength = int64(len(payload))
 	r.Header.Set("Content-Type", "application/json")
 	s.PutSourceRepositoryJobDefinition(w, r)
-	return true
 }
 
 func sourceJobIDFromDefinition(definition []byte) string {

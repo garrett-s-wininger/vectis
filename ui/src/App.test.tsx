@@ -89,6 +89,120 @@ describe("App", () => {
     );
   });
 
+  it("keeps a source job visible after creation and refresh without reloading on every route", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    window.history.replaceState(null, "", "/jobs");
+    let created = false;
+    fetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      let body: unknown;
+      if (path === "/ui/api/context") body = { auth_enabled: false, principal: { username: "local" } };
+      else if (path === "/api/v1/namespaces") body = [{ id: 1, name: "/", path: "/", break_inheritance: false }];
+      else if (path === "/api/v1/source-repositories")
+        body = [
+          {
+            repository_id: "demo",
+            authoring: { write_definitions: true },
+            namespace: "/",
+            default_ref: "HEAD",
+            enabled: true
+          }
+        ];
+      else if (path === "/api/v1/jobs" && init?.method === "POST") {
+        expect(JSON.parse(String(init.body))).toMatchObject({ repository_id: "demo", job: { id: "new-source-job" } });
+        created = true;
+        body = {};
+      } else if (path.startsWith("/api/v1/jobs?"))
+        body = { jobs: created ? [{ job_id: "new-source-job", path: ".vectis/jobs/new-source-job.json" }] : [] };
+      else if (path.startsWith("/api/v1/jobs/new-source-job?"))
+        body = {
+          definition: {
+            id: "new-source-job",
+            root: { uses: "builtins/script", with: { script: "echo actual source" } }
+          }
+        };
+      else if (path === "/api/v1/runs?limit=200") body = { data: [] };
+      else if (path === "/api/v1/users" || path === "/api/v1/namespaces/1/bindings") body = [];
+      else throw new Error(`Unexpected request: ${path}`);
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    const first = render(<App />);
+    await screen.findByRole("button", { name: "Create" });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "new-source-job" } });
+    fireEvent.change(screen.getByLabelText("Repository ID"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByText("new-source-job")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View new-source-job" }));
+    expect(await screen.findByText(/echo actual source/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit new-source-job" }));
+    expect(await screen.findByLabelText("Payload")).toHaveValue(
+      JSON.stringify(
+        { id: "new-source-job", root: { uses: "builtins/script", with: { script: "echo actual source" } } },
+        null,
+        2
+      )
+    );
+    expect(
+      fetchMock.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/jobs/new-source-job?")).length
+    ).toBe(1);
+
+    fireEvent.click(screen.getByRole("link", { name: "Runs" }));
+    await screen.findByRole("heading", { name: "Runs" });
+    fireEvent.click(screen.getByRole("link", { name: "Jobs" }));
+    expect(await screen.findByText("new-source-job")).toBeInTheDocument();
+    const consoleLoads = () => fetchMock.mock.calls.filter(([path]) => path === "/api/v1/source-repositories").length;
+    expect(consoleLoads()).toBe(2);
+    first.unmount();
+    render(<App />);
+    expect(await screen.findByText("new-source-job")).toBeInTheDocument();
+    expect(consoleLoads()).toBe(3);
+  });
+
+  it.each([false, true])("waits for a source definition before configuring a job (failure=%s)", async (failed) => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    window.history.replaceState(null, "", "/jobs/remote/config");
+    let finish!: (response: Response) => void;
+    const definitionResponse = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    fetchMock.mockImplementation(async (path: string) => {
+      let body: unknown;
+      if (path === "/ui/api/context") body = { auth_enabled: true, principal: { username: "admin" } };
+      else if (path === "/api/v1/source-repositories")
+        body = [{ repository_id: "demo", namespace: "/", default_ref: "main", authoring: { write_definitions: true } }];
+      else if (path.startsWith("/api/v1/jobs?"))
+        body = { jobs: [{ job_id: "remote", path: ".vectis/jobs/remote.json" }] };
+      else if (path.startsWith("/api/v1/jobs/remote?")) return definitionResponse;
+      else if (path === "/api/v1/runs?limit=200") body = { data: [] };
+      else if (path === "/api/v1/namespaces" || path === "/api/v1/users") body = [];
+      else throw new Error(`Unexpected request: ${path}`);
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Loading Job Definition" });
+    expect(screen.queryByLabelText("Payload")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    const definition = {
+      id: "remote",
+      root: { id: "root", uses: "builtins/script", with: { script: "echo remote definition" } }
+    };
+    await act(async () => {
+      finish(
+        new Response(JSON.stringify(failed ? { message: "Repository unavailable" } : { definition }), {
+          status: failed ? 503 : 200
+        })
+      );
+    });
+    if (failed) {
+      expect(await screen.findByRole("heading", { name: "Unable to Load Job Definition" })).toBeInTheDocument();
+      expect(screen.getByText("Repository unavailable")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    } else {
+      expect(await screen.findByLabelText("Payload")).toHaveValue(JSON.stringify(definition, null, 2));
+    }
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/jobs/remote?")).length).toBe(1);
+  });
+
   it("loads live stored jobs after login when the API data source is enabled", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     window.history.replaceState(null, "", "/login?next=%2Fjobs");
@@ -498,7 +612,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "View Runs" })).toBeInTheDocument();
   });
 
-  it("creates, edits, and deletes a stored job in the mock", async () => {
+  it("creates and edits a source job in the mock", async () => {
     window.history.replaceState(null, "", "/jobs");
 
     render(<App />);
@@ -509,10 +623,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "cache-warmup" }
     });
-
-    fireEvent.change(screen.getByLabelText("Cadence"), {
-      target: { value: "Hourly" }
-    });
+    fireEvent.change(screen.getByLabelText("Repository ID"), { target: { value: "vectis-local" } });
 
     fireEvent.change(screen.getByLabelText("Payload"), {
       target: {
@@ -526,17 +637,15 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByText("cache-warmup")).toBeInTheDocument();
-    expect(screen.getAllByText("database").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/vectis-local/).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "View cache-warmup" }));
     expect(await screen.findByRole("heading", { name: "cache-warmup" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit cache-warmup" }));
-    fireEvent.click(screen.getByLabelText("State"));
+    expect(screen.queryByLabelText("State")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect((await screen.findAllByText("cache-warmup")).length).toBeGreaterThan(0);
-    expect(await screen.findByText("Paused")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Run cache-warmup" })).not.toBeInTheDocument();
   });
 
   it("opens job creation through browser navigation and backs out", async () => {

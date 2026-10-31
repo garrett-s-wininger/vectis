@@ -239,7 +239,7 @@ function shortIdentifier(value: string) {
 
 function submittedByCopy(run: RunListItem) {
   const trigger = runTriggerLabel(run);
-  const actor = run.submittedBy ? runActorLabel(run.submittedBy) : "Anonymous";
+  const actor = run.submittedBy ? runActorLabel(run.submittedBy) : "Unknown";
   return `Submitted via ${trigger} by ${actor}`;
 }
 

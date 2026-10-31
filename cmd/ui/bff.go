@@ -16,16 +16,19 @@ import (
 )
 
 const (
-	uiSessionCookieName  = "vectis_ui_session"
+	uiSessionCookieName  = "__Host-vectis_ui_session"
 	uiSessionRandomBytes = 32
 	defaultUISessionTTL  = 7 * 24 * time.Hour
 	maxBFFBodyBytes      = 1 << 20
 )
 
 type uiBackend struct {
-	apiURL     *url.URL
-	httpClient *http.Client
-	sessions   *sessionStore
+	apiURL                *url.URL
+	publicURL             *url.URL
+	allowLocalHTTPCookies bool
+	allowNetworkHTTP      bool
+	httpClient            *http.Client
+	sessions              *sessionStore
 }
 
 type sessionStore struct {
@@ -90,7 +93,7 @@ func newUIBackend(rawURL string) (*uiBackend, error) {
 		return nil, err
 	}
 
-	if target.Scheme == "" || target.Host == "" {
+	if (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" || target.User != nil {
 		return nil, fmt.Errorf("must include scheme and host")
 	}
 
@@ -154,9 +157,17 @@ func (b *uiBackend) apiProxyHandler() http.Handler {
 	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
 		pr.SetURL(b.apiURL)
 		pr.SetXForwarded()
-		pr.Out.Host = pr.In.Host
+		pr.Out.Host = b.apiURL.Host
 		r := pr.Out
 		r.Header.Del("Authorization")
+		r.Header.Del("Cookie")
+		r.Header.Del("Origin")
+		r.Header.Del("Referer")
+		for name := range r.Header {
+			if strings.HasPrefix(strings.ToLower(name), "sec-fetch-") {
+				r.Header.Del(name)
+			}
+		}
 
 		if session, ok := b.sessionFromRequest(pr.In); ok {
 			r.Header.Set("Authorization", "Bearer "+session.APIToken)
@@ -164,6 +175,10 @@ func (b *uiBackend) apiProxyHandler() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !b.browserRequestAllowed(w, r, false) {
+			return
+		}
+
 		if bffOnlyAPIPath(r.URL.Path) {
 			writeBFFError(
 				w,
@@ -373,6 +388,10 @@ func (b *uiBackend) context(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !b.browserRequestAllowed(w, r, false) {
+		return
+	}
+
 	status, ok := b.setupStatus(w, r)
 	if !ok {
 		return
@@ -410,6 +429,10 @@ func (b *uiBackend) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !b.browserRequestAllowed(w, r, true) {
+		return
+	}
+
 	if !b.authRouteEnabled(w, r) {
 		return
 	}
@@ -426,8 +449,25 @@ func (b *uiBackend) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #nosec G117 -- Login intentionally sends credentials only to the configured API endpoint; the browser receives no bearer token.
+	upstreamBody, err := json.Marshal(struct {
+		Username    string `json:"username"`
+		Password    string `json:"password"`
+		ReturnToken bool   `json:"return_token"`
+	}{Username: req.Username, Password: req.Password, ReturnToken: true})
+
+	if err != nil {
+		writeBFFError(w, http.StatusInternalServerError, "request_create_failed", "failed to create login request")
+		return
+	}
+
 	var apiResp apiLoginResponse
-	if ok := b.forwardJSON(w, r, http.MethodPost, "/api/v1/login", body, &apiResp); !ok {
+	if ok := b.forwardJSON(w, r, http.MethodPost, "/api/v1/login", upstreamBody, &apiResp); !ok {
+		return
+	}
+
+	if strings.TrimSpace(apiResp.Token) == "" {
+		writeBFFError(w, http.StatusBadGateway, "invalid_api_response", "API login did not return credentials")
 		return
 	}
 
@@ -448,7 +488,7 @@ func (b *uiBackend) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setUISessionCookie(w, r, sessionID, expiresAt)
+	b.setUISessionCookie(w, r, sessionID, expiresAt)
 	writeBFFJSON(w, http.StatusOK, uiSessionResponse{
 		UserID:    apiResp.UserID,
 		Username:  strings.TrimSpace(req.Username),
@@ -459,6 +499,10 @@ func (b *uiBackend) login(w http.ResponseWriter, r *http.Request) {
 func (b *uiBackend) completeSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeBFFError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	if !b.browserRequestAllowed(w, r, true) {
 		return
 	}
 
@@ -483,6 +527,11 @@ func (b *uiBackend) completeSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.TrimSpace(apiResp.APIToken) == "" {
+		writeBFFError(w, http.StatusBadGateway, "invalid_api_response", "API setup did not return credentials")
+		return
+	}
+
 	expiresAt := time.Now().UTC().Add(defaultUISessionTTL)
 	sessionID, err := b.sessions.create(uiSession{
 		APIToken:  apiResp.APIToken,
@@ -495,7 +544,7 @@ func (b *uiBackend) completeSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setUISessionCookie(w, r, sessionID, expiresAt)
+	b.setUISessionCookie(w, r, sessionID, expiresAt)
 	writeBFFJSON(w, http.StatusOK, uiSessionResponse{
 		Username:  apiResp.Username,
 		ExpiresAt: &expiresAt,
@@ -505,6 +554,10 @@ func (b *uiBackend) completeSetup(w http.ResponseWriter, r *http.Request) {
 func (b *uiBackend) logout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeBFFError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	if !b.browserRequestAllowed(w, r, false) {
 		return
 	}
 
@@ -518,11 +571,13 @@ func (b *uiBackend) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if cookie, err := r.Cookie(uiSessionCookieName); err == nil {
+	if cookie, err := r.Cookie(b.sessionCookie(r).Name); err == nil {
 		b.sessions.delete(cookie.Value)
 	}
 
-	clearUISessionCookie(w, r)
+	b.clearUISessionCookie(w, r)
+	w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -541,7 +596,7 @@ func (b *uiBackend) authRouteEnabled(w http.ResponseWriter, r *http.Request) boo
 }
 
 func (b *uiBackend) sessionFromRequest(r *http.Request) (uiSession, bool) {
-	cookie, err := r.Cookie(uiSessionCookieName)
+	cookie, err := r.Cookie(b.sessionCookie(r).Name)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		return uiSession{}, false
 	}
@@ -600,6 +655,7 @@ func readBFFBody(r *http.Request) ([]byte, error) {
 }
 
 func copyAPIError(w http.ResponseWriter, resp *http.Response) {
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(resp.Body, maxBFFBodyBytes))
@@ -607,6 +663,7 @@ func copyAPIError(w http.ResponseWriter, resp *http.Response) {
 
 func writeBFFJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
@@ -618,37 +675,26 @@ func writeBFFError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-func setUISessionCookie(w http.ResponseWriter, r *http.Request, sessionID string, expiresAt time.Time) {
-	maxAge := int(time.Until(expiresAt).Seconds())
-	if maxAge <= 0 {
-		maxAge = -1
+func (b *uiBackend) setUISessionCookie(w http.ResponseWriter, r *http.Request, sessionID string, expiresAt time.Time) {
+	// #nosec G124 -- The HTTP cookies require either loopback checks or explicit network-demo opt-in with a fixed HTTP origin; all other cookies remain Secure.
+	cookie := b.sessionCookie(r)
+	cookie.Value = sessionID
+	cookie.Expires = expiresAt
+	cookie.MaxAge = int(time.Until(expiresAt).Seconds())
+
+	if cookie.MaxAge <= 0 {
+		cookie.MaxAge = -1
 	}
 
-	// #nosec G124 -- Local HTTP is supported; Secure follows listener TLS, with HttpOnly and SameSite always set.
-	http.SetCookie(w, &http.Cookie{
-		Name:     uiSessionCookieName,
-		Value:    sessionID,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-		Expires:  expiresAt,
-		MaxAge:   maxAge,
-	})
+	http.SetCookie(w, cookie)
 }
 
-func clearUISessionCookie(w http.ResponseWriter, r *http.Request) {
-	// #nosec G124 -- Local HTTP is supported; Secure follows listener TLS, with HttpOnly and SameSite always set.
-	http.SetCookie(w, &http.Cookie{
-		Name:     uiSessionCookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-		Expires:  time.Unix(0, 0).UTC(),
-		MaxAge:   -1,
-	})
+func (b *uiBackend) clearUISessionCookie(w http.ResponseWriter, r *http.Request) {
+	// #nosec G124 -- The HTTP cookies require either loopback checks or explicit network-demo opt-in with a fixed HTTP origin; all other cookies remain Secure.
+	cookie := b.sessionCookie(r)
+	cookie.Expires = time.Unix(0, 0).UTC()
+	cookie.MaxAge = -1
+	http.SetCookie(w, cookie)
 }
 
 func randomHex(nBytes int) (string, error) {

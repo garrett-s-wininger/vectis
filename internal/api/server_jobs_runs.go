@@ -40,12 +40,23 @@ const (
 	idempotencyResourceTriggerInvocation = "trigger_invocation"
 )
 
-func newRunAuditMetadata(triggerInvocationID, namespacePath string) dal.RunAuditMetadata {
+func newRunAuditMetadata(triggerInvocationID, namespacePath string, principal *authn.Principal) dal.RunAuditMetadata {
 	return dal.RunAuditMetadata{
+		SubmittedBy:           runSubmitter(principal),
 		TriggerInvocationID:   triggerInvocationID,
 		NamespacePath:         namespacePath,
 		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
 	}
+}
+
+func runSubmitter(principal *authn.Principal) string {
+	if !config.APIAuthEnabled() {
+		return "anonymous"
+	}
+	if principal == nil {
+		return ""
+	}
+	return principal.Username
 }
 
 type runTargetOptions struct {
@@ -139,22 +150,6 @@ func jobDefinitionTriggersField(data []byte) (present, empty bool) {
 	}
 
 	return true, len(triggers) == 0
-}
-
-func requireNonEmptyStoredJobTriggers(w http.ResponseWriter, definitionJSON []byte) bool {
-	present, empty := jobDefinitionTriggersField(definitionJSON)
-	if !present || !empty {
-		return true
-	}
-
-	writeAPIError(
-		w,
-		http.StatusBadRequest,
-		"invalid_job_definition",
-		"stored-job triggers must not be empty; omit triggers to use on_demand",
-		map[string]any{"field": "triggers"},
-	)
-	return false
 }
 
 type triggerJobRunResponse struct {
@@ -830,116 +825,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
-	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, "", true) {
-		return
-	}
-
-	var req struct {
-		Namespace string          `json:"namespace"`
-		Job       json.RawMessage `json:"job"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		req.Job = body
-	}
-	if req.Job == nil {
-		req.Job = body
-	}
-
-	if !requireNonEmptyStoredJobTriggers(w, req.Job) {
-		return
-	}
-
-	var job api.Job
-	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
-		return
-	}
-
-	if job.Id == nil || job.GetId() == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job id is required", nil)
-		return
-	}
-
-	if err := jobvalidation.ValidateJob(
-		&job,
-		jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver},
-	); err != nil {
-		writeAPIError(
-			w,
-			http.StatusBadRequest,
-			"invalid_job_definition",
-			"invalid job definition",
-			jobvalidation.ErrorDetails(err),
-		)
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r.Context())
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	if !s.requireNamespaces(w) {
-		return
-	}
-
-	namespacePath := "/"
-	if req.Namespace != "" {
-		namespacePath = req.Namespace
-	}
-
-	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "namespace_not_found", "namespace not found", nil)
-			return
-		}
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, ns.Path) {
-		return
-	}
-
-	triggers := jobTriggerConfigs(&job)
-	err = s.jobs.CreateWithTriggers(ctx, job.GetId(), string(req.Job), ns.ID, triggers)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "job_already_exists", "job already exists", nil)
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
-
-	_ = s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]any{
-		"job_id":    job.GetId(),
-		"namespace": ns.Path,
-	})
-
-	s.logger.Info("Stored job: %s", job.GetId())
-	w.WriteHeader(http.StatusCreated)
+	s.writeSourceJobDefinitionFromJobsFacade(w, r, body, "", true)
 }
 
 func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -1186,7 +1072,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		nil,
 		definitionVersion,
 		targetCellIDs,
-		newRunAuditMetadata(invocationID, nsPath),
+		newRunAuditMetadata(invocationID, nsPath, p),
 	)
 	if err != nil {
 		if idempotencyReserved {
@@ -1634,6 +1520,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	createdRun, err := s.runs.CreateReplayRun(ctx, sourceRunID, targetCellID, dal.RunAuditMetadata{
+		SubmittedBy:           runSubmitter(p),
 		TriggerInvocationID:   invocationID,
 		ReplayOfRunID:         sourceRunID,
 		NamespacePath:         nsPath,
@@ -1730,195 +1617,11 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
-
 	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
 	if !ok {
 		return
 	}
-
-	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, jobID, false) {
-		return
-	}
-
-	var req struct {
-		Job json.RawMessage `json:"job"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		req.Job = body
-	}
-	if req.Job == nil {
-		req.Job = body
-	}
-
-	var job api.Job
-	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
-		return
-	}
-
-	if job.Id == nil || job.GetId() != jobID {
-		writeAPIError(w, http.StatusBadRequest, "job_id_mismatch", "job id mismatch", nil)
-		return
-	}
-
-	if !requireNonEmptyStoredJobTriggers(w, body) {
-		return
-	}
-
-	if err := jobvalidation.ValidateJob(
-		&job,
-		jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver},
-	); err != nil {
-		writeAPIError(
-			w,
-			http.StatusBadRequest,
-			"invalid_job_definition",
-			"invalid job definition",
-			jobvalidation.ErrorDetails(err),
-		)
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r.Context())
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	namespaceID, err := s.jobs.GetNamespaceID(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	ns, err := s.namespaces.GetByID(ctx, namespaceID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	nsPath := ns.Path
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	triggers := jobTriggerConfigs(&job)
-	newVersion, err := s.jobs.UpdateDefinitionWithTriggers(ctx, jobID, string(body), triggers)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	w.Header().Set("X-Vectis-Version", strconv.Itoa(newVersion))
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
-
-	_ = s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
-		"job_id":    jobID,
-		"namespace": nsPath,
-	})
-
-	s.logger.Info("Updated job definition: %s", jobID)
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func jobTriggerConfigs(job *api.Job) []dal.JobTriggerConfig {
-	if job == nil {
-		return nil
-	}
-
-	if len(job.GetTriggers()) == 0 {
-		return []dal.JobTriggerConfig{defaultManualTriggerConfig()}
-	}
-
-	triggers := make([]dal.JobTriggerConfig, 0, len(job.GetTriggers()))
-	for _, trigger := range job.GetTriggers() {
-		config := dal.JobTriggerConfig{
-			ID:   trigger.GetId(),
-			Name: trigger.GetName(),
-		}
-
-		switch spec := trigger.GetKind().(type) {
-		case *api.JobTrigger_Manual:
-			if spec.Manual == nil {
-				continue
-			}
-
-			config.Manual = &dal.JobManualTriggerConfig{}
-		case *api.JobTrigger_Cron:
-			if spec.Cron == nil {
-				continue
-			}
-
-			config.Cron = &dal.JobCronTriggerConfig{Spec: spec.Cron.GetSpec()}
-		case *api.JobTrigger_ScmPoll:
-			scmPoll := spec.ScmPoll
-			if scmPoll == nil {
-				continue
-			}
-
-			interval := time.Duration(scmPoll.GetIntervalSeconds()) * time.Second
-			config.SCMPoll = &dal.JobSCMPollTriggerConfig{
-				Provider: scmPoll.GetProvider(),
-				BaseURL:  scmPoll.GetBaseUrl(),
-				Project:  scmPoll.GetProject(),
-				Branch:   scmPoll.GetBranch(),
-				Query:    scmPoll.GetQuery(),
-				Interval: interval,
-			}
-		default:
-			continue
-		}
-
-		triggers = append(triggers, config)
-	}
-
-	return triggers
-}
-
-func defaultManualTriggerConfig() dal.JobTriggerConfig {
-	return dal.JobTriggerConfig{
-		ID:     dal.DefaultManualTriggerKey,
-		Name:   "On demand",
-		Manual: &dal.JobManualTriggerConfig{},
-	}
+	s.writeSourceJobDefinitionFromJobsFacade(w, r, body, jobID, false)
 }
 
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
@@ -2131,7 +1834,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 			string(definitionJSON),
 			&runIndexOne,
 			targetCellID,
-			newRunAuditMetadata(invocationID, ns.Path),
+			newRunAuditMetadata(invocationID, ns.Path, p),
 		)
 	} else {
 		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(
@@ -2583,6 +2286,7 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash    *string  `json:"trigger_payload_hash,omitempty"`
 		RequestedCells        []string `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash  string   `json:"execution_payload_hash,omitempty"`
+		SubmittedBy           string   `json:"submitted_by,omitempty"`
 	}
 
 	var runs []runRow
@@ -2629,6 +2333,7 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 			TriggerPayloadHash:    rec.TriggerPayloadHash,
 			RequestedCells:        rec.RequestedCells,
 			ExecutionPayloadHash:  rec.ExecutionPayloadHash,
+			SubmittedBy:           rec.SubmittedBy,
 		})
 	}
 
@@ -2770,6 +2475,7 @@ func (s *APIServer) writeJobRunsResponse(
 		TriggerPayloadHash    *string                   `json:"trigger_payload_hash,omitempty"`
 		RequestedCells        []string                  `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash  string                    `json:"execution_payload_hash,omitempty"`
+		SubmittedBy           string                    `json:"submitted_by,omitempty"`
 	}
 
 	var runs []runRow
@@ -2803,6 +2509,7 @@ func (s *APIServer) writeJobRunsResponse(
 			TriggerPayloadHash:    rec.TriggerPayloadHash,
 			RequestedCells:        rec.RequestedCells,
 			ExecutionPayloadHash:  rec.ExecutionPayloadHash,
+			SubmittedBy:           rec.SubmittedBy,
 		})
 	}
 
@@ -3035,6 +2742,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash        *string                    `json:"trigger_payload_hash,omitempty"`
 		RequestedCells            []string                   `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash      string                     `json:"execution_payload_hash,omitempty"`
+		SubmittedBy               string                     `json:"submitted_by,omitempty"`
 		NextAction                *string                    `json:"next_action,omitempty"`
 		DispatchSummary           []dispatchSummary          `json:"dispatch_summary,omitempty"`
 		DispatchEvents            []dispatchEventRow         `json:"dispatch_events"`
@@ -3087,6 +2795,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash:    rec.TriggerPayloadHash,
 		RequestedCells:        rec.RequestedCells,
 		ExecutionPayloadHash:  rec.ExecutionPayloadHash,
+		SubmittedBy:           rec.SubmittedBy,
 		NextAction: runNextAction(
 			effectiveStatus,
 			taskCompletionSummary,

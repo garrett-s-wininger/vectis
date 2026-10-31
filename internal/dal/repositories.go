@@ -253,6 +253,7 @@ type JobSCMPollTriggerConfig struct {
 }
 
 type RunRecord struct {
+	SubmittedBy           string
 	RunID                 string
 	JobID                 string
 	RunIndex              int
@@ -380,6 +381,7 @@ type CreatedRun struct {
 }
 
 type RunAuditMetadata struct {
+	SubmittedBy           string
 	TriggerInvocationID   string
 	ExecutionPayloadHash  string
 	ReplayOfRunID         string
@@ -1659,7 +1661,7 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(
 	if _, err := tx.ExecContext(
 		ctx,
 		rebindQueryForPgx(
-			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path, submitted_by) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?, ?, ?, ?)`,
 		),
 		runID,
 		jobID,
@@ -1671,6 +1673,7 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(
 		nullableString(audit.TriggerInvocationID),
 		strings.TrimSpace(audit.ExecutionPayloadHash),
 		namespacePath,
+		strings.TrimSpace(audit.SubmittedBy),
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
@@ -1756,7 +1759,7 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(
 	if _, err := tx.ExecContext(
 		ctx,
 		rebindQueryForPgx(
-			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path, submitted_by) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		),
 		runID,
 		jobID,
@@ -1769,6 +1772,7 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(
 		nullableString(audit.TriggerInvocationID),
 		strings.TrimSpace(audit.ExecutionPayloadHash),
 		namespacePath,
+		strings.TrimSpace(audit.SubmittedBy),
 	); err != nil {
 		return "", 0, 0, normalizeSQLError(err)
 	}

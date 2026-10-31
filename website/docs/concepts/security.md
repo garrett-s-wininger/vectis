@@ -114,6 +114,12 @@ Use your platform's secret store and storage controls: Kubernetes secrets, vault
 
 For the current sensitive-surface inventory and redaction guidance, see [Secrets and Redaction](../operating/deployment/secrets-and-redaction.md).
 
+## UI and Source Repository Boundaries
+
+The UI validates same-origin browser requests before converting a UI cookie into an upstream bearer credential. Login and setup accept JSON only. UI session cookies are host-only `__Host-` cookies with `Secure` and HttpOnly; HTTPS is the default for browser authentication. `vectis-local` explicitly enables a separate `vectis_ui_local_session` cookie when its HTTP fallback is selected because certificate trust is unavailable or `--http-tls=off` was requested. The automatic exception is restricted to loopback listeners, request hosts, and TCP peers. Network demos additionally require `--allow-insecure-http` and an explicit HTTP public URL (`--ui-public-url` for `vectis-local`, `--public-url` for `vectis-ui`). This opt-in pins the permitted Host and Origin and retains authentication, HttpOnly, host-only, and Fetch Metadata checks; credentials and sessions are unencrypted on the demo network. HTTPS never accepts this development cookie as a fallback. Configure `VECTIS_UI_PUBLIC_URL` explicitly behind TLS termination instead of trusting arbitrary forwarded headers. UI and docs local static roots use the same filesystem containment, hidden-path, and directory-listing protections.
+
+Under hierarchical RBAC, source repository registration and configuration updates require root-namespace admin authorization as well as namespace job-write permission. This lets an operator approve a namespace's filesystem, credential, and remote bindings without granting its job authors access to other repositories or secrets. Namespace users retain ordinary job and run operations on approved repositories. Token delegation checks the entire requested namespace scope, including propagation, rather than only access to its named namespace.
+
 ## Job Execution Risk
 
 Workers run actions from job definitions. A script action or checkout source should be treated as code execution capability.

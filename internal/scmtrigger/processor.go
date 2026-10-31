@@ -137,6 +137,7 @@ func (p Processor) dispatchEventRun(
 	}
 
 	audit := dal.RunAuditMetadata{
+		SubmittedBy:           "system",
 		TriggerInvocationID:   invocationID,
 		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(p.clock().Now(), config.DispatchStartTTL()),
 	}

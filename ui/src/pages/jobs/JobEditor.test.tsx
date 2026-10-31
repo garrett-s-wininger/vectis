@@ -1,10 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
 import { JobEditor } from "./JobEditor";
-import { emptyJobForm, type JobFormValues } from "./JobEditorModel";
+import { emptyJobForm } from "./JobEditorModel";
 
 describe("JobEditor", () => {
-  it("submits a valid create input", async () => {
+  it("submits a source job in the selected repository namespace", async () => {
     const createJob = vi.fn();
     const cancel = vi.fn();
 
@@ -12,13 +11,18 @@ describe("JobEditor", () => {
       <JobEditor
         error=""
         mode={{ kind: "create" }}
+        repositories={[{ id: "vectis-local", namespacePath: "/", canAuthor: true }]}
         namespacePath="/platform"
         onCancel={cancel}
         onCreateJob={createJob}
         onError={() => undefined}
         onUpdateJob={() => undefined}
         onValuesChange={() => undefined}
-        values={{ ...emptyJobForm, description: "Warms cache before release deploys.", name: "cache-warmup" }}
+        values={{
+          ...emptyJobForm,
+          repository: "vectis-local",
+          name: "cache-warmup"
+        }}
       />
     );
 
@@ -28,11 +32,63 @@ describe("JobEditor", () => {
 
     expect(createJob).toHaveBeenCalledWith(
       expect.objectContaining({
-        description: "Warms cache before release deploys.",
         name: "cache-warmup",
-        namespacePath: "/platform"
+        namespacePath: "/"
       })
     );
+  });
+
+  it("requires a source repository before creating a job", () => {
+    const createJob = vi.fn();
+    const cancel = vi.fn();
+    render(
+      <JobEditor
+        error=""
+        mode={{ kind: "create" }}
+        repositories={[{ id: "vectis-local", namespacePath: "/", canAuthor: true }]}
+        namespacePath="/"
+        onCancel={cancel}
+        onCreateJob={createJob}
+        onError={() => undefined}
+        onUpdateJob={() => undefined}
+        onValuesChange={() => undefined}
+        values={{ ...emptyJobForm, name: "missing-source" }}
+      />
+    );
+    fireEvent.submit(screen.getByRole("button", { name: "Create" }).closest("form")!);
+    expect(screen.getByLabelText("Repository ID")).toHaveAccessibleDescription(
+      "Enter a registered source repository ID."
+    );
+    expect(createJob).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("offers registered repositories and marks unavailable authoring choices", () => {
+    const valuesChange = vi.fn();
+    render(
+      <JobEditor
+        error=""
+        mode={{ kind: "create" }}
+        namespacePath="/"
+        repositories={[
+          { id: "writable", namespacePath: "/team", canAuthor: true },
+          { id: "read-only", namespacePath: "/", canAuthor: false }
+        ]}
+        onCancel={() => undefined}
+        onCreateJob={() => undefined}
+        onError={() => undefined}
+        onUpdateJob={() => undefined}
+        onValuesChange={valuesChange}
+        values={emptyJobForm}
+      />
+    );
+    expect(screen.getByLabelText("Repository ID").tagName).toBe("SELECT");
+    expect(screen.getByLabelText("Repository ID").querySelector('option[value="read-only"]')).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Repository ID"), { target: { value: "writable" } });
+    expect(valuesChange).toHaveBeenCalledWith(expect.objectContaining({ repository: "writable" }));
+    expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("State")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Cadence")).not.toBeInTheDocument();
   });
 
   it("waits for a successful update before closing", async () => {
@@ -49,13 +105,14 @@ describe("JobEditor", () => {
       <JobEditor
         error=""
         mode={{ kind: "edit", jobID: "worker-image" }}
+        repositories={[{ id: "vectis-local", namespacePath: "/", canAuthor: true }]}
         namespacePath="/"
         onCancel={cancel}
         onCreateJob={() => undefined}
         onError={() => undefined}
         onUpdateJob={updateJob}
         onValuesChange={() => undefined}
-        values={{ ...emptyJobForm, name: "worker-image" }}
+        values={{ ...emptyJobForm, repository: "vectis-local", name: "worker-image" }}
       />
     );
 
@@ -63,6 +120,9 @@ describe("JobEditor", () => {
 
     expect(updateJob).toHaveBeenCalledWith("worker-image", expect.objectContaining({ name: "worker-image" }));
     expect(cancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(updateJob).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       resolveUpdate?.();
@@ -79,13 +139,14 @@ describe("JobEditor", () => {
       <JobEditor
         error=""
         mode={{ kind: "edit", jobID: "worker-image" }}
+        repositories={[{ id: "vectis-local", namespacePath: "/", canAuthor: true }]}
         namespacePath="/"
         onCancel={cancel}
         onCreateJob={() => undefined}
         onError={onError}
         onUpdateJob={() => Promise.reject(new Error("invalid stored definition"))}
         onValuesChange={() => undefined}
-        values={{ ...emptyJobForm, name: "worker-image" }}
+        values={{ ...emptyJobForm, repository: "vectis-local", name: "worker-image" }}
       />
     );
 
@@ -102,13 +163,14 @@ describe("JobEditor", () => {
       <JobEditor
         error=""
         mode={{ kind: "create" }}
+        repositories={[{ id: "vectis-local", namespacePath: "/", canAuthor: true }]}
         namespacePath="/"
         onCancel={cancel}
         onCreateJob={() => undefined}
         onError={() => undefined}
         onUpdateJob={() => undefined}
         onValuesChange={() => undefined}
-        values={{ ...emptyJobForm, definition: "{", name: "broken" }}
+        values={{ ...emptyJobForm, repository: "vectis-local", definition: "{", name: "broken" }}
       />
     );
 
@@ -119,73 +181,6 @@ describe("JobEditor", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 
-  it("reports invalid custom cron specs without closing", () => {
-    const cancel = vi.fn();
-
-    render(
-      <JobEditor
-        error=""
-        mode={{ kind: "create" }}
-        namespacePath="/"
-        onCancel={cancel}
-        onCreateJob={() => undefined}
-        onError={() => undefined}
-        onUpdateJob={() => undefined}
-        onValuesChange={() => undefined}
-        values={{ ...emptyJobForm, cronSpec: "60 * * * *", name: "broken-schedule", schedule: "Custom" }}
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    expect(screen.getByLabelText("Cron Spec")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Cron Spec")).toHaveAccessibleDescription("Minute must be between 0 and 59.");
-    expect(cancel).not.toHaveBeenCalled();
-  });
-
-  it("reports invalid custom cron specs after typing settles", () => {
-    vi.useFakeTimers();
-
-    function EditorHarness() {
-      const [values, setValues] = useState<JobFormValues>({
-        ...emptyJobForm,
-        name: "debounced-schedule",
-        schedule: "Custom"
-      });
-
-      return (
-        <JobEditor
-          error=""
-          mode={{ kind: "create" }}
-          namespacePath="/"
-          onCancel={() => undefined}
-          onCreateJob={() => undefined}
-          onError={() => undefined}
-          onUpdateJob={() => undefined}
-          onValuesChange={setValues}
-          values={values}
-        />
-      );
-    }
-
-    try {
-      render(<EditorHarness />);
-
-      fireEvent.change(screen.getByLabelText("Cron Spec"), { target: { value: "60 * * * *" } });
-
-      expect(screen.getByLabelText("Cron Spec")).not.toHaveAttribute("aria-invalid", "true");
-
-      act(() => {
-        vi.advanceTimersByTime(350);
-      });
-
-      expect(screen.getByLabelText("Cron Spec")).toHaveAttribute("aria-invalid", "true");
-      expect(screen.getByLabelText("Cron Spec")).toHaveAccessibleDescription("Minute must be between 0 and 59.");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("keeps the name read-only while configuring an existing job", async () => {
     const updateJob = vi.fn();
 
@@ -193,13 +188,14 @@ describe("JobEditor", () => {
       <JobEditor
         error=""
         mode={{ kind: "edit", jobID: "worker-image" }}
+        repositories={[{ id: "vectis-local", namespacePath: "/", canAuthor: true }]}
         namespacePath="/"
         onCancel={() => undefined}
         onCreateJob={() => undefined}
         onError={() => undefined}
         onUpdateJob={updateJob}
         onValuesChange={() => undefined}
-        values={{ ...emptyJobForm, name: "worker-image" }}
+        values={{ ...emptyJobForm, repository: "vectis-local", name: "worker-image" }}
       />
     );
 

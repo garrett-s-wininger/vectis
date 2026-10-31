@@ -50,14 +50,10 @@ export type Job = {
 
 export type NewJob = {
   branch: string;
-  description?: string;
   definition: string;
-  manualEnabled?: boolean;
   name: string;
   namespacePath: string;
   repository: string;
-  schedule: string;
-  status: JobStatus;
 };
 
 export type UpdateJob = Omit<NewJob, "namespacePath">;
@@ -119,7 +115,14 @@ export type NewEphemeralRun = {
   submittedBy?: string;
 };
 
+export type SourceRepository = {
+  id: string;
+  namespacePath: string;
+  canAuthor: boolean;
+};
+
 export type ConsoleData = {
+  repositories: SourceRepository[];
   cells: Cell[];
   jobs: Job[];
   namespaces: Namespace[];

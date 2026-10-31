@@ -104,6 +104,7 @@ CREATE TABLE trigger_invocations (
 CREATE INDEX idx_trigger_invocations_job_created ON trigger_invocations(job_id, created_at, id);
 
 CREATE TABLE job_runs (
+    submitted_by TEXT NOT NULL DEFAULT '',
     id BIGSERIAL PRIMARY KEY,
     run_id TEXT UNIQUE NOT NULL,
     job_id TEXT NOT NULL,

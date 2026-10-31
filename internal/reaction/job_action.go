@@ -242,6 +242,7 @@ func (a *TriggerJobAction) Execute(ctx context.Context, req TriggerJobActionRequ
 		version,
 		targetCellIDs,
 		dal.RunAuditMetadata{
+			SubmittedBy:         "system",
 			TriggerInvocationID: trigger.InvocationID,
 		},
 	)

@@ -1,16 +1,15 @@
+import type { SourceRepository } from "../../domain/console";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { Button, FormError, FormField, TextAreaField, ToggleField } from "../../components";
+import { useState } from "react";
+import { Button, FormError, FormField, SelectField, TextAreaField } from "../../components";
 import type { NewJob, UpdateJob } from "../../domain/console";
-import { cronSpec, jsonObject, required } from "../../validation/FormValidation";
+import { jsonObject, required } from "../../validation/FormValidation";
 import { ResourceTitle } from "../shared";
 import { jobInputFromValues, type JobEditorMode, type JobFormValues } from "./JobEditorModel";
-import { JobSourceOptions } from "./JobSourceOptions";
-import { schedulePresetSpec } from "./JobSchedule";
-import { JobTriggerControls } from "./JobTriggerControls";
 import styles from "./JobEditor.module.css";
 
 type JobEditorProps = {
+  repositories?: SourceRepository[];
   error: string;
   mode: JobEditorMode;
   onCancel: () => void;
@@ -22,7 +21,7 @@ type JobEditorProps = {
   onValuesChange: (values: JobFormValues) => void;
 };
 
-type JobEditorFieldErrors = Partial<Record<"cronSpec" | "definition" | "name", string>>;
+type JobEditorFieldErrors = Partial<Record<"definition" | "name" | "repository", string>>;
 
 type EditorSectionProps = {
   children: ReactNode;
@@ -32,6 +31,7 @@ type EditorSectionProps = {
 };
 
 export function JobEditor({
+  repositories = [],
   error,
   mode,
   namespacePath,
@@ -42,11 +42,11 @@ export function JobEditor({
   onValuesChange,
   values
 }: JobEditorProps) {
+  const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<JobEditorFieldErrors>({});
-  const [cronSpecEdited, setCronSpecEdited] = useState(false);
   const isConfigureMode = mode.kind === "edit";
   const editorTitle = "Definition";
-  const editorSubtitle = "Basics, source, triggers, and JSON payload.";
+  const editorSubtitle = "Repository and JSON definition.";
 
   function setValues(nextValues: JobFormValues) {
     onValuesChange(nextValues);
@@ -60,31 +60,17 @@ export function JobEditor({
     });
   }
 
-  useEffect(() => {
-    if (!cronSpecEdited || values.schedule !== "Custom") {
-      return;
-    }
-
-    const validationTimer = window.setTimeout(() => {
-      const result = cronSpec(values.cronSpec);
-      setFieldErrors((currentErrors) => {
-        const nextErrors = { ...currentErrors };
-        if (result.valid) {
-          delete nextErrors.cronSpec;
-        } else {
-          nextErrors.cronSpec = result.message;
-        }
-        return nextErrors;
-      });
-    }, 350);
-
-    return () => window.clearTimeout(validationTimer);
-  }, [cronSpecEdited, values.cronSpec, values.schedule]);
-
   async function submitJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     onError("");
     const nextFieldErrors = validateJobForm(values);
+    if (
+      mode.kind === "create" &&
+      values.repository &&
+      !repositories.some((repository) => repository.id === values.repository && repository.canAuthor)
+    )
+      nextFieldErrors.repository = "Choose a registered repository with authoring enabled.";
 
     if (Object.keys(nextFieldErrors).length > 0) {
       setFieldErrors(nextFieldErrors);
@@ -92,6 +78,7 @@ export function JobEditor({
     }
 
     setFieldErrors({});
+    setSaving(true);
 
     try {
       if (mode.kind === "edit") {
@@ -99,12 +86,15 @@ export function JobEditor({
       } else {
         await onCreateJob({
           ...jobInputFromValues(values),
-          namespacePath
+          namespacePath:
+            repositories.find((repository) => repository.id === values.repository)?.namespacePath ?? namespacePath
         });
       }
     } catch (error) {
       onError(error instanceof Error ? error.message : "Unable to save job.");
       return;
+    } finally {
+      setSaving(false);
     }
 
     onCancel();
@@ -128,11 +118,7 @@ export function JobEditor({
       </div>
       <form className={styles.editorForm} onSubmit={submitJob}>
         <div className={styles.editorLayout}>
-          <EditorSection
-            description="Display details and whether new runs can be submitted."
-            title="Basics"
-            titleID="job-basics-title"
-          >
+          <EditorSection description="Name the reusable source definition." title="Basics" titleID="job-basics-title">
             <div className={styles.fieldGrid}>
               <FormField
                 disabled={isConfigureMode}
@@ -148,65 +134,45 @@ export function JobEditor({
                 value={values.name}
                 wide
               />
-              <FormField
-                label="Description"
-                name="jobDescription"
-                onChange={(event) => setValues({ ...values, description: event.target.value })}
-                placeholder="Coordinates a repeatable workflow"
-                value={values.description}
-                wide
-              />
-              <ToggleField
-                checked={values.status === "enabled"}
-                label="State"
-                name="jobEnabled"
-                offText="Paused"
-                onChange={(checked) =>
-                  setValues({
-                    ...values,
-                    status: checked ? "enabled" : "paused"
-                  })
-                }
-                onText="Enabled"
-              />
             </div>
           </EditorSection>
           <EditorSection
-            description="Choose where Vectis treats this as authoritative."
+            description="Save definitions as local commits in a registered repository with authoring enabled. Push commits separately to share them."
             title="Source"
             titleID="job-source-title"
           >
-            <JobSourceOptions />
-          </EditorSection>
-          <EditorSection
-            description="Allow manual starts, scheduled starts, or both."
-            title="Triggers"
-            titleID="job-triggers-title"
-          >
-            <JobTriggerControls
-              cronSpec={values.cronSpec}
-              cronSpecError={fieldErrors.cronSpec}
-              manualEnabled={values.manualEnabled}
-              onCronSpecChange={(nextCronSpec) => {
-                setCronSpecEdited(true);
-                clearFieldError("cronSpec");
-                setValues({ ...values, cronSpec: nextCronSpec });
+            <SelectField
+              disabled={isConfigureMode}
+              options={[
+                { value: "", label: "Select a repository" },
+                ...repositories.map((repository) => ({
+                  value: repository.id,
+                  label: `${repository.id} (${repository.namespacePath})${repository.canAuthor ? "" : " — authoring unavailable"}`,
+                  disabled: !repository.canAuthor
+                })),
+                ...(isConfigureMode && !repositories.some((repository) => repository.id === values.repository)
+                  ? [{ value: values.repository, label: values.repository }]
+                  : [])
+              ]}
+              error={fieldErrors.repository}
+              label="Repository ID"
+              name="jobRepository"
+              onChange={(event) => {
+                clearFieldError("repository");
+                setValues({ ...values, repository: event.target.value });
               }}
-              onManualChange={(manualEnabled) => setValues({ ...values, manualEnabled })}
-              onScheduleChange={(schedule) => {
-                setCronSpecEdited(false);
-                clearFieldError("cronSpec");
-                setValues({
-                  ...values,
-                  cronSpec: schedulePresetSpec(schedule) ?? values.cronSpec,
-                  schedule
-                });
-              }}
-              schedule={values.schedule}
+              required
+              value={values.repository}
             />
+            {mode.kind === "create" && !repositories.some((repository) => repository.canAuthor) ? (
+              <p>
+                No registered repositories support authoring. Configure a managed repository with local_commit
+                authoring.
+              </p>
+            ) : null}
           </EditorSection>
           <EditorSection
-            description="Payload Vectis stores and submits when this job starts."
+            description="Definition committed to the repository and loaded when this job starts."
             title="JSON"
             titleID="job-definition-title"
           >
@@ -228,7 +194,9 @@ export function JobEditor({
         </div>
         <FormError message={error} />
         <div className={styles.editorActions}>
-          <Button type="submit">{mode.kind === "create" ? "Create" : "Save"}</Button>
+          <Button disabled={saving} type="submit">
+            {mode.kind === "create" ? "Create" : "Save"}
+          </Button>
           <Button onClick={onCancel} variant="quiet">
             Cancel
           </Button>
@@ -254,7 +222,11 @@ function validateJobForm(values: JobFormValues) {
   const errors: JobEditorFieldErrors = {};
   const nameResult = required(values.name, "Enter a job name.");
   const definitionResult = jsonObject(values.definition);
-  const cronResult = values.schedule === "Custom" ? cronSpec(values.cronSpec) : { valid: true as const };
+  const repositoryResult = required(values.repository, "Enter a registered source repository ID.");
+
+  if (!repositoryResult.valid) {
+    errors.repository = repositoryResult.message;
+  }
 
   if (!nameResult.valid) {
     errors.name = nameResult.message;
@@ -262,10 +234,6 @@ function validateJobForm(values: JobFormValues) {
 
   if (!definitionResult.valid) {
     errors.definition = definitionResult.message;
-  }
-
-  if (!cronResult.valid) {
-    errors.cronSpec = cronResult.message;
   }
 
   return errors;

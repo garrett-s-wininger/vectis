@@ -7,6 +7,7 @@ const config = {
   organizationName: "garrett-s-wininger",
   projectName: "vectis",
   onBrokenLinks: "throw",
+  onBrokenAnchors: "throw",
   i18n: {
     defaultLocale: "en",
     locales: ["en"]

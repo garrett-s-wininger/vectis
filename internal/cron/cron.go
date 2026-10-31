@@ -343,9 +343,11 @@ func (s *CronService) triggerSourceJob(ctx context.Context, jobID string, schedu
 	}
 
 	audit := dal.RunAuditMetadata{
+		SubmittedBy:           "system",
 		TriggerInvocationID:   invocationID,
 		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()),
 	}
+
 	runID, _, definitionVersion, created, err := s.runs.CreateScheduledSourceDefinitionRun(
 		ctx,
 		schedule.ID,

@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/migrations"
 	"vectis/internal/orchestrator"
+	"vectis/internal/testutil/gittest"
 
 	_ "github.com/mattn/go-sqlite3"
 	"google.golang.org/grpc"
@@ -124,7 +127,8 @@ func BenchmarkAPIServer_RunRead_GetRunTasks_HotState(b *testing.B) {
 }
 
 func BenchmarkAPIServer_Write_CreateJob(b *testing.B) {
-	server, _ := newBenchmarkAPIServer(b)
+	server, repos := newBenchmarkAPIServer(b)
+	seedBenchmarkAuthoringRepository(b, server, repos)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -134,13 +138,13 @@ func BenchmarkAPIServer_Write_CreateJob(b *testing.B) {
 		req := httptest.NewRequest(
 			http.MethodPost,
 			"/api/v1/jobs",
-			strings.NewReader(fmt.Sprintf(benchAPIJobDefinition, jobID)),
+			strings.NewReader(fmt.Sprintf(`{"repository_id":"bench-source","job":%s}`, fmt.Sprintf(benchAPIJobDefinition, jobID))),
 		)
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 
 		server.CreateJob(rec, req)
-		if rec.Code != http.StatusCreated {
+		if rec.Code != http.StatusOK {
 			b.Fatalf("CreateJob status=%d: %s", rec.Code, rec.Body.String())
 		}
 	}
@@ -388,7 +392,8 @@ func BenchmarkAPIServer_Write_RepairMarkAbandoned(b *testing.B) {
 }
 
 func BenchmarkAPIServer_HTTP_Write_CreateJob(b *testing.B) {
-	server, _ := newBenchmarkAPIServer(b)
+	server, repos := newBenchmarkAPIServer(b)
+	seedBenchmarkAuthoringRepository(b, server, repos)
 	handler := server.Handler()
 
 	b.ReportAllocs()
@@ -396,11 +401,11 @@ func BenchmarkAPIServer_HTTP_Write_CreateJob(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		jobID := fmt.Sprintf("bench-api-http-create-%06d", i)
-		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/jobs", fmt.Sprintf(benchAPIJobDefinition, jobID))
+		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/jobs", fmt.Sprintf(`{"repository_id":"bench-source","job":%s}`, fmt.Sprintf(benchAPIJobDefinition, jobID)))
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusCreated {
+		if rec.Code != http.StatusOK {
 			b.Fatalf("CreateJob status=%d: %s", rec.Code, rec.Body.String())
 		}
 	}
@@ -1034,4 +1039,23 @@ func benchmarkAPIRunReadTaskSegmentID(taskID string) string {
 
 func benchmarkAPIRunReadTaskExecutionID(attemptID string) string {
 	return attemptID + ":execution"
+}
+
+func seedBenchmarkAuthoringRepository(b *testing.B, server *api.APIServer, repos *dal.SQLRepositories) {
+	b.Helper()
+	repo := gittest.InitRepository(b)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("benchmark source\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	gittest.CommitAll(b, repo, "initial")
+	server.SetSourceCheckoutRoot(filepath.Dir(repo))
+	_, err := repos.Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID: "bench-source", NamespaceID: dal.RootNamespaceID,
+		SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: repo,
+		CheckoutMode: dal.SourceCheckoutModeManaged, AuthoringMode: dal.SourceAuthoringModeLocalCommit,
+		CanonicalURL: repo, DefaultRef: "HEAD", Enabled: true,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
 }
