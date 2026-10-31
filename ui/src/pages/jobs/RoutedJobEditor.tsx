@@ -23,7 +23,13 @@ export function RoutedJobEditor({
   onCreateJob,
   onUpdateJob
 }: RoutedJobEditorProps) {
-  const [values, setValues] = useState<JobFormValues>(initialValues);
+  const [values, setValues] = useState<JobFormValues>(() => {
+    const available = repositories.filter((repository) => repository.canAuthor);
+    return mode.kind === "create" && !initialValues.repository && available.length === 1
+      ? { ...initialValues, repository: available[0].id }
+      : initialValues;
+  });
+
   const [formError, setFormError] = useState("");
 
   return (

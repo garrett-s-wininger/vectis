@@ -76,7 +76,7 @@ describe("JobsPage", () => {
     expect(screen.queryByText("Cadence")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "worker-image" } });
-    fireEvent.change(screen.getByLabelText("Repository ID"), { target: { value: "vectis-local" } });
+    expect(screen.getByLabelText("Repository ID")).toHaveValue("vectis-local");
     fireEvent.change(screen.getByLabelText("Payload"), {
       target: {
         value: JSON.stringify({

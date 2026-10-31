@@ -147,7 +147,7 @@ export function JobEditor({
                 { value: "", label: "Select a repository" },
                 ...repositories.map((repository) => ({
                   value: repository.id,
-                  label: `${repository.id} (${repository.namespacePath})${repository.canAuthor ? "" : " — authoring unavailable"}`,
+                  label: `${repository.id}${repository.canAuthor ? "" : " — authoring unavailable"}`,
                   disabled: !repository.canAuthor
                 })),
                 ...(isConfigureMode && !repositories.some((repository) => repository.id === values.repository)
