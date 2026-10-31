@@ -95,6 +95,7 @@ describe("App", () => {
     let created = false;
     fetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       let body: unknown;
+
       if (path === "/ui/api/context") body = { auth_enabled: false, principal: { username: "local" } };
       else if (path === "/api/v1/namespaces") body = [{ id: 1, name: "/", path: "/", break_inheritance: false }];
       else if (path === "/api/v1/source-repositories")
@@ -108,7 +109,7 @@ describe("App", () => {
           }
         ];
       else if (path === "/api/v1/jobs" && init?.method === "POST") {
-        expect(JSON.parse(String(init.body))).toMatchObject({ repository_id: "demo", job: { id: "new-source-job" } });
+        expect(JSON.parse(String(init.body))).toMatchObject({ repository_id: "demo", job_id: "new-source-job" });
         created = true;
         body = {};
       } else if (path.startsWith("/api/v1/jobs?"))
@@ -123,35 +124,40 @@ describe("App", () => {
       else if (path === "/api/v1/runs?limit=200") body = { data: [] };
       else if (path === "/api/v1/users" || path === "/api/v1/namespaces/1/bindings") body = [];
       else throw new Error(`Unexpected request: ${path}`);
+
       return new Response(JSON.stringify(body), { status: 200 });
     });
+
     const first = render(<App />);
     await screen.findByRole("button", { name: "Create" });
+
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "new-source-job" } });
     fireEvent.change(screen.getByLabelText("Repository ID"), { target: { value: "demo" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByText("new-source-job")).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "View new-source-job" }));
     expect(await screen.findByText(/echo actual source/)).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Edit new-source-job" }));
     expect(await screen.findByLabelText("Payload")).toHaveValue(
-      JSON.stringify(
-        { id: "new-source-job", root: { uses: "builtins/script", with: { script: "echo actual source" } } },
-        null,
-        2
-      )
+      JSON.stringify({ root: { uses: "builtins/script", with: { script: "echo actual source" } } }, null, 2)
     );
+
     expect(
       fetchMock.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/jobs/new-source-job?")).length
     ).toBe(1);
 
     fireEvent.click(screen.getByRole("link", { name: "Runs" }));
+
     await screen.findByRole("heading", { name: "Runs" });
     fireEvent.click(screen.getByRole("link", { name: "Jobs" }));
     expect(await screen.findByText("new-source-job")).toBeInTheDocument();
+
     const consoleLoads = () => fetchMock.mock.calls.filter(([path]) => path === "/api/v1/source-repositories").length;
     expect(consoleLoads()).toBe(2);
+
     first.unmount();
     render(<App />);
     expect(await screen.findByText("new-source-job")).toBeInTheDocument();
@@ -161,10 +167,12 @@ describe("App", () => {
   it.each([false, true])("waits for a source definition before configuring a job (failure=%s)", async (failed) => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     window.history.replaceState(null, "", "/jobs/remote/config");
+
     let finish!: (response: Response) => void;
     const definitionResponse = new Promise<Response>((resolve) => {
       finish = resolve;
     });
+
     fetchMock.mockImplementation(async (path: string) => {
       let body: unknown;
       if (path === "/ui/api/context") body = { auth_enabled: true, principal: { username: "admin" } };
@@ -176,16 +184,20 @@ describe("App", () => {
       else if (path === "/api/v1/runs?limit=200") body = { data: [] };
       else if (path === "/api/v1/namespaces" || path === "/api/v1/users") body = [];
       else throw new Error(`Unexpected request: ${path}`);
+
       return new Response(JSON.stringify(body), { status: 200 });
     });
+
     render(<App />);
     await screen.findByRole("heading", { name: "Loading Job Definition" });
     expect(screen.queryByLabelText("Payload")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+
     const definition = {
       id: "remote",
       root: { id: "root", uses: "builtins/script", with: { script: "echo remote definition" } }
     };
+
     await act(async () => {
       finish(
         new Response(JSON.stringify(failed ? { message: "Repository unavailable" } : { definition }), {
@@ -193,13 +205,15 @@ describe("App", () => {
         })
       );
     });
+
     if (failed) {
       expect(await screen.findByRole("heading", { name: "Unable to Load Job Definition" })).toBeInTheDocument();
       expect(screen.getByText("Repository unavailable")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     } else {
-      expect(await screen.findByLabelText("Payload")).toHaveValue(JSON.stringify(definition, null, 2));
+      expect(await screen.findByLabelText("Payload")).toHaveValue(JSON.stringify({ root: definition.root }, null, 2));
     }
+
     expect(fetchMock.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/jobs/remote?")).length).toBe(1);
   });
 

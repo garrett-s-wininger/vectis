@@ -1,3 +1,4 @@
+import { sourceDefinition } from "../domain/sourceDefinition";
 import type { RunListItem, RunStatus, RunTaskAttemptItem, RunTaskItem, RunTaskStatus } from "../components";
 import type {
   Cell,
@@ -270,8 +271,7 @@ function createMockConsoleDataSource(): ConsoleDataSource {
 function createAPIConsoleDataSource(): ConsoleDataSource {
   return {
     async createJob(input) {
-      const definition = parseJobDefinition(input.definition);
-      definition.id = input.name;
+      const definition = sourceDefinition(JSON.parse(input.definition));
 
       const repositoryID = requireSourceRepository(input.repository);
       await requestNoContent("/api/v1/jobs", {
@@ -279,6 +279,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
         body: JSON.stringify({
           namespace: input.namespacePath,
           repository_id: repositoryID,
+          job_id: input.name,
           ...(input.branch.trim() ? { ref: input.branch.trim() } : {}),
           job: definition
         })
@@ -350,7 +351,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       const response = await requestJSON<{ definition: unknown }>(
         `/api/v1/jobs/${encodeURIComponent(job.id)}?${params}`
       );
-      const definition = normalizeJobDefinition(response.definition, job.id);
+      const definition = sourceDefinition(response.definition);
       return { ...job, definition: JSON.stringify(definition, null, 2) };
     },
     async loadRun(runID) {
@@ -399,8 +400,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       return loadAPIConsoleData();
     },
     async updateJob(jobID, input) {
-      const definition = parseJobDefinition(input.definition);
-      definition.id = jobID;
+      const definition = sourceDefinition(JSON.parse(input.definition));
       const repositoryID = requireSourceRepository(input.repository);
       const params = new URLSearchParams();
       if (repositoryID) {

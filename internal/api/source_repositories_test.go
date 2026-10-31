@@ -557,6 +557,7 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		"expected_head": parent,
 		"message":       "create build through jobs facade",
 		"job": map[string]any{
+			"id": "build",
 			"root": map[string]any{
 				"id":   "root",
 				"uses": "builtins/script",
@@ -618,6 +619,10 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	var createdJob api.Job
 	if err := json.Unmarshal(readCreateResp.Definition, &createdJob); err != nil {
 		t.Fatalf("decode created job definition: %v", err)
+	}
+
+	if createdJob.Id != nil || createdJob.GetRoot().GetId() != "root" {
+		t.Fatalf("source write must omit job id while preserving node ids: %s", readCreateResp.Definition)
 	}
 
 	if createdJob.GetRoot().GetWith()["script"] != "created" {

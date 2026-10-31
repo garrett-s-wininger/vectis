@@ -267,7 +267,7 @@ describe("console data source", () => {
 
     await createConsoleDataSource().createJob({
       branch: "",
-      definition: JSON.stringify({ root: { id: "root", uses: "builtins/script" } }),
+      definition: JSON.stringify({ id: "legacy-name", root: { id: "root", uses: "builtins/script" } }),
       name: "database-vacuum",
       namespacePath: "/",
       repository: "vectis-local"
@@ -281,9 +281,9 @@ describe("console data source", () => {
         body: JSON.stringify({
           namespace: "/",
           repository_id: "vectis-local",
+          job_id: "database-vacuum",
           job: {
-            root: { id: "root", uses: "builtins/script" },
-            id: "database-vacuum"
+            root: { id: "root", uses: "builtins/script" }
           }
         })
       })
@@ -466,6 +466,7 @@ describe("console data source", () => {
     await createConsoleDataSource().updateJob("database-vacuum", {
       branch: "",
       definition: JSON.stringify({
+        id: "database-vacuum",
         root: { id: "root", uses: "builtins/script" }
       }),
       name: "ignored-by-update",
@@ -478,8 +479,7 @@ describe("console data source", () => {
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
-          root: { id: "root", uses: "builtins/script" },
-          id: "database-vacuum"
+          root: { id: "root", uses: "builtins/script" }
         })
       })
     );

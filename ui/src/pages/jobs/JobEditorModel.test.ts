@@ -12,7 +12,9 @@ describe("JobEditorModel", () => {
   });
   it("uses the loaded source definition when configuring a job", () => {
     const job = createMockConsoleDataSnapshot().jobs[0];
-    expect(valuesFromJob(job).definition).toBe(job.definition);
+    const definition = JSON.parse(valuesFromJob(job).definition);
+    expect(definition).not.toHaveProperty("id");
+    expect(definition.root).toEqual(JSON.parse(job.definition!).root);
     expect(valuesFromJob({ ...job, definition: undefined }).definition).toBe("");
   });
 });

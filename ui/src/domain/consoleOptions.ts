@@ -13,7 +13,6 @@ export const jobScheduleOptions = [
 
 export const defaultJobDefinition = JSON.stringify(
   {
-    id: "stored-job",
     root: {
       id: "root",
       uses: "builtins/script",

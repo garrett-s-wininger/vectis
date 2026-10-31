@@ -1712,6 +1712,8 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
+	job.Id = nil
+
 	definitionJSON, err := json.Marshal(&job)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
