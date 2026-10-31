@@ -598,21 +598,23 @@ const (
 )
 
 type ExecutionFinalizationResult struct {
-	ExecutionID string
-	RunID       string
-	Outcome     ExecutionFinalizationOutcome
-	Summary     RunTaskCompletion
-	Children    []TaskExecutionRecord
-	Executions  []TaskExecutionSnapshot
-	Activated   int
+	PersistenceToken string
+	ExecutionID      string
+	RunID            string
+	Outcome          ExecutionFinalizationOutcome
+	Summary          RunTaskCompletion
+	Children         []TaskExecutionRecord
+	Executions       []TaskExecutionSnapshot
+	Activated        int
 }
 
 type TerminalExecutionSnapshotUpdate struct {
-	RunID       string
-	Outcome     ExecutionFinalizationOutcome
-	FailureCode string
-	Reason      string
-	Executions  []TaskExecutionSnapshot
+	PersistenceToken string
+	RunID            string
+	Outcome          ExecutionFinalizationOutcome
+	FailureCode      string
+	Reason           string
+	Executions       []TaskExecutionSnapshot
 }
 
 type CatalogEventRecord struct {

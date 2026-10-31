@@ -115,6 +115,7 @@ DROP TABLE IF EXISTS segment_executions;
 DROP TABLE IF EXISTS run_segments;
 DROP TABLE IF EXISTS task_attempts;
 DROP TABLE IF EXISTS run_tasks;
+DROP TABLE IF EXISTS orchestrator_retirements;
 DROP TABLE IF EXISTS run_hot_state_owners;
 DROP TABLE IF EXISTS cron_schedule_fires;
 DROP TABLE IF EXISTS job_runs;

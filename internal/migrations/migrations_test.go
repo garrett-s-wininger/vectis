@@ -35,6 +35,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	}
 
 	assertTableExists(t, db, "job_runs")
+	assertTableExists(t, db, "orchestrator_retirements")
 	assertTableExists(t, db, "cron_schedule_fires")
 	assertTableExists(t, db, "run_dispatch_events")
 	assertTableExists(t, db, "reaction_events")

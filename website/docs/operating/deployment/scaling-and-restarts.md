@@ -196,3 +196,9 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | Runbooks and alerts | [Runbooks](../reliability/runbooks.md) |
 | Repair procedures | [Repair Runbooks](../reliability/repair-runbooks.md) |
 | Backup and restore | [Backup And Restore](../reliability/backup-restore.md) |
+
+## Completed Graph Memory
+
+The orchestrator releases terminal graphs after workers durably commit the final execution snapshot and acknowledge its unique persistence token. Workers store the receipt in the same transaction and retry delivery from SQL, including after a worker restart. Another worker in the same cell can finish delivery if the completing worker exits. Receipts delivered to a restarted orchestrator are harmless when the graph is absent or its token differs.
+
+This bounds retained completed history when persistence and acknowledgment delivery are healthy. It does not cap active, abandoned, or unpersisted graphs. During a database outage the final snapshot remains in memory; during an acknowledgment outage receipts accumulate until a worker can deliver them. With all workers stopped, delivery waits for a worker to return. Monitor the [orchestrator retention metrics](../reference/metrics-catalog.md#orchestrator-memory-retention) and follow the [pre-1.0 schema guidance](../reference/upgrade-compatibility-matrix.md#orchestrator-graph-reclamation).

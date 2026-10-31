@@ -418,6 +418,19 @@ Stores the top-level run record and its durable state.
 
 Constraints and indexes: `run_id` unique; `replay_of_run_id` references `job_runs(run_id)`; `trigger_invocation_id` references `trigger_invocations(invocation_id)`; indexes on `(job_id, run_index DESC)`, `replay_of_run_id`, `(status, last_dispatched_at)`, `lease_until`, and `status`.
 
+### `orchestrator_retirements`
+
+Durable delivery receipts for releasing completed orchestrator graphs. These rows are inserted in the same transaction as the terminal execution snapshot and deleted only after the orchestrator acknowledges them.
+
+| Column | Meaning |
+| --- | --- |
+| `persistence_token` | Primary key; unique token for one terminal graph generation. |
+| `run_id` | Run whose graph can be released. |
+| `cell_id` | Cell whose workers deliver this receipt. |
+| `next_attempt_unix` | Earliest retry time in Unix seconds; zero for a new receipt. |
+
+Index: `(cell_id, next_attempt_unix, persistence_token)`. There is deliberately no foreign key to run history: deleting a run must not discard an undelivered receipt. A worker in the same cell processes up to 256 due receipts per batch and defers failed deliveries for ten seconds. Retain these rows during backup/restore with the rest of the cell database.
+
 ### `run_tasks`
 
 Stores logical tasks within a run.

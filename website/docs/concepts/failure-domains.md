@@ -225,3 +225,7 @@ For reference deploys, add probes in dependency order: registry, queue, and log 
 | Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. Per-run workspaces are not a security sandbox. | Worker execution containment, bounded drain policy, and clear operator run-stop procedures. |
 | Cron | Database schedule claims and per-tick run idempotency within one database cell; no built-in schedule sharding. | Explicit partition ownership or an external scheduler if schedules span multiple cells. |
 | Auth | HTTP API auth is configurable and off by default. | Enable auth or protect the API at the edge before shared use. |
+
+## Completed Orchestrator Graphs
+
+Workers acknowledge completed graphs only after committing their final snapshot and a reclamation receipt together in SQL. A failed commit leaves the graph available for a completion retry. A failed acknowledgment leaves a durable receipt that any worker in the same cell can resend. Acknowledgment failures do not change an already persisted run outcome. While all workers are offline, receipt delivery pauses. Active and unpersisted graphs have no age-based eviction; watch orchestrator retention metrics during prolonged outages.

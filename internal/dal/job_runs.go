@@ -297,6 +297,10 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(
 	if err := clearRunHotStateOwnerTx(ctx, tx, runUpdate.RunID); err != nil {
 		return err
 	}
+	update.RunID = runUpdate.RunID
+	if err := recordOrchestratorRetirementTx(ctx, tx, update, owningCell); err != nil {
+		return err
+	}
 
 	return tx.Commit()
 }

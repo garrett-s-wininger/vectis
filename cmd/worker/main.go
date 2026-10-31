@@ -325,6 +325,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		coreShellEndpoint:             coreShellEndpoint,
 		actionResolver:                actionResolver,
 		store:                         runsRepo,
+		retirements:                   repos.OrchestratorRetirements(),
 		sourceRepositories:            repos.Sources(),
 		artifactManifests:             repos.Artifacts(),
 		artifactMaxBytes:              config.WorkerArtifactMaxBytes(),
@@ -350,7 +351,21 @@ func runWorker(cmd *cobra.Command, args []string) {
 		spiffeRegistrationMaxTTL:    config.WorkerSPIFFERegistrationMaxTTL(),
 		cancelCh:                    make(chan string, 1),
 	}
+
 	w.startCheckoutCacheWarmLoop(coreDescription)
+	retirementSchemaCtx, cancelRetirementSchema := context.WithTimeout(shutdownCtx, 5*time.Second)
+	_, retirementSchemaErr := w.retirements.ListDue(retirementSchemaCtx, time.Now().Unix(), 1)
+	cancelRetirementSchema()
+
+	if retirementSchemaErr != nil {
+		logger.Fatal("Orchestrator persistence receipt schema is not ready; initialize the current database schema: %v", retirementSchemaErr)
+	}
+
+	retirementDone := make(chan struct{})
+	go func() {
+		defer close(retirementDone)
+		w.runRetirementLoop(shutdownCtx)
+	}()
 
 	// Start worker control server for remote cancellation.
 	controlListener, controlAddr, err := startControlListener()
@@ -396,6 +411,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 	// Wait for the forwarder to finish before closing clients.
 	<-forwarderDone
+	<-retirementDone
 	logger.Info("Worker graceful shutdown complete")
 }
 
@@ -563,6 +579,7 @@ type worker struct {
 	coreShellEndpoint             string
 	actionResolver                actionregistry.Resolver
 	store                         dal.RunsRepository
+	retirements                   dal.OrchestratorRetirementsRepository
 	sourceRepositories            dal.SourcesRepository
 	artifactManifests             dal.ArtifactsRepository
 	artifactMaxBytes              int64
@@ -1844,10 +1861,15 @@ func (w *worker) runTaskExecution(
 
 	if w.shouldPrepareRunBeforeClaim(job, executionEnvelope) {
 		if err := w.prepareRunForExecution(ctx, job, executionEnvelope, leaseUntil); err != nil {
+			if errors.Is(err, errRunNotExecutable) {
+				return observability.WorkerOutcomeSkippedUnclaimed
+			}
+
 			span.SetStatus(otelcodes.Error, "prepare run")
 			span.RecordError(err)
 			w.logger.Error("Failed to prepare run %s for orchestrator execution: %v", runID, err)
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+
 			if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
 				w.logger.Error("Failed to mark run %s orphaned after orchestrator prepare failure: %v", runID, markErr)
 				span.RecordError(markErr)
@@ -2097,6 +2119,12 @@ func (w *worker) prepareRunForExecution(
 	}
 
 	materializeFullPlan := w.executionChoreographer().RequiresDurableTaskRows() && env.TaskKey == dal.RootTaskKey
+	if !w.executionChoreographer().RequiresDurableTaskRows() {
+		if err := w.checkRunCanLoadHotState(ctx, env.RunID); err != nil {
+			return err
+		}
+	}
+
 	materializeSecretPath := w.executionUsesHotStateOnly(env) && executionNeedsDurableSecretClaim(j, env)
 	if materializeFullPlan || materializeSecretPath {
 		plan, err := job.PlanTaskExecutionsWithActions(j, w.actionResolver)
@@ -3323,6 +3351,7 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(
 	w.recordExecutionCatalogEvent(ctx, env, status)
 	w.recordTerminalExecutionSnapshotCatalogEvent(ctx, result, failureCode, reason)
 	w.recordRunCatalogEventForExecutionFinalization(result, failureCode, reason)
+	w.acknowledgePersistedRun(ctx, result)
 	trace.SpanFromContext(ctx).AddEvent("execution.finalized", trace.WithAttributes(
 		append(
 			executionEnvelopeAttrs(env),
@@ -3394,11 +3423,12 @@ func (w *worker) persistTerminalExecutionSnapshotOnce(
 	failureCode, reason string,
 ) error {
 	return w.store.ApplyTerminalExecutionSnapshot(context.WithoutCancel(ctx), dal.TerminalExecutionSnapshotUpdate{
-		RunID:       result.RunID,
-		Outcome:     result.Outcome,
-		FailureCode: failureCode,
-		Reason:      reason,
-		Executions:  result.Executions,
+		PersistenceToken: result.PersistenceToken,
+		RunID:            result.RunID,
+		Outcome:          result.Outcome,
+		FailureCode:      failureCode,
+		Reason:           reason,
+		Executions:       result.Executions,
 	})
 }
 
@@ -3843,6 +3873,16 @@ func (w *worker) tryClaimExecution(
 		return "", false, false, nil
 	}
 
+	if executionEnvelope.TaskKey == dal.RootTaskKey && !w.executionChoreographer().RequiresDurableTaskRows() {
+		if err := w.checkRunCanLoadHotState(ctx, executionEnvelope.RunID); err != nil {
+			if errors.Is(err, errRunNotExecutable) {
+				return "", false, false, nil
+			}
+
+			return "", false, false, err
+		}
+	}
+
 	if err := w.mirrorExecutionClaim(ctx, job, executionEnvelope, claim.ClaimToken, leaseUntil); err != nil {
 		w.logger.Warn(
 			"MirrorExecutionClaim %s failed; stopping before task execution: %v",
@@ -3873,6 +3913,9 @@ func (w *worker) recoverOrchestratorExecutionClaim(
 ) (bool, error) {
 	if j == nil || env == nil {
 		return false, fmt.Errorf("job and execution envelope are required")
+	}
+	if err := w.checkRunCanLoadHotState(ctx, env.RunID); err != nil {
+		return false, err
 	}
 
 	snapshots, err := w.orchestratorRecoverySnapshots(ctx, j, env, executionClaim.get(), leaseUntil, stage)

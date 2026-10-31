@@ -67,6 +67,14 @@ func (f *fakeOrchestratorReadClient) CompleteExecution(
 	return nil, status.Error(codes.Unimplemented, "complete execution not implemented")
 }
 
+func (f *fakeOrchestratorReadClient) AcknowledgeRunPersistence(
+	context.Context,
+	*apigen.AcknowledgeRunPersistenceRequest,
+	...grpc.CallOption,
+) (*apigen.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "acknowledge persistence not implemented")
+}
+
 func (f *fakeOrchestratorReadClient) GetRunTaskCompletion(
 	context.Context,
 	*apigen.GetRunTaskCompletionRequest,

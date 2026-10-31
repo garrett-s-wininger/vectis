@@ -105,6 +105,14 @@ message CompleteExecutionResponse {
     repeated OrchestratorTaskExecution children = 5;
     int32 activated = 6;
     repeated OrchestratorTaskExecution executions = 7;
+    string persistence_token = 8;
+}
+
+// Sent only after the terminal snapshot and its receipt commit atomically.
+// Missing runs and tokens from older run generations are successful no-ops.
+message AcknowledgeRunPersistenceRequest {
+    string run_id = 1;
+    string persistence_token = 2;
 }
 
 message GetRunTaskCompletionRequest {
@@ -144,6 +152,7 @@ service OrchestratorService {
     rpc ClaimExecution(ClaimExecutionRequest) returns (ClaimExecutionResponse);
     rpc RenewExecutionLease(RenewExecutionLeaseRequest) returns (common.Empty);
     rpc CompleteExecution(CompleteExecutionRequest) returns (CompleteExecutionResponse);
+    rpc AcknowledgeRunPersistence(AcknowledgeRunPersistenceRequest) returns (common.Empty);
     rpc GetRunTaskCompletion(GetRunTaskCompletionRequest) returns (OrchestratorRunTaskCompletion);
     rpc GetRunTaskSnapshot(GetRunTaskSnapshotRequest) returns (GetRunTaskSnapshotResponse);
     rpc ExecutionStream(stream ExecutionStreamRequest) returns (stream ExecutionStreamResponse);

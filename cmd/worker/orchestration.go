@@ -162,14 +162,23 @@ func (c *grpcExecutionChoreographer) CompleteExecution(
 	}
 
 	return dal.ExecutionFinalizationResult{
-		ExecutionID: result.GetExecutionId(),
-		RunID:       result.GetRunId(),
-		Outcome:     dal.ExecutionFinalizationOutcome(result.GetOutcome()),
-		Summary:     runTaskCompletionFromProto(result.GetSummary()),
-		Children:    taskExecutionsFromProto(result.GetChildren()),
-		Executions:  taskExecutionSnapshotsFromProto(result.GetExecutions()),
-		Activated:   int(result.GetActivated()),
+		PersistenceToken: result.GetPersistenceToken(),
+		ExecutionID:      result.GetExecutionId(),
+		RunID:            result.GetRunId(),
+		Outcome:          dal.ExecutionFinalizationOutcome(result.GetOutcome()),
+		Summary:          runTaskCompletionFromProto(result.GetSummary()),
+		Children:         taskExecutionsFromProto(result.GetChildren()),
+		Executions:       taskExecutionSnapshotsFromProto(result.GetExecutions()),
+		Activated:        int(result.GetActivated()),
 	}, nil
+}
+
+func (c *grpcExecutionChoreographer) AcknowledgeRunPersistence(ctx context.Context, runID, token string) error {
+	_, err := c.client.AcknowledgeRunPersistence(ctx, &api.AcknowledgeRunPersistenceRequest{
+		RunId: stringPtr(runID), PersistenceToken: stringPtr(token),
+	})
+
+	return err
 }
 
 func (c *grpcExecutionChoreographer) RequiresDurableTaskRows() bool {

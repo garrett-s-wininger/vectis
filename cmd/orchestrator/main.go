@@ -66,6 +66,12 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	service := orchestrator.New(config.OrchestratorShards())
 	defer service.Close()
 
+	stopRetentionMetrics, err := observability.RegisterOrchestratorRetentionMetrics(service.RetentionStats)
+	if err != nil {
+		logger.Fatal("Failed to register orchestrator retention metrics: %v", err)
+	}
+	defer func() { _ = stopRetentionMetrics() }()
+
 	grpcServer := grpc.NewServer(srvOpts...)
 	_, healthServer := orchestrator.RegisterOrchestratorServiceWithHealth(grpcServer, service, logger)
 

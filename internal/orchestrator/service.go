@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"vectis/internal/dal"
@@ -30,10 +31,14 @@ func WithClock(clock interfaces.Clock) Option {
 }
 
 type Service struct {
-	shards    []*shard
-	clock     interfaces.Clock
-	closeOnce sync.Once
-	wg        sync.WaitGroup
+	shards              []*shard
+	clock               interfaces.Clock
+	closeOnce           sync.Once
+	wg                  sync.WaitGroup
+	retainedRuns        atomic.Int64
+	retainedTasks       atomic.Int64
+	awaitingPersistence atomic.Int64
+	reclaimedRuns       atomic.Int64
 }
 
 type RunSpec struct {
@@ -93,12 +98,22 @@ type shardState struct {
 }
 
 type runState struct {
-	runID      string
-	status     string
-	tasks      map[string]*taskState
-	executions map[string]*taskState
-	order      []string
-	summary    dal.RunTaskCompletion
+	persistenceToken string
+	terminalClaim    *completedClaim
+	runID            string
+	status           string
+	tasks            map[string]*taskState
+	executions       map[string]*taskState
+	order            []string
+	summary          dal.RunTaskCompletion
+}
+
+type completedClaim struct {
+	executionID string
+	owner       string
+	claimToken  string
+	status      string
+	outcome     dal.ExecutionFinalizationOutcome
 }
 
 type taskState struct {
@@ -188,11 +203,31 @@ func (s *Service) LoadRunWithOptions(ctx context.Context, spec RunSpec, opts Loa
 
 	value, err := s.call(ctx, spec.RunID, func(state *shardState) (any, error) {
 		if run, ok := state.runs[spec.RunID]; ok {
+			if run.terminalClaim != nil {
+				if spec.Root.ExecutionID != "" && spec.Root.ExecutionID != run.tasks[dal.RootTaskKey].record.ExecutionID {
+					return LoadResult{}, fmt.Errorf("%w: terminal run awaits persistence acknowledgment", dal.ErrConflict)
+				}
+
+				for _, snapshot := range spec.Executions {
+					task, err := run.taskForSnapshot(snapshot)
+					if err != nil {
+						return LoadResult{}, err
+					}
+
+					if snapshot.Record.ExecutionID != "" && snapshot.Record.ExecutionID != task.record.ExecutionID {
+						return LoadResult{}, fmt.Errorf("%w: terminal execution cannot be replaced before acknowledgment", dal.ErrConflict)
+					}
+				}
+
+				return run.loadResult(s.clock.Now(), opts), nil
+			}
+
 			if len(spec.Executions) > 0 {
 				if err := run.applySnapshots(spec.Executions, s.clock.Now()); err != nil {
 					return LoadResult{}, err
 				}
 			}
+
 			return run.loadResult(s.clock.Now(), opts), nil
 		}
 
@@ -202,6 +237,8 @@ func (s *Service) LoadRunWithOptions(ctx context.Context, spec RunSpec, opts Loa
 		}
 
 		state.runs[spec.RunID] = run
+		s.retainedRuns.Add(1)
+		s.retainedTasks.Add(int64(len(run.tasks)))
 		return run.loadResult(s.clock.Now(), opts), nil
 	})
 
@@ -379,6 +416,15 @@ func (s *Service) CompleteExecutionByClaim(
 			return dal.ExecutionFinalizationResult{}, err
 		}
 
+		if completed := run.terminalClaim; completed != nil {
+			if completed.executionID == executionID && completed.owner == owner &&
+				completed.claimToken == claimToken && completed.status == status {
+				return run.terminalResult(), nil
+			}
+
+			return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: run %s is already complete", dal.ErrConflict, runID)
+		}
+
 		task, err := run.getExecution(executionID)
 		if err != nil {
 			return dal.ExecutionFinalizationResult{}, err
@@ -423,7 +469,14 @@ func (s *Service) CompleteExecutionByClaim(
 
 		run.applyRunStatus(result.Outcome)
 		if isTerminalFinalizationOutcome(result.Outcome) {
-			result.Executions = run.executionSnapshots()
+			run.persistenceToken = uuid.NewString()
+			run.terminalClaim = &completedClaim{
+				executionID: executionID, owner: owner, claimToken: claimToken,
+				status: status, outcome: result.Outcome,
+			}
+
+			s.awaitingPersistence.Add(1)
+			return run.terminalResult(), nil
 		}
 
 		return result, nil
@@ -434,6 +487,46 @@ func (s *Service) CompleteExecutionByClaim(
 	}
 
 	return value.(dal.ExecutionFinalizationResult), nil
+}
+
+func (r *runState) terminalResult() dal.ExecutionFinalizationResult {
+	return dal.ExecutionFinalizationResult{
+		RunID: r.runID, ExecutionID: r.terminalClaim.executionID,
+		Outcome: r.terminalClaim.outcome, Summary: r.summary,
+		Executions: r.executionSnapshots(), PersistenceToken: r.persistenceToken,
+	}
+}
+
+func (s *Service) AcknowledgeRunPersistence(ctx context.Context, runID, token string) error {
+	runID, token = strings.TrimSpace(runID), strings.TrimSpace(token)
+	if runID == "" || token == "" {
+		return fmt.Errorf("%w: run_id and persistence_token are required", dal.ErrConflict)
+	}
+
+	_, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, ok := state.runs[runID]
+		if !ok || run.persistenceToken != token {
+			return struct{}{}, nil
+		}
+
+		if run.terminalClaim == nil {
+			return nil, fmt.Errorf("%w: run %s is not terminal", dal.ErrConflict, runID)
+		}
+
+		delete(state.runs, runID)
+		s.retainedRuns.Add(-1)
+		s.retainedTasks.Add(-int64(len(run.tasks)))
+		s.awaitingPersistence.Add(-1)
+		s.reclaimedRuns.Add(1)
+
+		return struct{}{}, nil
+	})
+
+	return err
+}
+
+func (s *Service) RetentionStats() (runs, tasks, awaitingPersistence, reclaimed int64) {
+	return s.retainedRuns.Load(), s.retainedTasks.Load(), s.awaitingPersistence.Load(), s.reclaimedRuns.Load()
 }
 
 func (s *Service) GetRunTaskCompletion(ctx context.Context, runID string) (dal.RunTaskCompletion, error) {

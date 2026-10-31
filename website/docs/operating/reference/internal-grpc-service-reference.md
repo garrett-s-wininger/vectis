@@ -14,7 +14,7 @@ For the public HTTP API, see [API Reference](../../using/api-reference.md) and [
 | `RegistryService` | `vectis-registry` | `api/proto/registry.proto` | `Register`, `GetAddress`, `ListRegistrations`, `Gossip`, `GetSnapshot` | `registry.port` (`8082`) | Services that register or resolve queue, orchestrator, log, artifact, and worker-control addresses |
 | `LogService` | `vectis-log` | `api/proto/log.proto` | `StreamLogs`, `SendLogBatch`, `GetLogs` | `log.grpc.port` (`8083`) | Workers and log-forwarders write logs; API reads logs for SSE clients |
 | `ArtifactService` | `vectis-artifact` | `api/proto/artifact.proto` | `UploadBlob`, `StatBlob`, `ReadBlob` | `artifact.grpc.port` (`8086`) | Workers upload artifacts; API reads blobs for authenticated downloads |
-| `OrchestratorService` | `vectis-orchestrator` | `api/proto/orchestrator.proto` | `LoadRun`, `ListPending`, `ClaimExecution`, `RenewExecutionLease`, `CompleteExecution`, `GetRunTaskCompletion`, `GetRunTaskSnapshot`, `ExecutionStream` | `orchestrator.port` (`8087`) | Workers claiming, leasing, completing, and reducing task executions |
+| `OrchestratorService` | `vectis-orchestrator` | `api/proto/orchestrator.proto` | `LoadRun`, `ListPending`, `ClaimExecution`, `RenewExecutionLease`, `CompleteExecution`, `AcknowledgeRunPersistence`, `GetRunTaskCompletion`, `GetRunTaskSnapshot`, `ExecutionStream` | `orchestrator.port` (`8087`) | Workers claiming, leasing, completing, and reducing task executions |
 | `SecretsService` | `vectis-secrets` | `api/proto/secrets.proto` | `ResolveSecrets` | `secrets.port` (`8090`) | Workers resolving task-scoped job secret files |
 | `WorkerControlService` | `vectis-worker` | `api/proto/worker_control.proto` | `CancelRun` | `worker.control.port` (`9084`) or `worker.control.port_min` to `worker.control.port_max` | API cancellation path through worker-control discovery |
 | `WorkerCoreService` | `vectis-worker-core` | `api/proto/worker_core.proto` | `DescribeCore`, `ExecuteTask`, `CancelTask`, `WarmCheckoutCache` | `worker.core.socket` Unix socket | Worker execution manager |
@@ -47,6 +47,8 @@ Registry discovery is convenient, but it becomes a trust dependency. Operators c
 ### `OrchestratorService`
 
 `OrchestratorService` owns hot run and task choreography. Workers load pending execution state, claim execution leases, renew active leases, complete executions, ask for run task completion summaries during fan-in and repair, and use `ExecutionStream` to keep repeated worker/orchestrator round trips on one bidi stream. API read routing can use `GetRunTaskSnapshot` for hot task status before falling back to SQL.
+
+Terminal completions include a `persistence_token`. The worker commits the final execution snapshot and a cell-scoped acknowledgment receipt in one SQL transaction, then calls `AcknowledgeRunPersistence`. A matching token releases the entire in-memory graph. Missing runs and old tokens are successful no-ops, so delivery can be retried safely. Any worker in the cell retries outstanding receipts after startup and every five seconds. Active runs and unpersisted terminal graphs are never expired by age. A retry of the same terminal completion claim returns the same snapshot and token until acknowledgment; retained terminal snapshots cannot be replaced by a different execution generation.
 
 ### `SecretsService`
 

@@ -24,7 +24,8 @@ Scrape only from trusted monitoring networks. Metrics expose operational shape a
 | `vectis-catalog` | Dedicated metrics listener | Catalog inbox and fan-in counters |
 | `vectis-secrets` | Dedicated metrics listener | Secret resolution counters and latency |
 | `vectis-cron`, `vectis-cell-ingress` | Dedicated metrics listener when configured | Retry metrics |
-| `vectis-orchestrator`, `vectis-registry` | Dedicated metrics listener when configured | No Vectis-specific families yet; use gRPC health, process/runtime metrics, and dependent worker/queue signals |
+| `vectis-orchestrator` | Dedicated metrics listener when configured | Retained run graphs, retained tasks, pending persistence acknowledgments, and reclaimed graphs |
+| `vectis-registry` | Dedicated metrics listener when configured | No Vectis-specific families yet; use gRPC health and process/runtime metrics |
 | Operator textfile collector | Site-owned Prometheus textfile scrape path populated by `vectis-cli retention evidence metrics` | Retained backup, restore-validation, storage, audit export, hold-review, waiver, and scheduled-cleanup evidence metrics |
 
 ## Reading The Tables
@@ -50,6 +51,15 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `db_client_connections_in_use` | Gauge | none | Connections currently executing a query. | Sustained high values plus pool waits/readiness failures indicate DB pressure. |
 | `vectis_storage_records` | Gauge | `surface` | Durable SQL row counts by retention surface. Surfaces include `active_runs`, `terminal_runs`, `run_dispatch_events`, `run_artifacts`, `run_tasks`, `task_attempts`, `run_segments`, `segment_executions`, `job_definitions`, `idempotency_keys`, and `audit_log`. | Use for retention sizing and task graph growth. |
 | `vectis_storage_oldest_record_age_seconds` | Gauge | `surface` | Age of the oldest retained record for surfaces with age tracking: `terminal_runs`, `job_definitions`, `idempotency_keys`, and `audit_log`. | Alert when retained data exceeds policy or backup/cleanup expectations. |
+
+## Orchestrator Memory Retention
+
+| Metric | Type | Labels | Meaning | Operator use |
+| --- | --- | --- | --- | --- |
+| `vectis_orchestrator_retained_runs` | Gauge | none | Run graphs retained in memory. | Compare growth with active runs and pending persistence acknowledgments. |
+| `vectis_orchestrator_retained_tasks` | Gauge | none | Tasks in retained graphs. | Track graph size and memory pressure. |
+| `vectis_orchestrator_runs_awaiting_persistence` | Gauge | none | Terminal graphs awaiting durable persistence acknowledgment. | Sustained growth suggests failed SQL persistence, unavailable workers, or failed acknowledgment delivery. |
+| `vectis_orchestrator_reclaimed_runs_total` | Counter | none | Graphs released after durable persistence acknowledgment. | Compare the rate with completed runs; resets on orchestrator restart. |
 
 ## Retained Evidence Textfile Metrics
 

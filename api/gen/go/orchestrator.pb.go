@@ -898,16 +898,17 @@ func (x *CompleteExecutionRequest) GetReason() string {
 }
 
 type CompleteExecutionResponse struct {
-	state         protoimpl.MessageState         `protogen:"open.v1"`
-	ExecutionId   *string                        `protobuf:"bytes,1,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
-	RunId         *string                        `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	Outcome       *string                        `protobuf:"bytes,3,opt,name=outcome" json:"outcome,omitempty"`
-	Summary       *OrchestratorRunTaskCompletion `protobuf:"bytes,4,opt,name=summary" json:"summary,omitempty"`
-	Children      []*OrchestratorTaskExecution   `protobuf:"bytes,5,rep,name=children" json:"children,omitempty"`
-	Activated     *int32                         `protobuf:"varint,6,opt,name=activated" json:"activated,omitempty"`
-	Executions    []*OrchestratorTaskExecution   `protobuf:"bytes,7,rep,name=executions" json:"executions,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState         `protogen:"open.v1"`
+	ExecutionId      *string                        `protobuf:"bytes,1,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
+	RunId            *string                        `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	Outcome          *string                        `protobuf:"bytes,3,opt,name=outcome" json:"outcome,omitempty"`
+	Summary          *OrchestratorRunTaskCompletion `protobuf:"bytes,4,opt,name=summary" json:"summary,omitempty"`
+	Children         []*OrchestratorTaskExecution   `protobuf:"bytes,5,rep,name=children" json:"children,omitempty"`
+	Activated        *int32                         `protobuf:"varint,6,opt,name=activated" json:"activated,omitempty"`
+	Executions       []*OrchestratorTaskExecution   `protobuf:"bytes,7,rep,name=executions" json:"executions,omitempty"`
+	PersistenceToken *string                        `protobuf:"bytes,8,opt,name=persistence_token,json=persistenceToken" json:"persistence_token,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CompleteExecutionResponse) Reset() {
@@ -989,6 +990,67 @@ func (x *CompleteExecutionResponse) GetExecutions() []*OrchestratorTaskExecution
 	return nil
 }
 
+func (x *CompleteExecutionResponse) GetPersistenceToken() string {
+	if x != nil && x.PersistenceToken != nil {
+		return *x.PersistenceToken
+	}
+	return ""
+}
+
+// Sent only after the terminal snapshot and its receipt commit atomically.
+// Missing runs and tokens from older run generations are successful no-ops.
+type AcknowledgeRunPersistenceRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	RunId            *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	PersistenceToken *string                `protobuf:"bytes,2,opt,name=persistence_token,json=persistenceToken" json:"persistence_token,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AcknowledgeRunPersistenceRequest) Reset() {
+	*x = AcknowledgeRunPersistenceRequest{}
+	mi := &file_orchestrator_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcknowledgeRunPersistenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcknowledgeRunPersistenceRequest) ProtoMessage() {}
+
+func (x *AcknowledgeRunPersistenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orchestrator_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcknowledgeRunPersistenceRequest.ProtoReflect.Descriptor instead.
+func (*AcknowledgeRunPersistenceRequest) Descriptor() ([]byte, []int) {
+	return file_orchestrator_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AcknowledgeRunPersistenceRequest) GetRunId() string {
+	if x != nil && x.RunId != nil {
+		return *x.RunId
+	}
+	return ""
+}
+
+func (x *AcknowledgeRunPersistenceRequest) GetPersistenceToken() string {
+	if x != nil && x.PersistenceToken != nil {
+		return *x.PersistenceToken
+	}
+	return ""
+}
+
 type GetRunTaskCompletionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
@@ -998,7 +1060,7 @@ type GetRunTaskCompletionRequest struct {
 
 func (x *GetRunTaskCompletionRequest) Reset() {
 	*x = GetRunTaskCompletionRequest{}
-	mi := &file_orchestrator_proto_msgTypes[12]
+	mi := &file_orchestrator_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1010,7 +1072,7 @@ func (x *GetRunTaskCompletionRequest) String() string {
 func (*GetRunTaskCompletionRequest) ProtoMessage() {}
 
 func (x *GetRunTaskCompletionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orchestrator_proto_msgTypes[12]
+	mi := &file_orchestrator_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1023,7 +1085,7 @@ func (x *GetRunTaskCompletionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunTaskCompletionRequest.ProtoReflect.Descriptor instead.
 func (*GetRunTaskCompletionRequest) Descriptor() ([]byte, []int) {
-	return file_orchestrator_proto_rawDescGZIP(), []int{12}
+	return file_orchestrator_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetRunTaskCompletionRequest) GetRunId() string {
@@ -1044,7 +1106,7 @@ type GetRunTaskSnapshotRequest struct {
 
 func (x *GetRunTaskSnapshotRequest) Reset() {
 	*x = GetRunTaskSnapshotRequest{}
-	mi := &file_orchestrator_proto_msgTypes[13]
+	mi := &file_orchestrator_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1056,7 +1118,7 @@ func (x *GetRunTaskSnapshotRequest) String() string {
 func (*GetRunTaskSnapshotRequest) ProtoMessage() {}
 
 func (x *GetRunTaskSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orchestrator_proto_msgTypes[13]
+	mi := &file_orchestrator_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +1131,7 @@ func (x *GetRunTaskSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunTaskSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*GetRunTaskSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_orchestrator_proto_rawDescGZIP(), []int{13}
+	return file_orchestrator_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetRunTaskSnapshotRequest) GetRunId() string {
@@ -1105,7 +1167,7 @@ type GetRunTaskSnapshotResponse struct {
 
 func (x *GetRunTaskSnapshotResponse) Reset() {
 	*x = GetRunTaskSnapshotResponse{}
-	mi := &file_orchestrator_proto_msgTypes[14]
+	mi := &file_orchestrator_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1117,7 +1179,7 @@ func (x *GetRunTaskSnapshotResponse) String() string {
 func (*GetRunTaskSnapshotResponse) ProtoMessage() {}
 
 func (x *GetRunTaskSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orchestrator_proto_msgTypes[14]
+	mi := &file_orchestrator_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1130,7 +1192,7 @@ func (x *GetRunTaskSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunTaskSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*GetRunTaskSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_orchestrator_proto_rawDescGZIP(), []int{14}
+	return file_orchestrator_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetRunTaskSnapshotResponse) GetRunId() string {
@@ -1173,7 +1235,7 @@ type ExecutionStreamRequest struct {
 
 func (x *ExecutionStreamRequest) Reset() {
 	*x = ExecutionStreamRequest{}
-	mi := &file_orchestrator_proto_msgTypes[15]
+	mi := &file_orchestrator_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1185,7 +1247,7 @@ func (x *ExecutionStreamRequest) String() string {
 func (*ExecutionStreamRequest) ProtoMessage() {}
 
 func (x *ExecutionStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orchestrator_proto_msgTypes[15]
+	mi := &file_orchestrator_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1198,7 +1260,7 @@ func (x *ExecutionStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionStreamRequest.ProtoReflect.Descriptor instead.
 func (*ExecutionStreamRequest) Descriptor() ([]byte, []int) {
-	return file_orchestrator_proto_rawDescGZIP(), []int{15}
+	return file_orchestrator_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ExecutionStreamRequest) GetClaim() *ClaimExecutionRequest {
@@ -1241,7 +1303,7 @@ type ExecutionStreamResponse struct {
 
 func (x *ExecutionStreamResponse) Reset() {
 	*x = ExecutionStreamResponse{}
-	mi := &file_orchestrator_proto_msgTypes[16]
+	mi := &file_orchestrator_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1253,7 +1315,7 @@ func (x *ExecutionStreamResponse) String() string {
 func (*ExecutionStreamResponse) ProtoMessage() {}
 
 func (x *ExecutionStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orchestrator_proto_msgTypes[16]
+	mi := &file_orchestrator_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1266,7 +1328,7 @@ func (x *ExecutionStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionStreamResponse.ProtoReflect.Descriptor instead.
 func (*ExecutionStreamResponse) Descriptor() ([]byte, []int) {
-	return file_orchestrator_proto_rawDescGZIP(), []int{16}
+	return file_orchestrator_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ExecutionStreamResponse) GetClaim() *ClaimExecutionResponse {
@@ -1383,7 +1445,7 @@ const file_orchestrator_proto_rawDesc = "" +
 	"claimToken\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12!\n" +
 	"\ffailure_code\x18\x06 \x01(\tR\vfailureCode\x12\x16\n" +
-	"\x06reason\x18\a \x01(\tR\x06reason\"\xbb\x02\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\"\xe8\x02\n" +
 	"\x19CompleteExecutionResponse\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x18\n" +
@@ -1393,7 +1455,11 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\tactivated\x18\x06 \x01(\x05R\tactivated\x12:\n" +
 	"\n" +
 	"executions\x18\a \x03(\v2\x1a.OrchestratorTaskExecutionR\n" +
-	"executions\"4\n" +
+	"executions\x12+\n" +
+	"\x11persistence_token\x18\b \x01(\tR\x10persistenceToken\"f\n" +
+	" AcknowledgeRunPersistenceRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12+\n" +
+	"\x11persistence_token\x18\x02 \x01(\tR\x10persistenceToken\"4\n" +
 	"\x1bGetRunTaskCompletionRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"`\n" +
 	"\x19GetRunTaskSnapshotRequest\x12\x15\n" +
@@ -1417,13 +1483,14 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x05claim\x18\x01 \x01(\v2\x17.ClaimExecutionResponseR\x05claim\x12#\n" +
 	"\x05renew\x18\x02 \x01(\v2\r.common.EmptyR\x05renew\x126\n" +
 	"\bcomplete\x18\x03 \x01(\v2\x1a.CompleteExecutionResponseR\bcomplete\x12$\n" +
-	"\x04load\x18\x04 \x01(\v2\x10.LoadRunResponseR\x04load2\xbe\x04\n" +
+	"\x04load\x18\x04 \x01(\v2\x10.LoadRunResponseR\x04load2\x8d\x05\n" +
 	"\x13OrchestratorService\x12,\n" +
 	"\aLoadRun\x12\x0f.LoadRunRequest\x1a\x10.LoadRunResponse\x128\n" +
 	"\vListPending\x12\x13.ListPendingRequest\x1a\x14.ListPendingResponse\x12A\n" +
 	"\x0eClaimExecution\x12\x16.ClaimExecutionRequest\x1a\x17.ClaimExecutionResponse\x12A\n" +
 	"\x13RenewExecutionLease\x12\x1b.RenewExecutionLeaseRequest\x1a\r.common.Empty\x12J\n" +
-	"\x11CompleteExecution\x12\x19.CompleteExecutionRequest\x1a\x1a.CompleteExecutionResponse\x12T\n" +
+	"\x11CompleteExecution\x12\x19.CompleteExecutionRequest\x1a\x1a.CompleteExecutionResponse\x12M\n" +
+	"\x19AcknowledgeRunPersistence\x12!.AcknowledgeRunPersistenceRequest\x1a\r.common.Empty\x12T\n" +
 	"\x14GetRunTaskCompletion\x12\x1c.GetRunTaskCompletionRequest\x1a\x1e.OrchestratorRunTaskCompletion\x12M\n" +
 	"\x12GetRunTaskSnapshot\x12\x1a.GetRunTaskSnapshotRequest\x1a\x1b.GetRunTaskSnapshotResponse\x12H\n" +
 	"\x0fExecutionStream\x12\x17.ExecutionStreamRequest\x1a\x18.ExecutionStreamResponse(\x010\x01B\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
@@ -1440,26 +1507,27 @@ func file_orchestrator_proto_rawDescGZIP() []byte {
 	return file_orchestrator_proto_rawDescData
 }
 
-var file_orchestrator_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_orchestrator_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_orchestrator_proto_goTypes = []any{
-	(*OrchestratorTaskSpec)(nil),          // 0: OrchestratorTaskSpec
-	(*OrchestratorTaskExecution)(nil),     // 1: OrchestratorTaskExecution
-	(*OrchestratorRunTaskCompletion)(nil), // 2: OrchestratorRunTaskCompletion
-	(*LoadRunRequest)(nil),                // 3: LoadRunRequest
-	(*LoadRunResponse)(nil),               // 4: LoadRunResponse
-	(*ListPendingRequest)(nil),            // 5: ListPendingRequest
-	(*ListPendingResponse)(nil),           // 6: ListPendingResponse
-	(*ClaimExecutionRequest)(nil),         // 7: ClaimExecutionRequest
-	(*ClaimExecutionResponse)(nil),        // 8: ClaimExecutionResponse
-	(*RenewExecutionLeaseRequest)(nil),    // 9: RenewExecutionLeaseRequest
-	(*CompleteExecutionRequest)(nil),      // 10: CompleteExecutionRequest
-	(*CompleteExecutionResponse)(nil),     // 11: CompleteExecutionResponse
-	(*GetRunTaskCompletionRequest)(nil),   // 12: GetRunTaskCompletionRequest
-	(*GetRunTaskSnapshotRequest)(nil),     // 13: GetRunTaskSnapshotRequest
-	(*GetRunTaskSnapshotResponse)(nil),    // 14: GetRunTaskSnapshotResponse
-	(*ExecutionStreamRequest)(nil),        // 15: ExecutionStreamRequest
-	(*ExecutionStreamResponse)(nil),       // 16: ExecutionStreamResponse
-	(*Empty)(nil),                         // 17: common.Empty
+	(*OrchestratorTaskSpec)(nil),             // 0: OrchestratorTaskSpec
+	(*OrchestratorTaskExecution)(nil),        // 1: OrchestratorTaskExecution
+	(*OrchestratorRunTaskCompletion)(nil),    // 2: OrchestratorRunTaskCompletion
+	(*LoadRunRequest)(nil),                   // 3: LoadRunRequest
+	(*LoadRunResponse)(nil),                  // 4: LoadRunResponse
+	(*ListPendingRequest)(nil),               // 5: ListPendingRequest
+	(*ListPendingResponse)(nil),              // 6: ListPendingResponse
+	(*ClaimExecutionRequest)(nil),            // 7: ClaimExecutionRequest
+	(*ClaimExecutionResponse)(nil),           // 8: ClaimExecutionResponse
+	(*RenewExecutionLeaseRequest)(nil),       // 9: RenewExecutionLeaseRequest
+	(*CompleteExecutionRequest)(nil),         // 10: CompleteExecutionRequest
+	(*CompleteExecutionResponse)(nil),        // 11: CompleteExecutionResponse
+	(*AcknowledgeRunPersistenceRequest)(nil), // 12: AcknowledgeRunPersistenceRequest
+	(*GetRunTaskCompletionRequest)(nil),      // 13: GetRunTaskCompletionRequest
+	(*GetRunTaskSnapshotRequest)(nil),        // 14: GetRunTaskSnapshotRequest
+	(*GetRunTaskSnapshotResponse)(nil),       // 15: GetRunTaskSnapshotResponse
+	(*ExecutionStreamRequest)(nil),           // 16: ExecutionStreamRequest
+	(*ExecutionStreamResponse)(nil),          // 17: ExecutionStreamResponse
+	(*Empty)(nil),                            // 18: common.Empty
 }
 var file_orchestrator_proto_depIdxs = []int32{
 	0,  // 0: LoadRunRequest.tasks:type_name -> OrchestratorTaskSpec
@@ -1479,7 +1547,7 @@ var file_orchestrator_proto_depIdxs = []int32{
 	10, // 14: ExecutionStreamRequest.complete:type_name -> CompleteExecutionRequest
 	3,  // 15: ExecutionStreamRequest.load:type_name -> LoadRunRequest
 	8,  // 16: ExecutionStreamResponse.claim:type_name -> ClaimExecutionResponse
-	17, // 17: ExecutionStreamResponse.renew:type_name -> common.Empty
+	18, // 17: ExecutionStreamResponse.renew:type_name -> common.Empty
 	11, // 18: ExecutionStreamResponse.complete:type_name -> CompleteExecutionResponse
 	4,  // 19: ExecutionStreamResponse.load:type_name -> LoadRunResponse
 	3,  // 20: OrchestratorService.LoadRun:input_type -> LoadRunRequest
@@ -1487,19 +1555,21 @@ var file_orchestrator_proto_depIdxs = []int32{
 	7,  // 22: OrchestratorService.ClaimExecution:input_type -> ClaimExecutionRequest
 	9,  // 23: OrchestratorService.RenewExecutionLease:input_type -> RenewExecutionLeaseRequest
 	10, // 24: OrchestratorService.CompleteExecution:input_type -> CompleteExecutionRequest
-	12, // 25: OrchestratorService.GetRunTaskCompletion:input_type -> GetRunTaskCompletionRequest
-	13, // 26: OrchestratorService.GetRunTaskSnapshot:input_type -> GetRunTaskSnapshotRequest
-	15, // 27: OrchestratorService.ExecutionStream:input_type -> ExecutionStreamRequest
-	4,  // 28: OrchestratorService.LoadRun:output_type -> LoadRunResponse
-	6,  // 29: OrchestratorService.ListPending:output_type -> ListPendingResponse
-	8,  // 30: OrchestratorService.ClaimExecution:output_type -> ClaimExecutionResponse
-	17, // 31: OrchestratorService.RenewExecutionLease:output_type -> common.Empty
-	11, // 32: OrchestratorService.CompleteExecution:output_type -> CompleteExecutionResponse
-	2,  // 33: OrchestratorService.GetRunTaskCompletion:output_type -> OrchestratorRunTaskCompletion
-	14, // 34: OrchestratorService.GetRunTaskSnapshot:output_type -> GetRunTaskSnapshotResponse
-	16, // 35: OrchestratorService.ExecutionStream:output_type -> ExecutionStreamResponse
-	28, // [28:36] is the sub-list for method output_type
-	20, // [20:28] is the sub-list for method input_type
+	12, // 25: OrchestratorService.AcknowledgeRunPersistence:input_type -> AcknowledgeRunPersistenceRequest
+	13, // 26: OrchestratorService.GetRunTaskCompletion:input_type -> GetRunTaskCompletionRequest
+	14, // 27: OrchestratorService.GetRunTaskSnapshot:input_type -> GetRunTaskSnapshotRequest
+	16, // 28: OrchestratorService.ExecutionStream:input_type -> ExecutionStreamRequest
+	4,  // 29: OrchestratorService.LoadRun:output_type -> LoadRunResponse
+	6,  // 30: OrchestratorService.ListPending:output_type -> ListPendingResponse
+	8,  // 31: OrchestratorService.ClaimExecution:output_type -> ClaimExecutionResponse
+	18, // 32: OrchestratorService.RenewExecutionLease:output_type -> common.Empty
+	11, // 33: OrchestratorService.CompleteExecution:output_type -> CompleteExecutionResponse
+	18, // 34: OrchestratorService.AcknowledgeRunPersistence:output_type -> common.Empty
+	2,  // 35: OrchestratorService.GetRunTaskCompletion:output_type -> OrchestratorRunTaskCompletion
+	15, // 36: OrchestratorService.GetRunTaskSnapshot:output_type -> GetRunTaskSnapshotResponse
+	17, // 37: OrchestratorService.ExecutionStream:output_type -> ExecutionStreamResponse
+	29, // [29:38] is the sub-list for method output_type
+	20, // [20:29] is the sub-list for method input_type
 	20, // [20:20] is the sub-list for extension type_name
 	20, // [20:20] is the sub-list for extension extendee
 	0,  // [0:20] is the sub-list for field type_name
@@ -1517,7 +1587,7 @@ func file_orchestrator_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orchestrator_proto_rawDesc), len(file_orchestrator_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

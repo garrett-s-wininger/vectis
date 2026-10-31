@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -158,14 +159,31 @@ func (s *grpcServer) CompleteExecution(
 	}
 
 	return &api.CompleteExecutionResponse{
-		ExecutionId: stringPtr(result.ExecutionID),
-		RunId:       stringPtr(result.RunID),
-		Outcome:     stringPtr(string(result.Outcome)),
-		Summary:     runTaskCompletionToProto(result.Summary),
-		Children:    taskExecutionsToProto(result.Children),
-		Activated:   int32Ptr(int32(result.Activated)),
-		Executions:  taskExecutionSnapshotsToProto(result.Executions),
+		PersistenceToken: stringPtr(result.PersistenceToken),
+		ExecutionId:      stringPtr(result.ExecutionID),
+		RunId:            stringPtr(result.RunID),
+		Outcome:          stringPtr(string(result.Outcome)),
+		Summary:          runTaskCompletionToProto(result.Summary),
+		Children:         taskExecutionsToProto(result.Children),
+		Activated:        int32Ptr(int32(result.Activated)),
+		Executions:       taskExecutionSnapshotsToProto(result.Executions),
 	}, nil
+}
+
+func (s *grpcServer) AcknowledgeRunPersistence(ctx context.Context, req *api.AcknowledgeRunPersistenceRequest) (*api.Empty, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "persistence acknowledgment is required")
+	}
+
+	if strings.TrimSpace(req.GetRunId()) == "" || strings.TrimSpace(req.GetPersistenceToken()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id and persistence_token are required")
+	}
+
+	if err := s.service.AcknowledgeRunPersistence(ctx, req.GetRunId(), req.GetPersistenceToken()); err != nil {
+		return nil, grpcError(err)
+	}
+
+	return &api.Empty{}, nil
 }
 
 func (s *grpcServer) GetRunTaskCompletion(

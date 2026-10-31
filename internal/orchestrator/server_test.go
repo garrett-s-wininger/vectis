@@ -218,6 +218,10 @@ func TestGRPCServiceExecutionStreamClaimRenewComplete(t *testing.T) {
 	if completed == nil || completed.GetOutcome() != string(dal.ExecutionFinalizationOutcomeRunSucceeded) {
 		t.Fatalf("complete response: %+v", completeResp)
 	}
+
+	if completed.GetPersistenceToken() == "" {
+		t.Fatal("stream completion omitted persistence token")
+	}
 }
 
 func BenchmarkGRPCService_ClaimCompleteLeaf(b *testing.B) {

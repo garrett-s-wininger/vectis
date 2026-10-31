@@ -136,6 +136,16 @@ CREATE TABLE job_runs (
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
 CREATE INDEX idx_job_runs_replay_of_run_id ON job_runs (replay_of_run_id);
 
+CREATE TABLE orchestrator_retirements (
+    persistence_token TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    cell_id TEXT NOT NULL,
+    next_attempt_unix BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_orchestrator_retirements_due
+    ON orchestrator_retirements (cell_id, next_attempt_unix, persistence_token);
+
 CREATE TABLE run_hot_state_owners (
     run_id TEXT PRIMARY KEY REFERENCES job_runs(run_id) ON DELETE CASCADE,
     cell_id TEXT NOT NULL,
