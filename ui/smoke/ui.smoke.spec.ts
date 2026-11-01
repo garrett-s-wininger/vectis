@@ -47,6 +47,22 @@ async function expectDropdownUsesOverlaySafePanel(
 }
 
 test.describe("app smoke", () => {
+  test("shows the fanout handoff and respects reduced motion", async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-run-detail--fanout-handoff&viewMode=story");
+    const graph = page.getByRole("group", { name: "Execution graph", exact: true });
+    await expect(graph).toBeVisible({ timeout: 20000 });
+    await expect(graph.getByRole("button", { name: "Fanout: Succeeded" })).toBeVisible();
+
+    const waiting = graph.getByRole("status");
+    await expect(waiting).toHaveText("Waiting for task updates");
+
+    const animation = await waiting.locator("svg").evaluate((element) => getComputedStyle(element).animationName);
+    expect(animation).toBe("none");
+
+    await page.screenshot({ path: testInfo.outputPath("fanout-handoff.png") });
+  });
+
   test("renders the cluster health page", async ({ page }) => {
     await page.goto("/health");
 
@@ -102,6 +118,37 @@ test.describe("app smoke", () => {
 });
 
 test.describe("storybook smoke", () => {
+  for (const width of [1280, 820, 390]) {
+    test(`aligns run metadata across varied names and statuses at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("http://127.0.0.1:6101/iframe.html?id=components-data-runlist--varied-content&viewMode=story");
+      await expect(page.getByRole("heading", { name: "Runs with varied content" })).toBeVisible({ timeout: 20000 });
+
+      const rows = page.getByRole("listitem");
+      await expect(rows).toHaveCount(4);
+
+      const positions = await rows.evaluateAll((items) =>
+        items.map((item) => ({
+          right: item.getBoundingClientRect().right,
+          facts: Array.from(item.querySelectorAll("dl > div")).map((fact) => {
+            const box = fact.getBoundingClientRect();
+            return { x: box.x, width: box.width, right: box.right };
+          })
+        }))
+      );
+
+      for (const row of positions) {
+        for (const [index, fact] of row.facts.entries()) {
+          expect(Math.abs(fact.x - positions[0].facts[index].x)).toBeLessThan(1);
+          expect(Math.abs(fact.width - positions[0].facts[index].width)).toBeLessThan(1);
+          expect(fact.right).toBeLessThanOrEqual(row.right);
+        }
+      }
+
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    });
+  }
+
   test("renders representative component and design stories", async ({ page }) => {
     await page.goto("http://127.0.0.1:6101/iframe.html?id=components-layout-appshell--dashboard&viewMode=story");
 

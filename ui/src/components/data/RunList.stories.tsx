@@ -17,6 +17,26 @@ type Story = StoryObj<typeof meta>;
 
 export const ActiveRuns: Story = {};
 
+export const VariedContent: Story = {
+  args: {
+    title: "Runs with varied content",
+    runs: [
+      { ...storyRunListItems[0], id: "short", jobName: "ci", duration: "1s", status: "running" },
+      {
+        ...storyRunListItems[0],
+        id: "long",
+        jobName: "build-and-publish-the-documentation-and-release-artifacts-for-every-supported-platform",
+        duration: "12h 59m 59s",
+        cellName: "development-cell-with-a-very-long-name",
+        submittedBy: "organization-administrator-with-a-long-name",
+        status: "succeeded"
+      },
+      { ...storyRunListItems[0], id: "unknown-actor", jobName: "test", submittedBy: undefined, status: "queued" },
+      { ...storyRunListItems[0], id: "failed", jobName: "integration-tests", status: "failed" }
+    ]
+  }
+};
+
 export const Empty: Story = {
   args: {
     title: "Recent failures",

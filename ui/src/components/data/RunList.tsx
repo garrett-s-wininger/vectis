@@ -87,6 +87,7 @@ export function RunList({
       countLabel={runCountLabel(runs.length)}
       description="Latest execution records"
       emptyMessage={emptyMessage}
+      layout="runs"
       items={runs.map((run) => ({
         actions: <StatusBadge status={run.status} />,
         ariaLabel: `Open run ${runDisplayName(run)} #${run.runNumber}`,

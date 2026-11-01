@@ -485,6 +485,34 @@ describe("console data source", () => {
     );
   });
 
+  it.each([
+    { run_id: "created-run", runs: [{ run_id: "another-run" }] },
+    { runs: [{ run_id: "created-run" }, { run_id: "another-run" }] }
+  ])("returns the triggered run ID without refreshing the console: %j", async (response) => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    fetchMock.mockResolvedValueOnce(jsonResponse(response));
+
+    expect(await createConsoleDataSource().triggerRun("docs-publish", "registered-repo")).toBe("created-run");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/jobs/trigger/docs-publish",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ repository_id: "registered-repo" }) })
+    );
+  });
+
+  it("refreshes a run and tasks without rediscovering the repository catalog", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ run_id: "run-1", job_id: "job", status: "running", run_index: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    const run = await createConsoleDataSource().loadRun("run-1", []);
+    expect(run.status).toBe("running");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/runs/run-1", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/runs/run-1/tasks?limit=200", expect.anything());
+  });
+
   it("submits ephemeral runs through the API source", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     const definition = JSON.stringify({

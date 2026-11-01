@@ -159,6 +159,26 @@ button.rowAction:focus-visible {
   line-height: var(--line-height-tight);
 }
 
+.runs .identity {
+  min-width: 0;
+}
+
+@media (min-width: 721px) {
+  .runs .item {
+    grid-template-columns: minmax(0, 1fr) 8rem;
+  }
+
+  .runs .meta {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 861px) {
+  .runs .summary {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 4fr);
+  }
+}
+
 .empty {
   color: var(--text-subtle);
   font-size: var(--font-size-md);

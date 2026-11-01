@@ -11,6 +11,7 @@ import { FormError } from "./components";
 import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource, type CreatedUserCredential } from "./data/consoleDataSource";
+import { watchRun } from "./data/watchRun";
 import type { Cell, NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
 import type { NewUser, RoleBindingRole, UserStatus } from "./domain/console";
 import { canDeleteMockNamespace, nextMockRunID, scopeMockConsoleData, type MockConsoleData } from "./mocks/consoleData";
@@ -77,7 +78,7 @@ export function App() {
       : undefined;
   const definitionJob = consoleData?.jobs.find((job) => job.id === definitionJobID);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
-  const loadingRunIDRef = useRef<string | null>(null);
+  const runJobs = consoleData?.jobs;
   const consoleActive = route.kind !== "login" && route.kind !== "setup" && route.kind !== "health";
 
   useEffect(() => {
@@ -212,34 +213,14 @@ export function App() {
   }, [definitionJob]);
 
   useEffect(() => {
-    if (route.kind !== "runs" || !route.runID || !consoleData) {
+    if (route.kind !== "runs" || !route.runID || !runJobs) {
       return;
     }
 
-    const currentRun = consoleData.runs.find((run) => run.id === route.runID);
-    if (currentRun?.tasks) {
-      loadingRunIDRef.current = null;
-      return;
-    }
-
-    if (missingRunID === route.runID || loadingRunIDRef.current === route.runID) {
-      return;
-    }
-
-    let ignore = false;
-    loadingRunIDRef.current = route.runID;
-
-    consoleDataSourceRef.current
-      .loadRun(route.runID)
-      .then((run) => {
-        if (ignore) {
-          if (loadingRunIDRef.current === route.runID) {
-            loadingRunIDRef.current = null;
-          }
-
-          return;
-        }
-
+    const runID = route.runID;
+    return watchRun(
+      () => consoleDataSourceRef.current.loadRun(runID, runJobs),
+      (run) => {
         setConsoleData((data) => {
           if (!data) {
             return data;
@@ -259,34 +240,20 @@ export function App() {
         });
 
         setMissingRunID(null);
-        loadingRunIDRef.current = null;
         setConsoleError("");
-        setActionError("");
-      })
-      .catch((error: unknown) => {
-        loadingRunIDRef.current = null;
-        if (!ignore) {
-          if (error instanceof VectisAPIError && error.code === "run_not_found") {
-            setMissingRunID(route.runID ?? null);
-            return;
-          }
-
-          const message = errorMessage(error, "Unable to load run.");
-          if (message !== "Run not found.") {
-            setConsoleError(message);
-          } else {
-            setMissingRunID(route.runID ?? null);
-          }
+      },
+      (error) => {
+        const message = errorMessage(error, "Unable to load run.");
+        if ((error instanceof VectisAPIError && error.code === "run_not_found") || message === "Run not found.") {
+          setMissingRunID(runID);
+          return false;
         }
-      });
 
-    return () => {
-      ignore = true;
-      if (loadingRunIDRef.current === route.runID) {
-        loadingRunIDRef.current = null;
+        setConsoleError(message);
+        return true;
       }
-    };
-  }, [consoleData, missingRunID, route.kind, route.runID]);
+    );
+  }, [runJobs, route.kind, route.runID]);
 
   async function handleSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -469,9 +436,20 @@ export function App() {
   async function handleTriggerRun(jobID: string) {
     try {
       const repositoryID = consoleData?.jobs.find((job) => job.id === jobID)?.repository;
-      setConsoleData(await consoleDataSourceRef.current.triggerRun(jobID, repositoryID));
+      const runID = await consoleDataSourceRef.current.triggerRun(jobID, repositoryID);
+      setConsoleData(
+        (data) =>
+          data && {
+            ...data,
+            jobs: data.jobs.map((job) =>
+              job.id === jobID ? { ...job, lastRunStatus: "queued", nextRun: "Queued" } : job
+            )
+          }
+      );
+
       setConsoleError("");
       setActionError("");
+      navigateTo(`/runs/${encodeURIComponent(runID)}`);
     } catch (error) {
       setActionError(errorMessage(error, "Unable to trigger job."));
     }

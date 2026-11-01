@@ -18,6 +18,7 @@ type RecordListProps = {
   description: string;
   emptyMessage: string;
   items: RecordListItem[];
+  layout?: "default" | "runs";
   title: string;
 };
 
@@ -35,11 +36,21 @@ type RecordListMetaProps = {
   featuredFirst?: boolean;
 };
 
-export function RecordList({ countLabel, description, emptyMessage, items, title }: RecordListProps) {
+export function RecordList({
+  countLabel,
+  description,
+  emptyMessage,
+  items,
+  layout = "default",
+  title
+}: RecordListProps) {
   const titleID = useId();
 
   return (
-    <section className={`${styles.root} polished-panel polished-panel--accent-top`} aria-labelledby={titleID}>
+    <section
+      className={`${styles.root} ${layout === "runs" ? styles.runs : ""} polished-panel polished-panel--accent-top`}
+      aria-labelledby={titleID}
+    >
       <div className={styles.header}>
         <div className={styles.headingGroup}>
           <h2 id={titleID}>{title}</h2>

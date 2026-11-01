@@ -479,7 +479,7 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/users");
   });
 
-  it("triggers a mock job run and shows it in runs", async () => {
+  it("opens the newly triggered job run directly", async () => {
     window.history.replaceState(null, "", "/jobs");
 
     render(<App />);
@@ -489,6 +489,10 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "View docs-publish" }));
     expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Run docs-publish" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/runs/run-1241"));
+    expect(await screen.findByRole("heading", { name: "docs-publish (#1241)" })).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("link", { name: "Runs" }));
 
     expect(await screen.findByText("Run #1241")).toBeInTheDocument();
@@ -498,6 +502,40 @@ describe("App", () => {
     expect(screen.getByText("UI")).toBeInTheDocument();
     expect(screen.getAllByText("Actor").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Queued").length).toBeGreaterThan(0);
+  });
+
+  it("refreshes a cached queued run and its waiting graph when it has already completed", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const data = await source.loadConsole();
+    const cached = {
+      ...data.runs[0],
+      status: "queued" as const,
+      tasks: [{ taskID: "root", taskKey: "root", name: "Root", status: "pending" as const, attempts: [] }]
+    };
+
+    source.loadConsole = async () => ({ ...data, runs: [cached] });
+    const load = vi.fn().mockResolvedValue({
+      ...cached,
+      status: "succeeded",
+      tasks: [{ ...cached.tasks[0], status: "succeeded" }]
+    });
+
+    source.loadRun = load;
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    window.history.replaceState(null, "", `/runs/${cached.id}`);
+
+    try {
+      render(<App />);
+
+      expect(await screen.findByRole("button", { name: "Root: Succeeded" })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("region", { name: "Run investigation summary" })).getByText("Succeeded")
+      ).toBeInTheDocument();
+
+      expect(load).toHaveBeenCalledOnce();
+    } finally {
+      create.mockRestore();
+    }
   });
 
   it("opens a job detail page from the jobs list", async () => {

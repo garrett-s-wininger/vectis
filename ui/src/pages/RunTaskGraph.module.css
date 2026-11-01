@@ -65,9 +65,70 @@
 
 .branch {
   align-items: center;
+  animation: graph-node-enter 180ms ease-out both;
   display: flex;
   flex-direction: row;
   position: relative;
+}
+
+.awaitingTasks {
+  align-items: center;
+  background: var(--surface-page);
+  border: var(--control-border);
+  border-radius: var(--control-radius);
+  border-style: dashed;
+  box-sizing: border-box;
+  color: var(--text-subtle);
+  display: flex;
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  gap: var(--space-md);
+  min-height: var(--graph-node-height);
+  padding: var(--space-sm) var(--space-md);
+  position: relative;
+  width: var(--graph-node-width);
+}
+
+.awaitingTasks::before {
+  background: var(--graph-connector-stroke);
+  content: "";
+  height: var(--graph-connector-size);
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  width: var(--space-3xl);
+}
+
+.awaitingIcon {
+  animation: graph-waiting 1.2s linear infinite;
+  flex-shrink: 0;
+  height: var(--space-lg);
+  width: var(--space-lg);
+}
+
+@keyframes graph-node-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes graph-waiting {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .branch,
+  .awaitingIcon {
+    animation: none;
+  }
 }
 
 .children {
@@ -268,6 +329,10 @@ button.node:focus-visible {
 
   .children {
     gap: var(--space-sm);
+  }
+
+  .awaitingTasks::before {
+    width: var(--space-sm);
   }
 
   .node {

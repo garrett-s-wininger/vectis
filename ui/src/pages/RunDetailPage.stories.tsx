@@ -79,6 +79,19 @@ export const RunningRun: Story = {
   }
 };
 
+export const FanoutHandoff: Story = {
+  args: {
+    run: {
+      ...data.runs[0],
+      id: "run-fanout-handoff",
+      status: "running",
+      finishedAt: undefined,
+      tasks: mockRunTasks("run-fanout-handoff", [{ key: "root", name: "Fanout", status: "succeeded" }])
+    },
+    runID: "run-fanout-handoff"
+  }
+};
+
 export const FailedTaskTree: Story = {
   args: {
     run: {

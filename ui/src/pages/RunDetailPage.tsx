@@ -59,6 +59,10 @@ function RunDetailContent({
   run: RunListItem;
 }) {
   const tasks = runTasksForDisplay(run);
+  const awaitingTasks =
+    (run.status === "queued" || run.status === "running") &&
+    tasks.length > 0 &&
+    tasks.every((task) => task.status === "succeeded");
   const preferredTaskID = preferredRunTaskID(tasks);
   const [selection, setSelection] = useState<{ runID: string; taskID: string } | null>(null);
   const selectedTaskID =
@@ -116,7 +120,12 @@ function RunDetailContent({
       </section>
 
       <section className={styles.layout} aria-label="Run investigation">
-        <RunTaskGraph onSelectTask={selectTask} selectedTaskID={selectedTask?.taskID} tasks={tasks} />
+        <RunTaskGraph
+          awaitingTasks={awaitingTasks}
+          onSelectTask={selectTask}
+          selectedTaskID={selectedTask?.taskID}
+          tasks={tasks}
+        />
         <RunLogs run={run} selectedTask={selectedTask} />
         <RunTimeline run={run} />
         <RunDefinition run={run} />

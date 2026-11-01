@@ -58,6 +58,43 @@ const run: RunListItem = {
 };
 
 describe("RunDetailPage", () => {
+  it("shows the fanout handoff until child tasks arrive without changing root status", () => {
+    const root = { ...run.tasks![0], status: "succeeded" as const };
+    const activeRun: RunListItem = { ...run, status: "running", tasks: [root] };
+    const view = render(<RunDetailPage onBack={() => undefined} run={activeRun} runID={run.id} />);
+
+    const rootNode = screen.getByRole("button", { name: "root: Succeeded" });
+    expect(screen.getByRole("status")).toHaveTextContent("Waiting for task updates");
+    expect(rootNode).toHaveAttribute("aria-pressed", "true");
+
+    view.rerender(
+      <RunDetailPage
+        onBack={() => undefined}
+        run={{ ...activeRun, tasks: [root, { ...run.tasks![1], status: "running" }] }}
+        runID={run.id}
+      />
+    );
+
+    expect(screen.queryByText("Waiting for task updates")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "root: Succeeded" })).toBe(rootNode);
+    expect(screen.getByRole("button", { name: "API tests: Running" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it.each(["succeeded", "failed", "cancelled", "aborted", "abandoned"] as const)(
+    "does not imply more work for a %s run",
+    (status) => {
+      render(
+        <RunDetailPage
+          onBack={() => undefined}
+          run={{ ...run, status, tasks: [{ ...run.tasks![0], status: "succeeded" }] }}
+          runID={run.id}
+        />
+      );
+
+      expect(screen.queryByText("Waiting for task updates")).not.toBeInTheDocument();
+    }
+  );
+
   it("renders and selects task execution contexts", async () => {
     const view = render(<RunDetailPage onBack={() => undefined} run={run} runID={run.id} />);
 

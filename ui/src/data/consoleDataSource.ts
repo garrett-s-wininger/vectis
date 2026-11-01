@@ -163,11 +163,11 @@ export type ConsoleDataSource = {
   grantRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   loadCells(): Promise<Cell[]>;
   loadConsole(): Promise<ConsoleData>;
-  loadRun(runID: string): Promise<RunListItem>;
+  loadRun(runID: string, knownJobs?: Job[]): Promise<RunListItem>;
   loadJob(job: Job): Promise<Job>;
   revokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
-  triggerRun(jobID: string, repositoryID?: string): Promise<ConsoleData>;
+  triggerRun(jobID: string, repositoryID?: string): Promise<string>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
   updateNamespace(namespaceID: number, input: UpdateNamespace): Promise<ConsoleData>;
   updateUserStatus(userID: string, status: UserStatus): Promise<User[]>;
@@ -250,8 +250,12 @@ function createMockConsoleDataSource(): ConsoleDataSource {
       return cloneConsoleData(data);
     },
     async triggerRun(jobID) {
+      if (!data.jobs.some((job) => job.id === jobID)) {
+        throw new Error("Job not found.");
+      }
+
       data = triggerMockRun(data, jobID);
-      return cloneConsoleData(data);
+      return data.runs[0].id;
     },
     async updateJob(jobID, input) {
       data = updateMockJob(data, jobID, input);
@@ -354,9 +358,13 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       const definition = sourceDefinition(response.definition);
       return { ...job, definition: JSON.stringify(definition, null, 2) };
     },
-    async loadRun(runID) {
-      const [run, jobsPage, tasks] = await Promise.all([loadAPIRun(runID), loadAPIJobs(), loadAPIRunTasks(runID)]);
-      const jobs = jobsPage.data;
+    async loadRun(runID, knownJobs) {
+      const [run, jobs, tasks] = await Promise.all([
+        loadAPIRun(runID),
+        knownJobs ?? loadAPIJobs().then((page) => page.data),
+        loadAPIRunTasks(runID)
+      ]);
+
       const job = jobs.find((candidate) => candidate.id === run.job_id);
       return {
         ...apiRunToConsoleRun(run, runDetailJob(run, job)),
@@ -396,12 +404,20 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     },
     async triggerRun(jobID, repositoryID) {
       const repository = repositoryID?.trim() ?? "";
-      await requestJSON(`/api/v1/jobs/trigger/${encodeURIComponent(jobID)}`, {
-        method: "POST",
-        ...(repository ? { body: JSON.stringify({ repository_id: repository }) } : {})
-      });
+      const response = await requestJSON<{ run_id?: string; runs?: { run_id: string }[] }>(
+        `/api/v1/jobs/trigger/${encodeURIComponent(jobID)}`,
+        {
+          method: "POST",
+          ...(repository ? { body: JSON.stringify({ repository_id: repository }) } : {})
+        }
+      );
 
-      return loadAPIConsoleData();
+      const runID = response.run_id ?? response.runs?.[0]?.run_id;
+      if (!runID) {
+        throw new Error("Job trigger response did not include a run ID.");
+      }
+
+      return runID;
     },
     async updateJob(jobID, input) {
       const definition = sourceDefinition(JSON.parse(input.definition));

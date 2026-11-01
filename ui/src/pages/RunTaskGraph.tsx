@@ -7,12 +7,13 @@ type RunTaskTreeNode = RunTaskDisplayNode & {
 };
 
 type RunTaskGraphProps = {
+  awaitingTasks?: boolean;
   onSelectTask: (taskID: string) => void;
   selectedTaskID?: string;
   tasks: RunTaskDisplayNode[];
 };
 
-export function RunTaskGraph({ onSelectTask, selectedTaskID, tasks }: RunTaskGraphProps) {
+export function RunTaskGraph({ awaitingTasks = false, onSelectTask, selectedTaskID, tasks }: RunTaskGraphProps) {
   const tree = taskTree(tasks);
   const graphDescription = runGraphDescription();
 
@@ -34,6 +35,12 @@ export function RunTaskGraph({ onSelectTask, selectedTaskID, tasks }: RunTaskGra
               task={task}
             />
           ))}
+          {awaitingTasks ? (
+            <div className={styles.awaitingTasks} role="status">
+              <LoaderCircle className={styles.awaitingIcon} aria-hidden="true" />
+              <span>Waiting for task updates</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
