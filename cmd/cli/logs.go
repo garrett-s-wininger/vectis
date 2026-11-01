@@ -18,10 +18,11 @@ import (
 )
 
 type LogEntry struct {
-	Timestamp string `json:"timestamp"`
-	Stream    int    `json:"stream"`
-	Sequence  int64  `json:"sequence"`
-	Data      string `json:"data"`
+	ExecutionID string `json:"execution_id,omitempty"`
+	Timestamp   string `json:"timestamp"`
+	Stream      int    `json:"stream"`
+	Sequence    int64  `json:"sequence"`
+	Data        string `json:"data"`
 }
 
 type jobRunEvent struct {
@@ -138,6 +139,10 @@ func runLogStreamPath(path, runID string, filterStdout, filterStderr bool) error
 						if err := writeCompactJSON(os.Stdout, entry); err != nil {
 							fmt.Fprintf(os.Stderr, "Error: failed to write log entry: %v\n", err)
 						}
+					}
+
+					if entry.ExecutionID != "" {
+						continue
 					}
 
 					var meta struct {

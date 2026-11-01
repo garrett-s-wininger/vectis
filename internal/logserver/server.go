@@ -39,8 +39,10 @@ const (
 	defaultLogAppendBatchFlushInterval = 10 * time.Millisecond
 	defaultGetLogsTerminalPollInterval = 100 * time.Millisecond
 
-	GetLogsReplayLimitMetadata = "vectis-log-replay-limit"
-	GetLogsTailMetadata        = "vectis-log-tail"
+	GetLogsReplayLimitMetadata   = "vectis-log-replay-limit"
+	GetLogsTailMetadata          = "vectis-log-tail"
+	GetLogsActiveRunMetadata     = "vectis-log-active-run"
+	GetLogsRootExecutionMetadata = "vectis-log-root-execution-id"
 )
 
 type RunOptions struct {
@@ -85,28 +87,31 @@ func DefaultInstanceID(bindAddr string) string {
 }
 
 type LogEntry struct {
-	Timestamp time.Time      `json:"timestamp"`
-	Stream    api.Stream     `json:"stream"`
-	Sequence  int64          `json:"sequence"`
-	Data      []byte         `json:"data"`
-	Completed api.RunOutcome `json:"completed,omitempty"`
+	ExecutionID string         `json:"execution_id,omitempty"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Stream      api.Stream     `json:"stream"`
+	Sequence    int64          `json:"sequence"`
+	Data        []byte         `json:"data"`
+	Completed   api.RunOutcome `json:"completed,omitempty"`
 }
 
 func (e LogEntry) MarshalJSON() ([]byte, error) {
 	type logEntryJSON struct {
-		Timestamp time.Time      `json:"timestamp"`
-		Stream    api.Stream     `json:"stream"`
-		Sequence  int64          `json:"sequence"`
-		Data      string         `json:"data"`
-		Completed api.RunOutcome `json:"completed,omitempty"`
+		ExecutionID string         `json:"execution_id,omitempty"`
+		Timestamp   time.Time      `json:"timestamp"`
+		Stream      api.Stream     `json:"stream"`
+		Sequence    int64          `json:"sequence"`
+		Data        string         `json:"data"`
+		Completed   api.RunOutcome `json:"completed,omitempty"`
 	}
 
 	return json.Marshal(logEntryJSON{
-		Timestamp: e.Timestamp,
-		Stream:    e.Stream,
-		Sequence:  e.Sequence,
-		Data:      string(e.Data),
-		Completed: e.Completed,
+		ExecutionID: e.ExecutionID,
+		Timestamp:   e.Timestamp,
+		Stream:      e.Stream,
+		Sequence:    e.Sequence,
+		Data:        string(e.Data),
+		Completed:   e.Completed,
 	})
 }
 
@@ -441,13 +446,11 @@ func (s *Server) evictTerminalBuffersLocked() {
 }
 
 func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
-	// Synthetic completion is intended for direct worker streams and applies to
-	// the last run seen. Forwarder batch streams may carry multiple runs, but do
-	// not request synthetic completion.
 	ctx := stream.Context()
 	syntheticCompletion := boolMetadata(ctx, interfaces.LogSyntheticCompletionMetadata)
 	var lastBuffer *JobBuffer
 	var lastRunID string
+	var lastExecutionID string
 	var route logroute.StreamRoute
 	pending := make([]streamLogEntry, 0, defaultLogAppendBatchSize)
 
@@ -494,8 +497,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 				}
 
 				if errors.Is(received.err, io.EOF) {
-					// Worker stream ended. Emit synthetic completion if needed.
-					if syntheticCompletion && lastBuffer != nil && !lastBuffer.IsTerminal() {
+					if syntheticCompletion && lastExecutionID == "" && lastBuffer != nil && !lastBuffer.IsTerminal() {
 						s.logger.Warn("Stream ended for run %s without completion event", lastRunID)
 
 						synthetic := LogEntry{
@@ -545,6 +547,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			buffer := s.getOrCreateBuffer(streamRoute.RunID)
 			item.entry.Sequence = s.nextRunSequence(streamRoute.RunID, buffer)
 			lastRunID = streamRoute.RunID
+			lastExecutionID = item.entry.ExecutionID
 			lastBuffer = buffer
 
 			pending = append(pending, item)
@@ -581,11 +584,12 @@ func (s *Server) SendLogBatch(ctx context.Context, batch *api.LogBatch) (*api.Em
 		entries = append(entries, streamLogEntry{
 			runID: record.RunID,
 			entry: LogEntry{
-				Timestamp: timestamp,
-				Stream:    record.Stream,
-				Sequence:  record.Sequence,
-				Data:      record.Data,
-				Completed: record.Completed,
+				ExecutionID: record.ExecutionID,
+				Timestamp:   timestamp,
+				Stream:      record.Stream,
+				Sequence:    record.Sequence,
+				Data:        record.Data,
+				Completed:   record.Completed,
 			},
 		})
 
@@ -621,11 +625,12 @@ func streamLogEntryFromChunk(chunk *api.LogChunk) (streamLogEntry, error) {
 	return streamLogEntry{
 		runID: chunk.GetRunId(),
 		entry: LogEntry{
-			Timestamp: now,
-			Stream:    chunk.GetStream(),
-			Sequence:  chunk.GetSequence(),
-			Data:      chunk.GetData(),
-			Completed: chunk.GetCompleted(),
+			ExecutionID: chunk.GetExecutionId(),
+			Timestamp:   now,
+			Stream:      chunk.GetStream(),
+			Sequence:    chunk.GetSequence(),
+			Data:        chunk.GetData(),
+			Completed:   chunk.GetCompleted(),
 		},
 	}, nil
 }
@@ -840,6 +845,11 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 	ctx := stream.Context()
 	replayLimit := positiveIntMetadata(ctx, GetLogsReplayLimitMetadata)
 	tail := positiveIntMetadata(ctx, GetLogsTailMetadata)
+	activeRun := boolMetadata(ctx, GetLogsActiveRunMetadata)
+	rootExecutionID := ""
+	if values := metadata.ValueFromIncomingContext(ctx, GetLogsRootExecutionMetadata); len(values) > 0 {
+		rootExecutionID = values[0]
+	}
 
 	buffer := s.getOrCreateBuffer(runID)
 
@@ -863,7 +873,25 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 
 	var maxReplayedSeq = sinceSeq
 	var sawCompletionDuringReplay bool
+	var latestCompletion int64
 	for _, entry := range entries {
+		if currentRootCompletion(entry, rootExecutionID, !activeRun) {
+			latestCompletion = max(latestCompletion, entry.Sequence)
+		}
+	}
+
+	if activeRun {
+		terminalAlreadyConsumed = false
+	}
+
+	for _, entry := range entries {
+		if isCompletedEvent(entry) && (entry.Sequence < latestCompletion || replayTruncated || (activeRun && rootExecutionID == "") || !currentRootCompletion(entry, rootExecutionID, !activeRun)) {
+			if entry.Sequence > maxReplayedSeq {
+				maxReplayedSeq = entry.Sequence
+			}
+			continue
+		}
+
 		if err := sendLogEntryChunk(stream, runID, entry); err != nil {
 			return err
 		}
@@ -885,6 +913,11 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 		return nil
 	}
 
+	var terminalFloor int64
+	if activeRun && rootExecutionID == "" {
+		terminalFloor = maxReplayedSeq
+	}
+
 	// Drain entries that arrived on the subscription channel during replay.
 	// A completion event broadcast during the replay loop would otherwise be
 	// missed: IsTerminal() returns true but the event is still sitting in outCh.
@@ -896,6 +929,10 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 			}
 
 			if msg.Sequence <= maxReplayedSeq {
+				continue
+			}
+
+			if isCompletedEvent(msg) && !currentRootCompletion(msg, rootExecutionID, !activeRun) {
 				continue
 			}
 
@@ -917,7 +954,7 @@ afterDrain:
 		return nil
 	}
 
-	if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh); done {
+	if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh, terminalFloor, rootExecutionID, !activeRun); done {
 		return err
 	}
 
@@ -931,7 +968,7 @@ afterDrain:
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-terminalTicker.C:
-			if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh); done {
+			if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh, terminalFloor, rootExecutionID, !activeRun); done {
 				return err
 			}
 		case msg, ok := <-outCh:
@@ -940,6 +977,10 @@ afterDrain:
 			}
 
 			if msg.Sequence <= maxReplayedSeq {
+				continue
+			}
+
+			if isCompletedEvent(msg) && !currentRootCompletion(msg, rootExecutionID, !activeRun) {
 				continue
 			}
 
@@ -952,7 +993,7 @@ afterDrain:
 				return nil
 			}
 
-			if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh); done {
+			if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh, terminalFloor, rootExecutionID, !activeRun); done {
 				return err
 			}
 		}
@@ -961,12 +1002,13 @@ afterDrain:
 
 func sendLogEntryChunk(stream api.LogService_GetLogsServer, runID string, entry LogEntry) error {
 	return stream.Send(&api.LogChunk{
-		RunId:     &runID,
-		Data:      entry.Data,
-		Sequence:  &entry.Sequence,
-		Stream:    &entry.Stream,
-		Timestamp: timestamppb.New(entry.Timestamp),
-		Completed: entry.Completed.Enum(),
+		RunId:       &runID,
+		ExecutionId: &entry.ExecutionID,
+		Data:        entry.Data,
+		Sequence:    &entry.Sequence,
+		Stream:      &entry.Stream,
+		Timestamp:   timestamppb.New(entry.Timestamp),
+		Completed:   entry.Completed.Enum(),
 	})
 }
 
@@ -976,13 +1018,16 @@ func sendBufferedTerminalIfReady(
 	buffer *JobBuffer,
 	maxReplayedSeq int64,
 	outCh chan LogEntry,
+	terminalFloor int64,
+	rootExecutionID string,
+	allowLegacy bool,
 ) (bool, error) {
 	if len(outCh) != 0 {
 		return false, nil
 	}
 
 	entry, ok := buffer.TerminalEntry()
-	if !ok {
+	if !ok || entry.Sequence <= terminalFloor || !currentRootCompletion(entry, rootExecutionID, allowLegacy) {
 		return false, nil
 	}
 
@@ -1130,6 +1175,10 @@ func nextSequence(entries []LogEntry) int64 {
 }
 
 func isCompletedEvent(entry LogEntry) bool {
+	if entry.ExecutionID != "" {
+		return false
+	}
+
 	if entry.Completed != api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
 		return true
 	}
@@ -1250,4 +1299,28 @@ func logServiceMetadata(store RunLogStore) map[string]string {
 	}
 
 	return metadata
+}
+
+func currentRootCompletion(entry LogEntry, rootExecutionID string, allowLegacy bool) bool {
+	if !isCompletedEvent(entry) {
+		return false
+	}
+
+	if rootExecutionID == "" {
+		return true
+	}
+
+	var control struct {
+		RootExecutionID string `json:"root_execution_id"`
+	}
+
+	if json.Unmarshal(entry.Data, &control) != nil {
+		return allowLegacy
+	}
+
+	if control.RootExecutionID == "" {
+		return allowLegacy
+	}
+
+	return control.RootExecutionID == rootExecutionID
 }

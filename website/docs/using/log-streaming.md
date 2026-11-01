@@ -143,3 +143,19 @@ Logs can contain job output, command text, and failure details. Treat log access
 - API auth and RBAC apply to log routes.
 - Namespace-hidden runs return `404`.
 - Avoid writing secrets to stdout or stderr in job commands.
+
+## Task Output In The Console
+
+Select a task in the run graph to inspect its output. The console initially selects the latest attempt; use **Attempt** to inspect an earlier attempt or all attempts for that task. **Output → All run output** includes other tasks and records without execution attribution. Records written by older workers cannot be reliably assigned to a task and remain available in the run-wide view.
+
+To exercise the viewer locally, open **Runs → Run Once → Load JSON file**, select `examples/log-viewer.json`, review it, and click **Submit run**. File loading stays in the browser until submission; invalid or unreadable files leave the current draft intact. Run Once uses the same code text-area component as the job editor. The CLI alternative is `./bin/vectis-cli jobs run examples/log-viewer.json --follow`. The demo uses separate tasks for stdout, stderr, and a line split across two writes. It deliberately fails with exit code 7 after the parallel output tasks finish. Select each task in the graph, then compare **All run output**.
+
+The console replays the latest 500 run log records and retains up to 5,000 records while open. Task filtering applies to that recent window; an empty task view does not prove the task never produced output. Use the CLI or API replay controls above for older output. Changing tasks and attempts uses the existing stream rather than opening more subscriptions.
+
+Completed-run compaction preserves execution attempt history, including execution IDs, outcomes, and timing. A redispatched run uses new execution IDs for its child tasks, so earlier and latest output remain distinguishable after completion. Attempt metadata follows run retention; log payloads follow the log retention window independently. A `builtins/retry` loop within an action is one execution attempt, rather than a new dispatch attempt.
+
+Output is displayed as received, including partial-line chunks. Connection errors leave previously received output visible. Tasks without an execution attempt show an explicit empty state rather than generated worker messages.
+
+### Upgrading Execution Attribution
+
+Upgrade the log service and log forwarders before workers. Execution attribution adds an optional protobuf field and a durable log-record extension. The new log service reads existing records without attribution; older log-service binaries cannot read the new extended records. Before downgrading, restore a matching log-storage snapshot or use a fresh log directory. No database migration is required.

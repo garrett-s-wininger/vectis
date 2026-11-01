@@ -26,6 +26,12 @@ func catalogRunStatusDecision(current, target string) statusTransitionDecision {
 	}
 
 	switch target {
+	case RunStatusQueued:
+		if current == RunStatusRunning {
+			return statusTransitionNoop
+		}
+
+		return statusTransitionApply
 	case RunStatusRunning, RunStatusOrphaned:
 		return statusTransitionApply
 	default:

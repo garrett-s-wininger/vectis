@@ -1019,10 +1019,11 @@ type RunForCancel struct {
 }
 
 type RunStatusUpdate struct {
-	RunID       string `json:"run_id"`
-	Status      string `json:"status"`
-	FailureCode string `json:"failure_code,omitempty"`
-	Reason      string `json:"reason,omitempty"`
+	RootExecutionID string `json:"root_execution_id,omitempty"`
+	RunID           string `json:"run_id"`
+	Status          string `json:"status"`
+	FailureCode     string `json:"failure_code,omitempty"`
+	Reason          string `json:"reason,omitempty"`
 }
 
 type ExecutionStatusUpdate struct {
@@ -1162,6 +1163,7 @@ type RunsRepository interface {
 		limit int,
 	) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
+	ListRunTaskAttemptHistory(ctx context.Context, runID string, taskIDs []string) ([]TaskAttemptRecord, error)
 	GetRunNamespacePath(ctx context.Context, runID string) (string, error)
 	RecordExecutionSecurityEvent(ctx context.Context, event RecordExecutionSecurityEventParams) error
 	LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*ExecutionSecurityEvent, error)

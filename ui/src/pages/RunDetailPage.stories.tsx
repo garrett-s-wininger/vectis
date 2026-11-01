@@ -116,3 +116,42 @@ export const MissingRun: Story = {
     runID: "run-missing"
   }
 };
+
+export const RetriedRun: Story = {
+  args: {
+    runID: "run-retried",
+    run: {
+      ...data.runs[0],
+      id: "run-retried",
+      status: "succeeded",
+      tasks: [
+        {
+          taskID: "run-retried:root",
+          taskKey: "root",
+          name: "Retried task",
+          status: "succeeded",
+          attempts: [
+            {
+              attempt: 1,
+              attemptID: "attempt-1",
+              executionID: "exec-old",
+              cellID: "local",
+              status: "failed",
+              startedAt: "2026-05-31T12:00:00Z",
+              finishedAt: "2026-05-31T12:00:05Z"
+            },
+            {
+              attempt: 2,
+              attemptID: "attempt-2",
+              executionID: "exec-latest",
+              cellID: "local",
+              status: "succeeded",
+              startedAt: "2026-05-31T12:01:00Z",
+              finishedAt: "2026-05-31T12:01:08Z"
+            }
+          ]
+        }
+      ]
+    }
+  }
+};

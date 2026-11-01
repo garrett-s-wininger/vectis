@@ -101,6 +101,7 @@ func (c *ExecutorCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) 
 	}
 
 	return c.executor.ExecuteTaskWithOptions(ctx, req.Job, req.TaskKey, logClient, logger, job.ExecuteOptions{
+		ExecutionID:       req.Session.SessionID(),
 		WorkloadIdentity:  req.Session.WorkloadIdentity(),
 		ArtifactPublisher: req.Session.ArtifactPublisher(),
 		ActionLocks:       req.Session.ActionLocks(),

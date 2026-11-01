@@ -71,6 +71,7 @@ data: {"timestamp":"2026-05-16T12:00:00Z","stream":0,"sequence":12,"data":"hello
 | --- | --- |
 | `timestamp` | RFC3339 timestamp for the log chunk. |
 | `stream` | Numeric stream: `0` is `STREAM_STDOUT`, `1` is `STREAM_STDERR`, and `2` is `STREAM_CONTROL`. |
+| `execution_id` | Optional execution-attempt identity. Absent on run-wide events and older records. Match it to the execution IDs in the run task-attempt response. |
 | `sequence` | Run-local sequence number. Use it for de-duplication and reconnect cursors. |
 | `data` | Log text for stdout/stderr. For control chunks, this is a JSON string with control metadata. |
 | `completed` | Optional numeric completion outcome: omitted or `0` is `RUN_OUTCOME_UNSPECIFIED`, `1` is `RUN_OUTCOME_SUCCESS`, `2` is `RUN_OUTCOME_FAILURE`, and `3` is `RUN_OUTCOME_UNKNOWN`. |
@@ -89,10 +90,11 @@ Known control metadata:
 | --- | --- |
 | `event` | `start`, `completed`, or `replay_truncated`. |
 | `status` | For `completed`: `success`, `failure`, `aborted`, `cancelled`, `abandoned`, or `unknown`. |
+| `root_execution_id` | Optional root dispatch identity on run-wide completion controls. The API uses it to ignore completions from superseded attempts. |
 | `synthetic` | Present and `true` when the log service or API generated a completion event from stream EOF or terminal run state. |
 | `limit` | For `replay_truncated`: the replay cap that stopped the stream. |
 
-Clients should stop following a run after a `completed` control event or a non-zero `completed` field.
+Clients should stop following a run after a `completed` control event or a non-zero `completed` field **only when `execution_id` is absent**. An attributed completion finishes one execution attempt; later tasks and retries can still produce output for the same run. The worker publishes an unattributed completion when run finalization reaches a terminal state.
 
 ## Replay And Reconnect
 
@@ -116,6 +118,8 @@ data: {"timestamp":"2026-05-16T12:00:02Z","stream":2,"sequence":-1,"data":"{\"ev
 
 The truncated control chunk has `sequence: -1`, so it does not include an SSE `id:` line. A client that receives `replay_truncated` should reconnect from the largest real sequence it processed.
 
+The API supplies the log service with the current root execution identity so an older dispatch's completion cannot interrupt replay or an active retry. Direct gRPC `GetLogs` clients can set `vectis-log-root-execution-id` to that identity; `vectis-log-active-run: true` also prevents a historical untagged completion from stopping an active run. These controls do not filter task output: earlier-attempt log records remain available.
+
 ## Client Pattern
 
 For a resilient log client:
@@ -124,7 +128,7 @@ For a resilient log client:
 2. De-duplicate by `(run_id, sequence)`.
 3. Reconnect with `Last-Event-ID` or `since_sequence`.
 4. Treat comment frames as keep-alives.
-5. Stop on a `completed` control event or non-zero `completed` field.
+5. Stop on an unattributed `completed` control event or non-zero `completed` field; an `execution_id` scopes completion to one execution attempt.
 6. On `replay_truncated`, reconnect from the largest real sequence already processed.
 
 For a resilient job watcher:

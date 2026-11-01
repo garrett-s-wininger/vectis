@@ -369,15 +369,19 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
         method: "POST",
         body: input.definition
       });
-      const data = await loadAPIConsoleData();
 
-      if (data.runs.some((run) => run.id === response.run_id)) {
-        return data;
-      }
+      const data = await loadAPIConsoleData();
+      const detail = await Promise.all([loadAPIRun(response.run_id), loadAPIRunTasks(response.run_id)])
+        .then(([run, tasks]) => ({ ...apiRunToConsoleRun(run, runDetailJob(run)), tasks }))
+        .catch(() => undefined);
+      const run =
+        detail ??
+        data.runs.find((candidate) => candidate.id === response.run_id) ??
+        apiEphemeralRunToConsoleRun(response, definition, input);
 
       return {
         ...data,
-        runs: [apiEphemeralRunToConsoleRun(response, definition, input), ...data.runs]
+        runs: [run, ...data.runs.filter((candidate) => candidate.id !== response.run_id)]
       };
     },
     async revokeRoleBinding(userID, namespaceID, role) {

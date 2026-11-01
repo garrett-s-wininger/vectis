@@ -3,6 +3,7 @@ export type RunLogEntry = {
   sequence: number;
   stream: "stdout" | "stderr" | "control";
   timestamp?: string;
+  executionID?: string;
 };
 
 type APILogEntry = {
@@ -10,6 +11,7 @@ type APILogEntry = {
   sequence?: number;
   stream?: number;
   timestamp?: string;
+  execution_id?: string;
 };
 
 export function streamRunLogs(
@@ -30,9 +32,10 @@ export function streamRunLogs(
     }
 
     if (entry.stream === "control") {
-      if (isCompletionEvent(entry.data)) {
+      if (!entry.executionID && isCompletionEvent(entry.data)) {
         source.close();
       }
+
       return;
     }
 
@@ -59,7 +62,7 @@ export function parseRunLogEvent(data: string): RunLogEntry | null {
     return null;
   }
 
-  if (typeof entry.data !== "string") {
+  if (!entry || typeof entry !== "object" || typeof entry.data !== "string") {
     return null;
   }
 
@@ -67,7 +70,8 @@ export function parseRunLogEvent(data: string): RunLogEntry | null {
     data: entry.data,
     sequence: typeof entry.sequence === "number" ? entry.sequence : -1,
     stream: streamName(entry.stream),
-    timestamp: entry.timestamp
+    timestamp: typeof entry.timestamp === "string" ? entry.timestamp : undefined,
+    ...(typeof entry.execution_id === "string" && entry.execution_id ? { executionID: entry.execution_id } : {})
   };
 }
 

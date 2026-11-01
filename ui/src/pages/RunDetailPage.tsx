@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, Clock, Code2, FileText, Server, User, Zap } from "lucide-react";
-import { BreadcrumbTrail, ErrorAlert, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
+import { BreadcrumbTrail, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
 import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel } from "../components/data/RunPresentation";
-import { streamRunLogs, type RunLogEntry } from "../data/runLogs";
+import { RunLogs } from "./RunLogs";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import {
   formatRunDefinition,
@@ -10,14 +10,9 @@ import {
   runDefinitionDescription,
   runDefinitionTitle,
   runDetailDescription,
-  runLogLines,
-  runTaskExecutionLabel,
-  runTaskStatusLabel,
-  runTaskTimingLabel,
   runTasksForDisplay,
   preferredRunTaskID,
   runTimelineEvents,
-  type RunTaskDisplayNode,
   sourceLabel
 } from "./RunDetailPresentation";
 import { RunTaskGraph } from "./RunTaskGraph";
@@ -64,14 +59,15 @@ function RunDetailContent({
   run: RunListItem;
 }) {
   const tasks = runTasksForDisplay(run);
-  const taskSignature = tasks.map((task) => `${task.taskID}:${task.status}`).join("|");
   const preferredTaskID = preferredRunTaskID(tasks);
-  const [selection, setSelection] = useState({ runID: run.id, taskID: preferredTaskID, taskSignature });
+  const [selection, setSelection] = useState<{ runID: string; taskID: string } | null>(null);
   const selectedTaskID =
-    selection.runID === run.id && selection.taskSignature === taskSignature ? selection.taskID : preferredTaskID;
+    selection?.runID === run.id && tasks.some((task) => task.taskID === selection.taskID)
+      ? selection.taskID
+      : preferredTaskID;
 
   const selectedTask = tasks.find((task) => task.taskID === selectedTaskID) ?? tasks[0];
-  const selectTask = (taskID: string) => setSelection({ runID: run.id, taskID, taskSignature });
+  const selectTask = (taskID: string) => setSelection({ runID: run.id, taskID });
 
   return (
     <>
@@ -127,66 +123,6 @@ function RunDetailContent({
       </section>
     </>
   );
-}
-
-function RunLogs({ run, selectedTask }: { run: RunListItem; selectedTask?: RunTaskDisplayNode }) {
-  const [logState, setLogState] = useState<{ entries: RunLogEntry[]; error: string; runID: string }>({
-    entries: [],
-    error: "",
-    runID: run.id
-  });
-
-  useEffect(() => {
-    return streamRunLogs(
-      run.id,
-      (entry) => {
-        setLogState((state) => {
-          const entries = state.runID === run.id ? state.entries : [];
-          if (entries.some((candidate) => candidate.sequence === entry.sequence && entry.sequence >= 0)) {
-            return state;
-          }
-
-          return {
-            runID: run.id,
-            error: "",
-            entries: [...entries, entry].sort((a, b) => a.sequence - b.sequence)
-          };
-        });
-      },
-      (error) => setLogState({ runID: run.id, entries: [], error })
-    );
-  }, [run.id]);
-
-  const visibleLogState = logState.runID === run.id ? logState : { entries: [], error: "", runID: run.id };
-  const logLines = visibleLogState.entries.length > 0 ? formatRunLogEntries(visibleLogState.entries) : runLogLines(run);
-
-  return (
-    <section
-      className={`${styles.panel} ${styles.primaryPanel} polished-panel polished-panel--accent-top`}
-      aria-labelledby="run-logs-title"
-    >
-      <div className={styles.panelHeader}>
-        <div>
-          <h2 id="run-logs-title">Task Logs</h2>
-          <p>Worker output for the selected task.</p>
-        </div>
-      </div>
-      {selectedTask ? (
-        <dl className={styles.taskContext}>
-          <OperationalFact icon={FileText} label="Task" value={selectedTask.name || selectedTask.taskKey} />
-          <OperationalFact icon={Zap} label="Status" value={runTaskStatusLabel(selectedTask.status)} />
-          <OperationalFact icon={Clock} label="Duration" value={runTaskTimingLabel(selectedTask)} />
-          <OperationalFact icon={Server} label="Execution" value={runTaskExecutionLabel(selectedTask)} />
-        </dl>
-      ) : null}
-      <ErrorAlert message={visibleLogState.error} title="Log Stream Unavailable" />
-      <pre className={`code-block ${styles.logs}`}>{logLines.join("\n")}</pre>
-    </section>
-  );
-}
-
-function formatRunLogEntries(entries: RunLogEntry[]) {
-  return entries.map((entry) => (entry.stream === "stderr" ? `[stderr] ${entry.data}` : entry.data));
 }
 
 function RunTimeline({ run }: { run: RunListItem }) {

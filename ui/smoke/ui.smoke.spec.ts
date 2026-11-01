@@ -94,6 +94,10 @@ test.describe("app smoke", () => {
     await page.goto("/jobs/create");
     await expect(page.getByRole("heading", { name: "Create Job" })).toBeVisible();
     await expectDropdownUsesOverlaySafePanel(page, "Repository ID: Select a repository");
+
+    await page.goto("/runs/run-1240");
+    await expect(page.getByRole("heading", { name: "Task Logs" })).toBeVisible();
+    await expectDropdownUsesOverlaySafePanel(page, "Attempt: Latest (attempt 1)");
   });
 });
 

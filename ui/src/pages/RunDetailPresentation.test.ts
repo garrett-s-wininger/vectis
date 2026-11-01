@@ -6,7 +6,6 @@ import {
   runDefinitionTitle,
   runDetailDescription,
   runGraphDescription,
-  runLogLines,
   preferredRunTaskID,
   runTaskExecutionLabel,
   runTaskStatusLabel,
@@ -76,15 +75,6 @@ describe("run detail presentation", () => {
     );
   });
 
-  it("uses concise generated log lines without run-id prefixes", () => {
-    expect(runLogLines(run)).toEqual(["accepted api-test-suite", "finished execution"]);
-    expect(runLogLines({ ...run, status: "running" })).toEqual([
-      "accepted api-test-suite",
-      "worker claimed run on local",
-      "streaming output"
-    ]);
-  });
-
   it("builds task display state", () => {
     const tasks = runTasksForDisplay({
       ...run,
@@ -133,4 +123,24 @@ describe("run detail presentation", () => {
       })
     ).toBe("37s");
   });
+});
+
+it("keeps historical attempts but hides an unstarted allocation from the next dispatch", () => {
+  const tasks = runTasksForDisplay({
+    ...run,
+    tasks: [
+      {
+        taskID: "root",
+        taskKey: "root",
+        name: "root",
+        status: "planned",
+        attempts: [
+          { attempt: 1, attemptID: "old", executionID: "exec-old", cellID: "local", status: "failed" },
+          { attempt: 2, attemptID: "new", executionID: "exec-new", cellID: "local", status: "planned" }
+        ]
+      }
+    ]
+  });
+
+  expect(tasks[0].attempts.map((attempt) => attempt.attemptID)).toEqual(["old"]);
 });

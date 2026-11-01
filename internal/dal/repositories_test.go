@@ -3919,11 +3919,22 @@ func TestRunCatalogUpdater_AppliesRunAndExecutionStatusUpdates(t *testing.T) {
 		3,
 	)
 
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusQueued}); err != nil {
+		t.Fatalf("apply queued run update: %v", err)
+	}
+
 	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
 		RunID:  runID,
 		Status: dal.RunStatusRunning,
 	}); err != nil {
 		t.Fatalf("apply running run update: %v", err)
+	}
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusQueued}); err != nil {
+		t.Fatalf("apply stale queued run update: %v", err)
+	}
+	active, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil || active.Status != dal.RunStatusRunning {
+		t.Fatalf("queued event regressed active run: %+v, %v", active, err)
 	}
 
 	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{

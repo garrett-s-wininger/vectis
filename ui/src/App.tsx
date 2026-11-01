@@ -496,7 +496,7 @@ export function App() {
         navigateTo(`/runs/${runID}`);
       }
     } catch (error) {
-      setActionError(errorMessage(error, "Unable to submit run."));
+      throw new Error(errorMessage(error, "Unable to submit run."), { cause: error });
     }
   }
 

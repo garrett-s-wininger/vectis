@@ -211,3 +211,51 @@ for (const colorScheme of ["light", "dark"] as const) {
     await check("error-alert");
   });
 }
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`log output preserves lines and contrast ${colorScheme}`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme });
+    await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-runlogoutput--mixed-streams&viewMode=story");
+    const output = page.getByLabel("Log output");
+    await expect(output).toBeVisible();
+    expect(await output.textContent()).toBe("Starting task\nhello\nExpected demo warning\nFinished\n");
+
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: testInfo.outputPath(`${colorScheme}.png`) });
+    const contrast = await visibleTextContrast(page);
+    expect(contrast.checked).toBeGreaterThan(0);
+    expect(contrast.failures).toEqual([]);
+  });
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`log output overflow scrolls inside its border ${colorScheme}`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme });
+    await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-runlogoutput--overflow&viewMode=story");
+    const output = page.getByLabel("Log output");
+    await expect(output).toBeVisible();
+
+    await output.focus();
+    await output.press("Control+End");
+    await expect.poll(() => output.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    const geometry = await output.evaluate((element) => {
+      const frame = element.parentElement!;
+      const rect = element.getBoundingClientRect();
+      const bounds = frame.getBoundingClientRect();
+      return {
+        overflows: element.scrollHeight > element.clientHeight,
+        inside: rect.top > bounds.top && rect.bottom < bounds.bottom,
+        clipped: getComputedStyle(frame).overflow,
+        scrollbar: getComputedStyle(element).scrollbarColor
+      };
+    });
+
+    expect(geometry.overflows).toBe(true);
+    expect(geometry.inside).toBe(true);
+    expect(geometry.clipped).toBe("hidden");
+    expect(geometry.scrollbar).not.toBe("auto");
+
+    await page.screenshot({ path: testInfo.outputPath(`${colorScheme}-overflow.png`) });
+    expect((await visibleTextContrast(page)).failures).toEqual([]);
+  });
+}

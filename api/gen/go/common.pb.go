@@ -980,14 +980,16 @@ func (x *SecretReference) GetTaskKeys() []string {
 }
 
 type LogChunk struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	Data          []byte                 `protobuf:"bytes,2,opt,name=data" json:"data,omitempty"`
-	Sequence      *int64                 `protobuf:"varint,3,opt,name=sequence" json:"sequence,omitempty"`
-	Stream        *Stream                `protobuf:"varint,4,opt,name=stream,enum=common.Stream" json:"stream,omitempty"`
-	Completed     *RunOutcome            `protobuf:"varint,5,opt,name=completed,enum=common.RunOutcome" json:"completed,omitempty"`
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=timestamp" json:"timestamp,omitempty"`
-	LogShardId    *string                `protobuf:"bytes,7,opt,name=log_shard_id,json=logShardId" json:"log_shard_id,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RunId      *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	Data       []byte                 `protobuf:"bytes,2,opt,name=data" json:"data,omitempty"`
+	Sequence   *int64                 `protobuf:"varint,3,opt,name=sequence" json:"sequence,omitempty"`
+	Stream     *Stream                `protobuf:"varint,4,opt,name=stream,enum=common.Stream" json:"stream,omitempty"`
+	Completed  *RunOutcome            `protobuf:"varint,5,opt,name=completed,enum=common.RunOutcome" json:"completed,omitempty"`
+	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=timestamp" json:"timestamp,omitempty"`
+	LogShardId *string                `protobuf:"bytes,7,opt,name=log_shard_id,json=logShardId" json:"log_shard_id,omitempty"`
+	// Execution attempt that produced this record; empty for run-wide/legacy output.
+	ExecutionId   *string `protobuf:"bytes,8,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1071,6 +1073,13 @@ func (x *LogChunk) GetLogShardId() string {
 	return ""
 }
 
+func (x *LogChunk) GetExecutionId() string {
+	if x != nil && x.ExecutionId != nil {
+		return *x.ExecutionId
+	}
+	return ""
+}
+
 var File_common_proto protoreflect.FileDescriptor
 
 const file_common_proto_rawDesc = "" +
@@ -1143,7 +1152,7 @@ const file_common_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x122\n" +
 	"\bdelivery\x18\x03 \x01(\v2\x16.common.SecretDeliveryR\bdelivery\x12\x1b\n" +
-	"\ttask_keys\x18\x04 \x03(\tR\btaskKeys\"\x87\x02\n" +
+	"\ttask_keys\x18\x04 \x03(\tR\btaskKeys\"\xaa\x02\n" +
 	"\bLogChunk\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
@@ -1152,7 +1161,8 @@ const file_common_proto_rawDesc = "" +
 	"\tcompleted\x18\x05 \x01(\x0e2\x12.common.RunOutcomeR\tcompleted\x128\n" +
 	"\ttimestamp\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12 \n" +
 	"\flog_shard_id\x18\a \x01(\tR\n" +
-	"logShardId*Y\n" +
+	"logShardId\x12!\n" +
+	"\fexecution_id\x18\b \x01(\tR\vexecutionId*Y\n" +
 	"\x12SecretDeliveryType\x12$\n" +
 	" SECRET_DELIVERY_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19SECRET_DELIVERY_TYPE_FILE\x10\x01*t\n" +

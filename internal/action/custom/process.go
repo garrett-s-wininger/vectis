@@ -329,6 +329,10 @@ func logLine(state *action.ExecutionState, streamType api.Stream, message string
 		return
 	}
 
+	if streamType != api.Stream_STREAM_CONTROL && !strings.HasSuffix(message, "\n") {
+		message += "\n"
+	}
+
 	seq := state.NextSequence()
 	chunk := &api.LogChunk{
 		RunId:    &state.RunID,

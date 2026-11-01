@@ -50,6 +50,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "run_tasks")
 	assertTableExists(t, db, "task_attempts")
 	assertTableExists(t, db, "run_task_final_facts")
+	assertTableExists(t, db, "run_task_attempt_facts")
 	assertTableExists(t, db, "cell_execution_acceptances")
 	assertTableExists(t, db, "job_triggers")
 	assertTableExists(t, db, "cron_trigger_specs")
@@ -66,6 +67,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "auth_providers")
 	assertTableExists(t, db, "external_identities")
 	assertColumnExists(t, db, "job_runs", "namespace_path")
+
 	for _, column := range []string{
 		"checkout_mode",
 		"authoring_mode",
@@ -80,6 +82,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	} {
 		assertColumnExists(t, db, "source_repositories", column)
 	}
+
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task", []string{"run_id", "task_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
@@ -108,6 +111,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableMissing(t, db, "run_tasks")
 	assertTableMissing(t, db, "task_attempts")
 	assertTableMissing(t, db, "run_task_final_facts")
+	assertTableMissing(t, db, "run_task_attempt_facts")
 	assertTableMissing(t, db, "cell_execution_acceptances")
 	assertTableMissing(t, db, "job_triggers")
 	assertTableMissing(t, db, "cron_trigger_specs")

@@ -118,3 +118,37 @@
     max-width: none;
   }
 }
+
+.textareaFrame {
+  border: var(--control-border);
+  border-radius: var(--control-radius);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.root .textareaFrame textarea {
+  border: 0;
+  border-radius: 0;
+  display: block;
+  width: 100%;
+}
+
+.textareaFrame:has(textarea:focus-visible) {
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
+}
+
+.root .textareaFrame textarea:focus-visible {
+  outline: none;
+}
+
+.textareaFrame:has(textarea[aria-invalid="true"]) {
+  border-color: var(--status-danger-border);
+  box-shadow:
+    inset 0 0 0 1px rgb(156 53 53 / 18%),
+    0 0 0 1px rgb(156 53 53 / 12%);
+}
+
+.textareaFrame:has(textarea:disabled) {
+  border-color: rgb(151 168 177 / 42%);
+}

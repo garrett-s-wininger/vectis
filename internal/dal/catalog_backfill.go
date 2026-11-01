@@ -21,11 +21,13 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingRunStatusCatalogEvents(
 	}
 
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT jr.run_id, jr.status, jr.failure_code, jr.failure_reason, jr.orphan_reason
+		SELECT jr.run_id, jr.status, jr.failure_code, jr.failure_reason, jr.orphan_reason, COALESCE(root.execution_id, '')
 		FROM job_runs jr
+		LEFT JOIN segment_executions root ON root.run_id = jr.run_id AND root.task_id = (jr.run_id || ':root')
+		 AND root.attempt = (SELECT MAX(se.attempt) FROM segment_executions se WHERE se.run_id = jr.run_id AND se.task_id = root.task_id)
 		LEFT JOIN cell_catalog_events cce
 			ON cce.source_cell = ?
-			AND cce.event_key = ('run:' || jr.run_id || ':' || jr.status)
+			AND cce.event_key = ('run:' || jr.run_id || ':' || jr.status || CASE WHEN root.execution_id IS NULL THEN '' ELSE ':' || root.execution_id END)
 		WHERE jr.owning_cell = ?
 			AND jr.status IN (?, ?, ?, ?, ?, ?)
 			AND cce.id IS NULL
@@ -53,7 +55,7 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingRunStatusCatalogEvents(
 		var update RunStatusUpdate
 		var failureCode string
 		var failureReason, orphanReason sql.NullString
-		if err := rows.Scan(&update.RunID, &update.Status, &failureCode, &failureReason, &orphanReason); err != nil {
+		if err := rows.Scan(&update.RunID, &update.Status, &failureCode, &failureReason, &orphanReason, &update.RootExecutionID); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 

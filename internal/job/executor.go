@@ -49,6 +49,7 @@ type Executor struct {
 }
 
 type ExecuteOptions struct {
+	ExecutionID       string
 	WorkloadIdentity  *workloadidentity.Identity
 	ArtifactPublisher action.ArtifactPublisher
 	ActionLocks       []actionregistry.ActionLock
@@ -455,7 +456,7 @@ func (e *Executor) execute(
 		ProcessEnv:              processEnv,
 		Logger:                  logger,
 		LogClient:               logClient,
-		LogStream:               logStream,
+		LogStream:               &executionLogStream{LogStream: logStream, executionID: opts.ExecutionID},
 		Resolver:                actionResolver,
 		Verifier:                actionVerifier,
 		NodePaths:               executionNodePathsForScope(job.GetRoot(), node, nodePath, ports, taskScoped),
@@ -823,6 +824,10 @@ func sendCompletionLog(state *action.ExecutionState, streamType api.Stream, mess
 func sendLogChunk(state *action.ExecutionState, streamType api.Stream, message string, outcome api.RunOutcome) {
 	if state.LogStream == nil {
 		return
+	}
+
+	if streamType != api.Stream_STREAM_CONTROL && !strings.HasSuffix(message, "\n") {
+		message += "\n"
 	}
 
 	seq := state.NextSequence()

@@ -121,7 +121,7 @@ func streamOutput(reader io.Reader, state *action.ExecutionState, streamType api
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 {
-			data := buf[:n]
+			data := append([]byte(nil), buf[:n]...)
 			seq := state.NextSequence()
 			chunk := &api.LogChunk{
 				RunId:    &state.RunID,
@@ -149,6 +149,10 @@ func streamOutput(reader io.Reader, state *action.ExecutionState, streamType api
 func sendLog(state *action.ExecutionState, streamType api.Stream, message string) {
 	if state.LogStream == nil {
 		return
+	}
+
+	if streamType != api.Stream_STREAM_CONTROL && !strings.HasSuffix(message, "\n") {
+		message += "\n"
 	}
 
 	seq := state.NextSequence()

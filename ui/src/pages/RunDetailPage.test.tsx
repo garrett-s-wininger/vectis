@@ -59,7 +59,7 @@ const run: RunListItem = {
 
 describe("RunDetailPage", () => {
   it("renders and selects task execution contexts", async () => {
-    render(<RunDetailPage onBack={() => undefined} run={run} runID={run.id} />);
+    const view = render(<RunDetailPage onBack={() => undefined} run={run} runID={run.id} />);
 
     expect(screen.getByRole("heading", { name: "Graph" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /API tests/i })).toHaveAttribute("aria-pressed", "true");
@@ -71,6 +71,37 @@ describe("RunDetailPage", () => {
     expect(screen.getByRole("button", { name: /Report/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getAllByText("Report").length).toBeGreaterThan(0);
     expect(screen.getByText("No execution attempt yet")).toBeInTheDocument();
+
+    view.rerender(
+      <RunDetailPage
+        onBack={() => undefined}
+        run={{ ...run, tasks: run.tasks?.map((task) => ({ ...task, status: "succeeded" })) }}
+        runID={run.id}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Report/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("follows the preferred task until a task is explicitly selected", () => {
+    const view = render(<RunDetailPage onBack={() => undefined} run={run} runID={run.id} />);
+    expect(screen.getByRole("button", { name: /API tests/i })).toHaveAttribute("aria-pressed", "true");
+
+    view.rerender(
+      <RunDetailPage
+        onBack={() => undefined}
+        run={{
+          ...run,
+          tasks: run.tasks?.map((task) => ({
+            ...task,
+            status: task.taskID === "task-report" ? "running" : "succeeded"
+          }))
+        }}
+        runID={run.id}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Report/i })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("opens the run definition disclosure on request", async () => {

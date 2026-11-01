@@ -510,3 +510,59 @@ func TestAPIServer_GetRun_ActiveHotStateOwnerUsesOrchestratorTaskCompletion(t *t
 		t.Fatalf("task completion should come from orchestrator, got %+v", got.TaskCompletion)
 	}
 }
+
+func TestAPIServer_LiveTaskSnapshotIncludesCompactedAttemptHistory(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	runID := createRunForReadRoutingTest(t, db, "job-hot-attempt-history")
+	publishActiveHotStateOwnerForReadRoutingTest(t, db, runID)
+
+	taskID, key, cellID := runID+":child", "child", "local"
+	oldAttempt, oldExecution := "old-attempt", "old-execution"
+	if _, err := db.Exec(`INSERT INTO run_task_attempt_facts
+ (run_id, task_id, task_attempt_id, execution_id, cell_id, status, attempt)
+ VALUES (?, ?, ?, ?, ?, ?, 1)`, runID, taskID, oldAttempt, oldExecution, cellID, dal.ExecutionStatusFailed); err != nil {
+		t.Fatal(err)
+	}
+
+	currentAttempt, currentExecution, currentStatus, attempt := "current-attempt", "current-execution", dal.ExecutionStatusRunning, int32(2)
+	cursor := int64(17)
+	server.SetOrchestratorClient(&fakeOrchestratorReadClient{snapshot: &apigen.GetRunTaskSnapshotResponse{
+		RunId: &runID, NextCursor: &cursor, Executions: []*apigen.OrchestratorTaskExecution{{
+			RunId: &runID, TaskId: &taskID, TaskKey: &key, Name: &key, CellId: &cellID,
+			TaskAttemptId: &currentAttempt, ExecutionId: &currentExecution, Status: &currentStatus, Attempt: &attempt,
+		}},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks?limit=1", nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+	server.GetRunTasks(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tasks: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Data []struct {
+			Status   string `json:"status"`
+			Attempts []struct {
+				Attempt     int    `json:"attempt"`
+				ExecutionID string `json:"execution_id"`
+				Status      string `json:"status"`
+			} `json:"attempts"`
+		} `json:"data"`
+		NextCursor int64 `json:"next_cursor"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got.Data) != 1 || len(got.Data[0].Attempts) != 2 || got.NextCursor != cursor {
+		t.Fatalf("lost history or pagination: %s", rec.Body.String())
+	}
+
+	task := got.Data[0]
+	if task.Status != currentStatus || task.Attempts[0].ExecutionID != oldExecution || task.Attempts[0].Status != dal.ExecutionStatusFailed || task.Attempts[1].ExecutionID != currentExecution || task.Attempts[1].Status != currentStatus {
+		t.Fatalf("history replaced live state: %s", rec.Body.String())
+	}
+}

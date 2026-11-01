@@ -37,18 +37,46 @@ func TestCatalogStatusBackfillRepository_ListMissingRunEvents(t *testing.T) {
 		t.Fatalf("missing run events: %+v", missing)
 	}
 
-	if _, _, err := repos.CatalogEvents().
-		Record(ctx, "iad-a", cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"`+runID+`","status":"running"}`)); err != nil {
-		t.Fatalf("record catalog event: %v", err)
+	firstRoot := missing[0].RootExecutionID
+	if err := cell.NewCatalogEventPublisher("iad-a", repos.CatalogEvents()).RecordRunStatus(ctx, missing[0]); err != nil {
+		t.Fatal(err)
 	}
 
 	missing, err = repos.CatalogStatusBackfill().ListMissingRunStatusCatalogEvents(ctx, "iad-a", 10)
 	if err != nil {
 		t.Fatalf("ListMissingRunStatusCatalogEvents after record: %v", err)
 	}
+
 	if len(missing) != 0 {
 		t.Fatalf("expected no missing run events, got %+v", missing)
 	}
+
+	if err := repos.Runs().MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "retry"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repos.Runs().RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repos.Runs().MarkRunRunning(ctx, runID); err != nil {
+		t.Fatal(err)
+	}
+
+	missing, err = repos.CatalogStatusBackfill().ListMissingRunStatusCatalogEvents(ctx, "iad-a", 10)
+	if err != nil || len(missing) != 1 || missing[0].RootExecutionID == firstRoot || missing[0].RootExecutionID == "" {
+		t.Fatalf("retry event was deduplicated against old attempt: %+v, %v", missing, err)
+	}
+
+	if err := cell.NewCatalogEventPublisher("iad-a", repos.CatalogEvents()).RecordRunStatus(ctx, missing[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	missing, err = repos.CatalogStatusBackfill().ListMissingRunStatusCatalogEvents(ctx, "iad-a", 10)
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("backfill repeats a generation: %+v, %v", missing, err)
+	}
+
 }
 
 func TestCatalogStatusBackfillRepository_ListMissingExecutionEvents(t *testing.T) {

@@ -19,12 +19,13 @@ func TestMarshalDecodeRecordsRoundTrip(t *testing.T) {
 	data := []byte{'h', 'i', 0, 0xff}
 
 	payload, err := MarshalChunks([]*api.LogChunk{{
-		RunId:     &runID,
-		Data:      data,
-		Sequence:  &seq,
-		Stream:    &streamType,
-		Completed: &outcome,
-		Timestamp: timestamppb.New(ts),
+		RunId:       &runID,
+		Data:        data,
+		Sequence:    &seq,
+		Stream:      &streamType,
+		Completed:   &outcome,
+		Timestamp:   timestamppb.New(ts),
+		ExecutionId: stringPointerForLogTest("execution-1"),
 	}})
 
 	if err != nil {
@@ -44,7 +45,7 @@ func TestMarshalDecodeRecordsRoundTrip(t *testing.T) {
 	}
 
 	got := records[0]
-	if got.RunID != runID || got.Sequence != seq || got.Stream != streamType || got.Completed != outcome {
+	if got.ExecutionID != "execution-1" || got.RunID != runID || got.Sequence != seq || got.Stream != streamType || got.Completed != outcome {
 		t.Fatalf("record metadata mismatch: got %+v", got)
 	}
 
@@ -56,3 +57,5 @@ func TestMarshalDecodeRecordsRoundTrip(t *testing.T) {
 		t.Fatalf("data = %v, want %v", got.Data, data)
 	}
 }
+
+func stringPointerForLogTest(value string) *string { return &value }

@@ -500,6 +500,7 @@ describe("console data source", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           data: [
+            { run_id: "unrelated-newer-run", job_id: "different-job", namespace: "/", status: "running" },
             {
               run_id: "run-ephemeral-1",
               job_id: "ephemeral-job",
@@ -511,6 +512,22 @@ describe("console data source", () => {
               owning_cell: "local"
             }
           ]
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run_id: "run-ephemeral-1",
+          job_id: "ephemeral-job",
+          namespace: "/",
+          run_index: 1,
+          created_at: "2026-05-31T12:00:00Z",
+          status: "queued",
+          owning_cell: "local"
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ task_id: "task-root", task_key: "root", name: "root", status: "pending", attempts: [] }]
         })
       );
 
@@ -537,8 +554,12 @@ describe("console data source", () => {
       source: "ephemeral",
       status: "queued",
       submittedBy: undefined,
-      trigger: "api"
+      trigger: "api",
+      tasks: [expect.objectContaining({ taskID: "task-root" })]
     });
+
+    expect(data.runs[1].id).toBe("unrelated-newer-run");
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/runs/run-ephemeral-1/tasks?limit=200", expect.anything());
 
     fetchMock
       .mockResolvedValueOnce(jsonResponse([]))
@@ -569,7 +590,7 @@ describe("console data source", () => {
     });
   });
 
-  it("uses the post-submit fallback only when the runs endpoint has not caught up", async () => {
+  it("uses the accepted run fallback when detail reads are temporarily unavailable", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     const definition = JSON.stringify({
       id: "ad-hoc-backfill",
@@ -581,6 +602,8 @@ describe("console data source", () => {
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockRejectedValueOnce(new Error("Catalog catching up"))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().submitEphemeralRun({
@@ -598,6 +621,8 @@ describe("console data source", () => {
       submittedBy: "admin",
       trigger: "ui"
     });
+
+    expect(data.runs[0].tasks).toBeUndefined();
   });
 
   it("creates users through the API source", async () => {
@@ -770,6 +795,14 @@ describe("console data source", () => {
                   execution_id: "run-inline-1:root:execution:1",
                   execution_status: "accepted",
                   started_at: "2026-05-31T12:00:03Z",
+                  status: "failed"
+                },
+                {
+                  attempt: 2,
+                  attempt_id: "run-inline-1:root:attempt:2",
+                  cell_id: "local",
+                  execution_id: "run-inline-1:root:execution:2",
+                  execution_status: "accepted",
                   status: "accepted"
                 }
               ]
@@ -800,6 +833,12 @@ describe("console data source", () => {
               executionID: "run-inline-1:root:execution:1",
               executionStatus: "accepted",
               startedAt: "2026-05-31T12:00:03Z",
+              status: "failed"
+            },
+            {
+              attempt: 2,
+              attemptID: "run-inline-1:root:attempt:2",
+              executionID: "run-inline-1:root:execution:2",
               status: "accepted"
             }
           ],

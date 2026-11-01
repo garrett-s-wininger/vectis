@@ -52,7 +52,23 @@
   grid-column: 1 / -1;
 }
 
+.logFrame {
+  background: var(--surface-page);
+  border: var(--control-border);
+  border-radius: var(--panel-radius);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.logFrame:focus-within {
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
+}
+
 .logs {
+  background: var(--surface-page);
+  border-radius: 0;
+  color: var(--text-primary);
   max-height: 320px;
   min-height: 96px;
 }
@@ -385,4 +401,21 @@
   .facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.logControls {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}
+
+.logNotice {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.stderr {
+  color: var(--status-danger-text);
 }

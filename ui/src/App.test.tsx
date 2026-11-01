@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
+import * as dataSource from "./data/consoleDataSource";
 
 describe("App", () => {
   const fetchMock = vi.fn();
@@ -614,6 +615,44 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("link", { name: "Jobs" }));
 
     expect(screen.queryByText("database-backfill")).not.toBeInTheDocument();
+  });
+
+  it("keeps Run Once visible until acceptance and navigates directly from a filtered list", async () => {
+    window.history.replaceState(null, "", "/runs?job=filtered-job");
+    const source = dataSource.createConsoleDataSource();
+    const submit = source.submitEphemeralRun;
+
+    let accept!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      accept = resolve;
+    });
+
+    source.submitEphemeralRun = async (input) => {
+      await accepted;
+      return submit(input);
+    };
+
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    const navigate = vi.spyOn(window.history, "pushState");
+    try {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Runs" });
+      fireEvent.click(screen.getByRole("button", { name: "Run Once" }));
+
+      const editor = screen.getByLabelText("Definition JSON");
+      fireEvent.change(editor, { target: { value: '{"id":"direct-run","root":{"uses":"builtins/script"}}' } });
+      fireEvent.click(screen.getByRole("button", { name: "Submit run" }));
+      expect(screen.getByLabelText("Definition JSON")).toBe(editor);
+      expect(navigate).not.toHaveBeenCalled();
+
+      await act(async () => accept());
+      await screen.findByRole("heading", { level: 1, name: "direct-run (#1241)" });
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(navigate).toHaveBeenCalledWith(null, "", "/runs/run-1241");
+    } finally {
+      create.mockRestore();
+      navigate.mockRestore();
+    }
   });
 
   it("renders a run detail not found state", async () => {

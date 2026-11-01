@@ -57,17 +57,13 @@ func runCatalog(cmd *cobra.Command, args []string) {
 
 	repos := dal.NewSQLRepositories(db)
 	svc := catalog.NewService(logger, repos.CatalogEvents(), repos.Runs(), repos.Artifacts())
-	svc.SetBackfill(catalog.NewBackfillProcessor(
-		config.CellID(),
-		repos.CatalogStatusBackfill(),
-		cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-	))
-
 	fanInSources, closeFanIn, err := openCatalogFanInSources(ctx, logger, globalDBPath)
 	if err != nil {
 		logger.Fatal("Failed to initialize catalog fan-in: %v", err)
 	}
 	defer closeFanIn()
+
+	svc.SetBackfill(globalCatalogBackfill(config.CellID(), repos, fanInSources))
 
 	catalogMetrics, err := observability.NewCatalogMetrics()
 	if err != nil {
@@ -92,6 +88,16 @@ func runCatalog(cmd *cobra.Command, args []string) {
 	if err := svc.Run(ctx, config.CatalogInterval(), config.CatalogBatchSize()); err != nil {
 		logger.Fatal("Catalog service failed: %v", err)
 	}
+}
+
+func globalCatalogBackfill(cellID string, repos *dal.SQLRepositories, sources []catalog.FanInSource) catalog.Backfill {
+	for _, source := range sources {
+		if source.CellID == cellID {
+			return nil
+		}
+	}
+
+	return catalog.NewBackfillProcessor(cellID, repos.CatalogStatusBackfill(), cell.NewCatalogEventPublisher(cellID, repos.CatalogEvents()))
 }
 
 func openCatalogFanInSources(

@@ -48,7 +48,7 @@ By default, cleanup uses these windows:
 | Terminal runs | 30 days | Deletes terminal runs older than the cutoff: `succeeded`, `failed`, `aborted`, `cancelled`, and `abandoned`. |
 | Run dispatch events | follows terminal runs | Deletes dispatch events for runs being deleted. |
 | Artifact manifests | follows terminal runs | Deletes `run_artifacts` rows for runs being deleted. |
-| Task graph rows | follows terminal runs | Deletes task nodes, task attempts, run segments, and segment executions for runs being deleted. |
+| Task graph rows | follows terminal runs | Deletes task nodes, task attempts, run segments, segment executions, compacted task state, and compacted attempt history for runs being deleted. |
 | Unreferenced job definition snapshots | 30 days | Deletes `job_definitions` rows older than the cutoff when no run or source provenance still references them. |
 | Idempotency keys | 24 hours | Deletes old idempotency records; retry deduplication is no longer guaranteed after the window. |
 | Audit log | 365 days | Deletes old audit rows outside active audit-range holds and inserts a fresh `retention.cleanup` audit event when cleanup is applied. |

@@ -27,6 +27,15 @@ func (r *SQLArtifactsRepository) Record(ctx context.Context, create ArtifactCrea
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	compacted, err := compactedExecutionIdentityTx(ctx, tx, create.RunID, create.TaskID, create.TaskAttemptID, create.ExecutionID)
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+
+	if compacted {
+		create.TaskID, create.TaskAttemptID, create.ExecutionID = "", "", ""
+	}
+
 	_, err = tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO run_artifacts (
 			run_id,

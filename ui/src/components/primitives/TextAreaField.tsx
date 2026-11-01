@@ -19,13 +19,15 @@ export function TextAreaField({ code, error, id, label, wide, ...props }: TextAr
       <label htmlFor={textareaID}>
         <span>{label}</span>
       </label>
-      <textarea
-        {...props}
-        aria-describedby={error ? errorID : props["aria-describedby"]}
-        aria-invalid={error ? true : props["aria-invalid"]}
-        className={code ? styles.codeArea : undefined}
-        id={textareaID}
-      />
+      <div className={styles.textareaFrame}>
+        <textarea
+          {...props}
+          aria-describedby={error ? errorID : props["aria-describedby"]}
+          aria-invalid={error ? true : props["aria-invalid"]}
+          className={code ? styles.codeArea : undefined}
+          id={textareaID}
+        />
+      </div>
       {error ? (
         <small className={styles.error} id={errorID}>
           {error}

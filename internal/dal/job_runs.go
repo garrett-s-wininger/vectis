@@ -34,36 +34,14 @@ func (r *SQLRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update Run
 		return fmt.Errorf("%w: run_id is required", ErrNotFound)
 	}
 
+	update.RunID = runID
+	if update.Status == RunStatusAborted {
+		update.Status = RunStatusCancelled
+	}
+
 	switch update.Status {
-	case RunStatusRunning:
-		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status})
-	case RunStatusSucceeded:
-		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status})
-	case RunStatusFailed:
-		return r.applyCatalogRunStatusUpdate(
-			ctx,
-			RunStatusUpdate{
-				RunID:       runID,
-				Status:      update.Status,
-				FailureCode: update.FailureCode,
-				Reason:      update.Reason,
-			},
-		)
-	case RunStatusCancelled:
-		return r.applyCatalogRunStatusUpdate(
-			ctx,
-			RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason},
-		)
-	case RunStatusAborted:
-		return r.applyCatalogRunStatusUpdate(
-			ctx,
-			RunStatusUpdate{RunID: runID, Status: RunStatusCancelled, Reason: update.Reason},
-		)
-	case RunStatusOrphaned:
-		return r.applyCatalogRunStatusUpdate(
-			ctx,
-			RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason},
-		)
+	case RunStatusQueued, RunStatusRunning, RunStatusSucceeded, RunStatusFailed, RunStatusCancelled, RunStatusOrphaned:
+		return r.applyCatalogRunStatusUpdate(ctx, update)
 	default:
 		return fmt.Errorf("%w: unsupported run status %s", ErrConflict, update.Status)
 	}
@@ -124,7 +102,13 @@ func (r *SQLRunsRepository) VerifyCatalogExecutionSourceCell(
 		FROM segment_executions se
 		JOIN job_runs jr ON jr.run_id = se.run_id
 		WHERE se.execution_id = ?
-	`), executionID).Scan(&cellID); err != nil {
+		UNION ALL
+		SELECT COALESCE(NULLIF(f.cell_id, ''), jr.owning_cell)
+		FROM run_task_attempt_facts f
+		JOIN job_runs jr ON jr.run_id = f.run_id
+		WHERE f.execution_id = ?
+		LIMIT 1
+	`), executionID, executionID).Scan(&cellID); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
 		}
@@ -167,6 +151,33 @@ func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upda
 }
 
 func applyExecutionStatusUpdateTx(ctx context.Context, tx *sql.Tx, update ExecutionStatusUpdate) error {
+	err := applyLiveExecutionStatusUpdateTx(ctx, tx, update)
+	if !IsNotFound(err) {
+		return err
+	}
+
+	var finalStatus string
+	lookupErr := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT status FROM run_task_attempt_facts WHERE execution_id = ?
+	`), update.ExecutionID).Scan(&finalStatus)
+
+	if errors.Is(lookupErr, sql.ErrNoRows) {
+		return err
+	}
+
+	if lookupErr != nil {
+		return normalizeSQLError(lookupErr)
+	}
+
+	if isTerminalExecutionStatus(update.Status) && update.Status != finalStatus {
+		return fmt.Errorf("%w: execution %s final status %s cannot become %s", ErrConflict,
+			update.ExecutionID, finalStatus, update.Status)
+	}
+
+	return nil
+}
+
+func applyLiveExecutionStatusUpdateTx(ctx context.Context, tx *sql.Tx, update ExecutionStatusUpdate) error {
 	switch update.Status {
 	case ExecutionStatusAccepted:
 		return transitionExecutionStatusTx(
@@ -277,6 +288,9 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(
 		return err
 	}
 
+	if err := archiveTerminalSnapshotAttemptsTx(ctx, tx, rows); err != nil {
+		return err
+	}
 	if err := insertTerminalSnapshotFinalFactsTx(ctx, tx, rows); err != nil {
 		return err
 	}
@@ -607,10 +621,10 @@ func insertTerminalSnapshotFinalFactsTx(ctx context.Context, tx *sql.Tx, rows []
 			execution_status = excluded.execution_status,
 			cell_id = excluded.cell_id,
 			attempt = excluded.attempt,
-			accepted_at_unix_nano = COALESCE(excluded.accepted_at_unix_nano, run_task_final_facts.accepted_at_unix_nano),
-			started_at_unix_nano = COALESCE(excluded.started_at_unix_nano, run_task_final_facts.started_at_unix_nano),
-			finished_at_unix_nano = COALESCE(excluded.finished_at_unix_nano, run_task_final_facts.finished_at_unix_nano),
-			last_observed_at = COALESCE(excluded.last_observed_at, run_task_final_facts.last_observed_at),
+			accepted_at_unix_nano = excluded.accepted_at_unix_nano,
+			started_at_unix_nano = excluded.started_at_unix_nano,
+			finished_at_unix_nano = excluded.finished_at_unix_nano,
+			last_observed_at = excluded.last_observed_at,
 			event_sequence = excluded.event_sequence,
 			updated_at = CURRENT_TIMESTAMP
 	`)
@@ -1252,6 +1266,20 @@ func (r *SQLRunsRepository) applyCatalogRunStatusUpdate(ctx context.Context, upd
 
 	runID := strings.TrimSpace(update.RunID)
 	targetStatus := strings.TrimSpace(update.Status)
+	if update.RootExecutionID != "" {
+		var currentRoot string
+		err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT execution_id FROM segment_executions
+		 WHERE run_id = ? AND task_id = ? ORDER BY attempt DESC, id DESC LIMIT 1`), runID, rootTaskID(runID)).Scan(&currentRoot)
+
+		if err != nil {
+			return normalizeSQLError(err)
+		}
+
+		if currentRoot != update.RootExecutionID {
+			return tx.Commit()
+		}
+	}
+
 	var currentStatus string
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).
 		Scan(&currentStatus); err != nil {
@@ -1278,6 +1306,10 @@ func (r *SQLRunsRepository) applyCatalogRunStatusUpdate(ctx context.Context, upd
 
 	var res sql.Result
 	switch targetStatus {
+	case RunStatusQueued:
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(
+			"UPDATE job_runs SET status = ? WHERE run_id = ? AND status = ?",
+		), RunStatusQueued, runID, currentStatus)
 	case RunStatusRunning:
 		res, err = tx.ExecContext(
 			ctx,
@@ -1625,6 +1657,10 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 		return err
 	}
 
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx("DELETE FROM run_task_final_facts WHERE run_id = ?"), runID); err != nil {
+		return normalizeSQLError(err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -1853,11 +1889,19 @@ func nextRootRetryAttemptTx(ctx context.Context, tx *sql.Tx, taskID, segmentID s
 }
 
 func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error) {
+	// Catalog projections have running statuses without execution leases. Missing
+	// ownership alone is not an expired lease; recovery requires local evidence
+	// that this database held execution ownership in the first place.
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT jr.run_id
 		FROM job_runs jr
 		WHERE jr.status = 'running'
 			AND (jr.lease_until IS NULL OR jr.lease_until < ?)
+			AND (
+				jr.lease_until IS NOT NULL
+				OR EXISTS (SELECT 1 FROM run_hot_state_owners h WHERE h.run_id = jr.run_id)
+				OR EXISTS (SELECT 1 FROM segment_executions se WHERE se.run_id = jr.run_id AND se.lease_until IS NOT NULL)
+			)
 			AND NOT EXISTS (
 				SELECT 1
 				FROM run_hot_state_owners h
@@ -1904,6 +1948,11 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 			WHERE run_id = ?
 				AND status = 'running'
 				AND (lease_until IS NULL OR lease_until < ?)
+				AND (
+					lease_until IS NOT NULL
+					OR EXISTS (SELECT 1 FROM run_hot_state_owners h WHERE h.run_id = job_runs.run_id)
+					OR EXISTS (SELECT 1 FROM segment_executions se WHERE se.run_id = job_runs.run_id AND se.lease_until IS NOT NULL)
+				)
 				AND NOT EXISTS (
 					SELECT 1
 					FROM run_hot_state_owners h
@@ -3830,6 +3879,10 @@ func (r *SQLRunsRepository) ListRunTasks(
 		out = out[:limit]
 	}
 
+	if err := r.attachRunTaskAttemptHistory(ctx, runID, out); err != nil {
+		return nil, 0, err
+	}
+
 	if err := r.attachExecutionSecurityEvents(ctx, runID, out); err != nil {
 		return nil, 0, err
 	}
@@ -4038,6 +4091,10 @@ func (r *SQLRunsRepository) listRunTaskFinalFacts(
 	if len(out) > limit {
 		nextCursor = out[limit-1].ID
 		out = out[:limit]
+	}
+
+	if err := r.attachRunTaskAttemptHistory(ctx, runID, out); err != nil {
+		return nil, 0, err
 	}
 
 	return out, nextCursor, nil
@@ -5102,7 +5159,11 @@ func ensureTaskExecutionTx(
 
 	cellID := normalizeTargetCellID(normalized.TargetCellID, owningCell)
 	taskID := taskIDForKey(normalized.RunID, normalized.TaskKey)
-	attempt := 1
+	attempt, err := currentRunAttemptNumberTx(ctx, tx, normalized.RunID)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
 	attemptID := taskAttemptID(taskID, attempt)
 	segmentID := taskSegmentID(taskID)
 	executionID := taskExecutionID(attemptID)
@@ -5314,6 +5375,11 @@ func plannedTaskExecutionBatchRowsTx(
 		return nil, err
 	}
 
+	attempt, err := currentRunAttemptNumberTx(ctx, tx, runID)
+	if err != nil {
+		return nil, err
+	}
+
 	rows := make([]plannedTaskExecutionBatchRow, 0, len(normalized))
 	for _, n := range normalized {
 		parentTaskID := n.ParentTaskID
@@ -5323,7 +5389,6 @@ func plannedTaskExecutionBatchRowsTx(
 
 		cellID := normalizeTargetCellID(n.TargetCellID, owningCell)
 		taskID := taskIDForKey(n.RunID, n.TaskKey)
-		attempt := 1
 		attemptID := taskAttemptID(taskID, attempt)
 		segmentID := taskSegmentID(taskID)
 		executionID := taskExecutionID(attemptID)
@@ -5685,6 +5750,15 @@ func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
+			AND EXISTS (
+				SELECT 1 FROM segment_executions se
+				JOIN run_segments rs ON rs.segment_id = se.segment_id
+				JOIN run_tasks rt ON rt.task_id = se.task_id
+				JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id
+				WHERE se.run_id = job_runs.run_id
+					AND se.status = 'pending' AND rs.status = 'pending'
+					AND rt.status = 'pending' AND ta.status = 'pending'
+			)
 			AND NOT EXISTS (
 				SELECT 1
 				FROM run_hot_state_owners h
@@ -5692,6 +5766,7 @@ func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(
 					AND h.lease_until >= ?
 			)
 		ORDER BY id ASC`
+
 	args := []any{cutoffUnix, cutoffUnix}
 	if limit > 0 {
 		query += " LIMIT ?"

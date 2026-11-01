@@ -1,10 +1,13 @@
 package api
 
 import (
+	"encoding/json"
+	"google.golang.org/protobuf/proto"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	api "vectis/api/gen/go"
 )
 
 func TestParseLogReplayRequestSinceAndBounds(t *testing.T) {
@@ -70,5 +73,17 @@ func TestFormatSSEDataEventIncludesSequenceID(t *testing.T) {
 	want := "id: 7\ndata: {\"data\":\"x\"}\n\n"
 	if got != want {
 		t.Fatalf("event = %q, want %q", got, want)
+	}
+}
+
+func TestFormatLogChunkSSEPreservesExecutionIdentity(t *testing.T) {
+	data := formatLogChunkSSE(&api.LogChunk{ExecutionId: proto.String("execution-1"), Data: []byte("hello")})
+	var entry map[string]any
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatal(err)
+	}
+
+	if entry["execution_id"] != "execution-1" || entry["data"] != "hello" {
+		t.Fatalf("entry = %#v", entry)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"strings"
 	"sync"
@@ -130,7 +131,9 @@ func (s *ShellServer) StreamLogs(stream api.WorkerCoreShellService_StreamLogsSer
 			return err
 		}
 
-		if err := logStream.Send(msg.GetChunk()); err != nil {
+		chunk := proto.Clone(msg.GetChunk()).(*api.LogChunk)
+		chunk.ExecutionId = proto.String(session.SessionID())
+		if err := logStream.Send(chunk); err != nil {
 			return status.Errorf(codes.Unavailable, "forward shell log chunk: %v", err)
 		}
 	}

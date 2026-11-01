@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -3193,7 +3194,36 @@ func (s *APIServer) orchestratorRunTaskRows(
 		return nil, 0, false
 	}
 
-	return runTaskRowsFromOrchestratorExecutions(resp.GetExecutions()), resp.GetNextCursor(), true
+	tasks := runTaskRowsFromOrchestratorExecutions(resp.GetExecutions())
+	ids := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		ids = append(ids, task.TaskID)
+	}
+
+	history, err := s.runs.ListRunTaskAttemptHistory(ctx, runID, ids)
+	if err != nil {
+		s.logger.Warn("Task attempt history read for run %s failed; falling back to database: %v", runID, err)
+		return nil, 0, false
+	}
+
+	historyRows := runTaskRowsFromRecords([]dal.TaskRecord{{Attempts: history}})[0].Attempts
+	for i := range tasks {
+		seen := map[string]bool{}
+		for _, attempt := range tasks[i].Attempts {
+			seen[attempt.AttemptID] = true
+		}
+
+		for _, attempt := range historyRows {
+			if attempt.TaskID == tasks[i].TaskID && !seen[attempt.AttemptID] {
+				tasks[i].Attempts = append(tasks[i].Attempts, attempt)
+				seen[attempt.AttemptID] = true
+			}
+		}
+
+		sort.Slice(tasks[i].Attempts, func(a, b int) bool { return tasks[i].Attempts[a].Attempt < tasks[i].Attempts[b].Attempt })
+	}
+
+	return tasks, resp.GetNextCursor(), true
 }
 
 func runTaskRowsFromRecords(taskRecords []dal.TaskRecord) []runTaskRow {

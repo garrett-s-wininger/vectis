@@ -22,3 +22,16 @@
   flex-wrap: wrap;
   gap: var(--space-sm);
 }
+
+.fileImport {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.fileImport span {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}

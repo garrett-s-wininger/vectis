@@ -76,7 +76,7 @@ func TestBackfillProcessorRecordsMissingRunAndExecutionEvents(t *testing.T) {
 	}
 
 	wantKeys := map[string]bool{
-		cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning):                            true,
+		cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning, dispatch.ExecutionID):      true,
 		cell.CatalogExecutionStatusEventKey(dispatch.ExecutionID, dal.ExecutionStatusRunning): true,
 		dal.ExecutionSecurityEventKey(dal.RecordExecutionSecurityEventParams{
 			RunID:         runID,

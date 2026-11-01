@@ -14,6 +14,7 @@ const (
 	recordHeaderSize = 40
 
 	recordFlagTimestamp = 1
+	recordFlagExecution = 2
 
 	maxPooledBatchBufferSize = 4 << 20
 )
@@ -29,6 +30,7 @@ type Buffer struct {
 }
 
 type Record struct {
+	ExecutionID  string
 	RunID        string
 	Data         []byte
 	Sequence     int64
@@ -92,13 +94,17 @@ func appendChunks(buf []byte, chunks []*api.LogChunk) ([]byte, error) {
 
 		runID := chunk.GetRunId()
 		data := chunk.GetData()
-		bodyLen := uint32(recordHeaderSize + len(runID) + len(data))
+		bodyLen := uint32(recordHeaderSize + len(runID) + len(data) + len(chunk.GetExecutionId()))
 		buf = binary.LittleEndian.AppendUint32(buf, bodyLen)
 		buf = binary.LittleEndian.AppendUint64(buf, uint64(chunk.GetSequence()))
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(chunk.GetStream()))
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(chunk.GetCompleted()))
 
 		var flags uint32
+		if chunk.GetExecutionId() != "" {
+			flags |= recordFlagExecution
+		}
+
 		var seconds int64
 		var nanos int32
 		if ts := chunk.GetTimestamp(); ts != nil {
@@ -114,6 +120,7 @@ func appendChunks(buf []byte, chunks []*api.LogChunk) ([]byte, error) {
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(data)))
 		buf = append(buf, runID...)
 		buf = append(buf, data...)
+		buf = append(buf, chunk.GetExecutionId()...)
 	}
 
 	return buf, nil
@@ -144,11 +151,16 @@ func DecodeRecords(payload []byte, handle func(Record) error) error {
 
 		runIDLen := int(binary.LittleEndian.Uint32(body[32:36]))
 		dataLen := int(binary.LittleEndian.Uint32(body[36:40]))
-		if runIDLen < 0 || dataLen < 0 || recordHeaderSize+runIDLen+dataLen != bodyLen {
+		if runIDLen < 0 || dataLen < 0 || recordHeaderSize+runIDLen+dataLen > bodyLen {
 			return fmt.Errorf("log batch record run/data lengths do not match body length")
 		}
 
 		flags := binary.LittleEndian.Uint32(body[28:32])
+		payloadEnd := recordHeaderSize + runIDLen + dataLen
+		if (flags&recordFlagExecution == 0 && payloadEnd != bodyLen) || (flags&recordFlagExecution != 0 && payloadEnd == bodyLen) {
+			return fmt.Errorf("log batch execution identity length does not match flags")
+		}
+
 		seconds := int64(binary.LittleEndian.Uint64(body[16:24]))
 		nanos := int32(binary.LittleEndian.Uint32(body[24:28]))
 		if nanos < 0 || nanos >= int32(time.Second/time.Nanosecond) {
@@ -164,6 +176,10 @@ func DecodeRecords(payload []byte, handle func(Record) error) error {
 			Sequence:  int64(binary.LittleEndian.Uint64(body[0:8])),
 			Stream:    api.Stream(int32(binary.LittleEndian.Uint32(body[8:12]))),
 			Completed: api.RunOutcome(int32(binary.LittleEndian.Uint32(body[12:16]))),
+		}
+
+		if flags&recordFlagExecution != 0 {
+			record.ExecutionID = string(body[dataEnd:])
 		}
 
 		if flags&recordFlagTimestamp != 0 {
@@ -187,7 +203,7 @@ func recordsSize(chunks []*api.LogChunk) (int, error) {
 			return 0, fmt.Errorf("log batch contains nil chunk")
 		}
 
-		bodyLen := uint64(recordHeaderSize) + uint64(len(chunk.GetRunId())) + uint64(len(chunk.GetData()))
+		bodyLen := uint64(recordHeaderSize) + uint64(len(chunk.GetRunId())) + uint64(len(chunk.GetData())) + uint64(len(chunk.GetExecutionId()))
 		if bodyLen > uint64(^uint32(0)) {
 			return 0, fmt.Errorf("log batch record length %d exceeds binary record limit", bodyLen)
 		}

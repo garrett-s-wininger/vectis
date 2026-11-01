@@ -30,7 +30,7 @@ const (
 
 	minVectoredLogEntryRecordWriteSize = 256 << 10
 	maxLogEntryRecordWritevSegments    = 1024
-	maxLogEntryRecordWritevEntries     = maxLogEntryRecordWritevSegments / 3
+	maxLogEntryRecordWritevEntries     = maxLogEntryRecordWritevSegments / 4
 )
 
 var logEntryRecordBufferPool = sync.Pool{
@@ -289,7 +289,7 @@ func logEntryRecordsSize(entries []LogEntry) (int, error) {
 	var total int
 	maxInt := uint64(int(^uint(0) >> 1))
 	for _, entry := range entries {
-		bodyLen := uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data))
+		bodyLen := uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)) + uint64(logEntryExecutionSize(entry))
 		if bodyLen > uint64(^uint32(0)) {
 			return 0, fmt.Errorf("marshal log entry: data length %d exceeds binary record limit", len(entry.Data))
 		}
@@ -356,7 +356,7 @@ func releaseLogEntryRecordWritevBuffer(records *logEntryRecordWritevBuffer) {
 
 func appendLogEntryRecords(buf []byte, entries []LogEntry) []byte {
 	for _, entry := range entries {
-		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)))
+		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)) + uint64(logEntryExecutionSize(entry)))
 		buf = binary.LittleEndian.AppendUint32(buf, bodyLen)
 		buf = binary.LittleEndian.AppendUint64(buf, uint64(entry.Timestamp.Unix()))
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(entry.Timestamp.Nanosecond()))
@@ -365,6 +365,12 @@ func appendLogEntryRecords(buf []byte, entries []LogEntry) []byte {
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(entry.Completed))
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(entry.Data)))
 		buf = append(buf, entry.Data...)
+
+		if entry.ExecutionID != "" {
+			buf = append(buf, "VEX1"...)
+			buf = append(buf, entry.ExecutionID...)
+		}
+
 		buf = binary.LittleEndian.AppendUint32(buf, bodyLen)
 	}
 
@@ -425,7 +431,7 @@ func appendLogEntryRecordIovs(records *logEntryRecordWritevBuffer, entries []Log
 
 	for i := range entries {
 		entry := entries[i]
-		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)))
+		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)) + uint64(logEntryExecutionSize(entry)))
 		fixedOffset := i * logEntryRecordFixedSize
 		prefixHeader := records.fixed[fixedOffset : fixedOffset+logEntryRecordLengthSize+logEntryRecordHeaderSize]
 		footer := records.fixed[fixedOffset+logEntryRecordLengthSize+logEntryRecordHeaderSize : fixedOffset+logEntryRecordFixedSize]
@@ -444,8 +450,12 @@ func appendLogEntryRecordIovs(records *logEntryRecordWritevBuffer, entries []Log
 			records.batch.appendBytes(entry.Data)
 		}
 
+		if entry.ExecutionID != "" {
+			records.batch.appendBytes(append([]byte("VEX1"), entry.ExecutionID...))
+		}
+
 		records.batch.appendBytes(footer)
-		written += len(prefixHeader) + len(entry.Data) + len(footer)
+		written += len(prefixHeader) + len(entry.Data) + logEntryExecutionSize(entry) + len(footer)
 	}
 
 	return written
@@ -644,12 +654,23 @@ func decodeLogEntryRecordBody(body []byte) (LogEntry, error) {
 	}
 
 	dataLen := binary.LittleEndian.Uint32(body[28:32])
-	if dataLen != uint32(len(body)-logEntryRecordHeaderSize) {
+	if dataLen > uint32(len(body)-logEntryRecordHeaderSize) {
 		return LogEntry{}, fmt.Errorf(
 			"record data length %d does not match body payload length %d",
 			dataLen,
 			len(body)-logEntryRecordHeaderSize,
 		)
+	}
+
+	dataEnd := logEntryRecordHeaderSize + int(dataLen)
+	executionID := ""
+	if dataEnd != len(body) {
+		extension := body[dataEnd:]
+		if len(extension) <= 4 || string(extension[:4]) != "VEX1" {
+			return LogEntry{}, fmt.Errorf("invalid log execution identity extension")
+		}
+
+		executionID = string(extension[4:])
 	}
 
 	nsec := binary.LittleEndian.Uint32(body[8:12])
@@ -658,11 +679,12 @@ func decodeLogEntryRecordBody(body []byte) (LogEntry, error) {
 	}
 
 	return LogEntry{
-		Timestamp: time.Unix(int64(binary.LittleEndian.Uint64(body[0:8])), int64(nsec)).UTC(),
-		Stream:    api.Stream(int32(binary.LittleEndian.Uint32(body[12:16]))),
-		Sequence:  int64(binary.LittleEndian.Uint64(body[16:24])),
-		Data:      body[logEntryRecordHeaderSize:],
-		Completed: api.RunOutcome(int32(binary.LittleEndian.Uint32(body[24:28]))),
+		Timestamp:   time.Unix(int64(binary.LittleEndian.Uint64(body[0:8])), int64(nsec)).UTC(),
+		Stream:      api.Stream(int32(binary.LittleEndian.Uint32(body[12:16]))),
+		Sequence:    int64(binary.LittleEndian.Uint64(body[16:24])),
+		Data:        body[logEntryRecordHeaderSize:dataEnd],
+		ExecutionID: executionID,
+		Completed:   api.RunOutcome(int32(binary.LittleEndian.Uint32(body[24:28]))),
 	}, nil
 }
 
@@ -968,4 +990,12 @@ func readLogEntryRecordBefore(f *os.File, pos int64) (LogEntry, int64, error) {
 func (s *LocalRunLogStore) runPath(runID string) string {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(runID))
 	return filepath.Join(s.baseDir, encoded+".vlog")
+}
+
+func logEntryExecutionSize(entry LogEntry) int {
+	if entry.ExecutionID == "" {
+		return 0
+	}
+
+	return 4 + len(entry.ExecutionID)
 }

@@ -1,4 +1,4 @@
-import { parseRunLogEvent } from "./runLogs";
+import { parseRunLogEvent, streamRunLogs } from "./runLogs";
 
 describe("run logs", () => {
   it("parses stdout log events", () => {
@@ -33,5 +33,51 @@ describe("run logs", () => {
   it("ignores malformed events", () => {
     expect(parseRunLogEvent("{bad")).toBeNull();
     expect(parseRunLogEvent(JSON.stringify({ sequence: 1 }))).toBeNull();
+  });
+});
+
+describe("log stream completion", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps the run stream open after a task finishes", () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    const sources: FakeSource[] = [];
+    const close = vi.fn();
+
+    class FakeSource {
+      onmessage?: (event: { data: string }) => void;
+      onerror?: () => void;
+      close = close;
+      constructor() {
+        sources.push(this);
+      }
+    }
+
+    vi.stubGlobal("EventSource", FakeSource);
+    const onEntry = vi.fn();
+    const stop = streamRunLogs("run-1", onEntry, vi.fn());
+    sources[0].onmessage!({
+      data: JSON.stringify({ stream: 2, execution_id: "execution-1", data: '{"event":"completed"}' })
+    });
+
+    expect(close).not.toHaveBeenCalled();
+
+    sources[0].onmessage!({ data: JSON.stringify({ stream: 0, execution_id: "execution-2", data: "later output" }) });
+    expect(onEntry).toHaveBeenCalledWith(expect.objectContaining({ executionID: "execution-2", data: "later output" }));
+
+    sources[0].onmessage!({ data: JSON.stringify({ stream: 2, data: '{"event":"completed"}' }) });
+    expect(close).toHaveBeenCalledOnce();
+
+    stop();
+  });
+
+  it("rejects null events and preserves execution IDs", () => {
+    expect(parseRunLogEvent("null")).toBeNull();
+    expect(parseRunLogEvent(JSON.stringify({ data: "x", execution_id: "execution-1" }))).toMatchObject({
+      executionID: "execution-1"
+    });
   });
 });

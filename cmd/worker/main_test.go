@@ -1973,7 +1973,7 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 			key:       cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted),
 			eventType: cell.CatalogEventTypeExecutionStatus,
 		},
-		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), eventType: cell.CatalogEventTypeRunStatus},
+		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning, env.RunAttemptExecutionID()), eventType: cell.CatalogEventTypeRunStatus},
 		{
 			key:       cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusRunning),
 			eventType: cell.CatalogEventTypeExecutionStatus,
@@ -1982,7 +1982,7 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 			key:       cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusSucceeded),
 			eventType: cell.CatalogEventTypeExecutionStatus,
 		},
-		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusSucceeded), eventType: cell.CatalogEventTypeRunStatus},
+		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusSucceeded, env.RunAttemptExecutionID()), eventType: cell.CatalogEventTypeRunStatus},
 	}
 
 	if len(events) != len(wantEvents) {
@@ -3257,7 +3257,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	var terminalSnapshotEvents int
 	for _, event := range events {
 		if event.EventType == cell.CatalogEventTypeTerminalSnapshot &&
-			event.EventKey == cell.CatalogTerminalSnapshotEventKey(runID) {
+			strings.HasPrefix(event.EventKey, cell.CatalogTerminalSnapshotEventKey(runID)+":") {
 			terminalSnapshotEvents++
 		}
 	}
@@ -4845,7 +4845,7 @@ func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 		t.Fatalf("list catalog events: %v", err)
 	}
 
-	wantKey := cell.CatalogRunStatusEventKey(runID, dal.RunStatusCancelled)
+	wantKey := cell.CatalogRunStatusEventKey(runID, dal.RunStatusCancelled, env.RunAttemptExecutionID())
 	found := false
 	for _, event := range events {
 		if event.EventKey == wantKey {

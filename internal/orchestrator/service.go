@@ -802,7 +802,17 @@ func buildRunState(spec RunSpec) (*runState, error) {
 		},
 	}
 
-	rootRecord, err := rootTaskExecutionRecord(runID, cellID, spec.Root)
+	rootInput := spec.Root
+	if rootInput.ExecutionID == "" {
+		for _, snapshot := range spec.Executions {
+			if snapshot.Record.TaskKey == dal.RootTaskKey {
+				rootInput = snapshot.Record
+				break
+			}
+		}
+	}
+
+	rootRecord, err := rootTaskExecutionRecord(runID, cellID, rootInput)
 	if err != nil {
 		return nil, err
 	}
@@ -817,7 +827,7 @@ func buildRunState(spec RunSpec) (*runState, error) {
 	run.addTask(dal.RootTaskKey, root)
 	for _, task := range normalized {
 		taskState := &taskState{
-			record:        taskExecutionRecord(runID, task.TaskKey, task.ParentTaskKey, task.Name, task.CellID),
+			record:        taskExecutionRecordForAttempt(runID, task.TaskKey, task.ParentTaskKey, task.Name, task.CellID, rootRecord.Attempt),
 			status:        dal.ExecutionStatusPlanned,
 			uses:          task.Uses,
 			parentTaskKey: task.ParentTaskKey,
@@ -1435,9 +1445,16 @@ func isTerminalFinalizationOutcome(outcome dal.ExecutionFinalizationOutcome) boo
 }
 
 func taskExecutionRecord(runID, taskKey, parentTaskKey, name, cellID string) dal.TaskExecutionRecord {
+	return taskExecutionRecordForAttempt(runID, taskKey, parentTaskKey, name, cellID, 1)
+}
+
+func taskExecutionRecordForAttempt(runID, taskKey, parentTaskKey, name, cellID string, attempt int) dal.TaskExecutionRecord {
 	taskID := runID + ":" + taskKey
-	attempt := 1
-	attemptID := taskID + ":attempt:1"
+	if attempt < 1 {
+		attempt = 1
+	}
+
+	attemptID := fmt.Sprintf("%s:attempt:%d", taskID, attempt)
 	parentTaskID := ""
 	if parentTaskKey != "" {
 		parentTaskID = runID + ":" + parentTaskKey

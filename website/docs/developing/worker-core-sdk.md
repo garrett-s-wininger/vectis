@@ -99,7 +99,7 @@ stream, err := task.Session.OpenLogStream(ctx)
 artifact, err := task.Session.PublishArtifact(ctx, workercore.ArtifactRequest{...})
 ```
 
-Only use these helpers when `task.Session.LogsEnabled()` or `task.Session.ArtifactsEnabled()` is true. The shell validates the session ID and forwards logs/artifacts through Vectis-owned services.
+Only use these helpers when `task.Session.LogsEnabled()` or `task.Session.ArtifactsEnabled()` is true. The shell validates the session ID and forwards logs/artifacts through Vectis-owned services. It stamps each log chunk with the session execution ID, overriding any execution ID supplied by the core. The in-process core applies the same attribution before durable spooling. `LogChunk.execution_id` is additive; custom cores do not need to populate it. Completion records with an execution ID describe one attempt, while run-wide completion has no execution ID.
 
 ## Serving A Core
 

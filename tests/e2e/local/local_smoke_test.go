@@ -366,7 +366,12 @@ func e2eBinaryPath(t *testing.T, root, envKey, binary string) string {
 func shortTempDir(t *testing.T, pattern string) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/private/tmp", pattern)
+	base := "/tmp"
+	if runtime.GOOS == "darwin" {
+		base = "/private/tmp"
+	}
+
+	dir, err := os.MkdirTemp(base, pattern) //nolint:usetesting // Unix socket paths require a short, fixed temporary base.
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}

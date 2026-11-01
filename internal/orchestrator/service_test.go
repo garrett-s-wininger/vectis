@@ -902,3 +902,43 @@ func orchestratorTestRecord(runID, taskKey, parentTaskKey, name, cellID string) 
 		Attempt:       1,
 	}
 }
+
+func TestRetriedRunAllocatesDistinctChildAttempts(t *testing.T) {
+	for _, snapshotOnly := range []bool{false, true} {
+		t.Run(fmt.Sprintf("snapshot_only_%v", snapshotOnly), func(t *testing.T) {
+			ctx := context.Background()
+			svc := orchestrator.New(1)
+			t.Cleanup(svc.Close)
+
+			root := orchestratorTestRecord("retry-generation", dal.RootTaskKey, "", dal.RootTaskKey, "local")
+			root.Attempt = 2
+			root.TaskAttemptID = root.TaskID + ":attempt:2"
+			root.ExecutionID = root.TaskAttemptID + ":execution"
+			spec := orchestrator.RunSpec{RunID: root.RunID, CellID: "local", Tasks: []orchestrator.TaskSpec{{TaskKey: "child", ParentTaskKey: dal.RootTaskKey, Name: "child"}}}
+
+			if snapshotOnly {
+				spec.Executions = []orchestrator.TaskExecutionSnapshot{{Record: root, Status: dal.ExecutionStatusPending}}
+			} else {
+				spec.Root = root
+			}
+
+			if _, err := svc.LoadRun(ctx, spec); err != nil {
+				t.Fatal(err)
+			}
+
+			snapshot, err := svc.GetRunTaskSnapshot(ctx, root.RunID, 0, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(snapshot.Executions) != 2 {
+				t.Fatalf("snapshot: %+v", snapshot)
+			}
+
+			child := snapshot.Executions[1].Record
+			if child.Attempt != 2 || child.TaskAttemptID != child.TaskID+":attempt:2" || child.ExecutionID != child.TaskAttemptID+":execution" {
+				t.Fatalf("child reused old identity: %+v", child)
+			}
+		})
+	}
+}

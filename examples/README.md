@@ -11,6 +11,7 @@ Start with `sequenced.json`. Each later file adds one control-flow idea. The def
 | File | What it shows | What you should see |
 | --- | --- | --- |
 | `sequenced.json` | `builtins/sequence` runs three `builtins/script` steps in order. | Three log lines, then a succeeded run. |
+| `log-viewer.json` | Distributed tasks with stdout, stderr, split writes, and an intentional failure. | A failed run by design. Inspect each task in the UI; `not-reached` has no execution. |
 | `parallel.json` | A local sequence with a distributed `builtins/parallel` branch for unit tests and lint. | `Preparing workspace`, both check lines, then `All checks complete`. |
 | `conditional.json` | `builtins/if` runs `then` when `deploy.changed` exists and `else` otherwise. | `No deploy changes detected`. A fresh workspace has no `deploy.changed` file, so the else branch runs. |
 | `fallback.json` | `builtins/fallback` tries choices in order and keeps the first success. | `running portable fallback build`. `./preferred-build.sh` is absent, so the first choice fails and the second runs. |
@@ -64,3 +65,31 @@ Kubernetes harness details are in [deploy/kubernetes/README.md](../deploy/kubern
 ## Worker core sample
 
 `worker-core-external/` is a small Go program that serves a worker core over a Unix socket. The walkthrough is in [Worker Core SDK](../website/docs/developing/worker-core-sdk.md). The Kubernetes-backed core lives under `extensions/worker-core/`.
+
+## Exercise The Log Viewer
+
+After restarting the updated local stack, open **Runs → Run Once → Load JSON file**, select `examples/log-viewer.json`, review the definition, and click **Submit run**.
+
+You can also submit it from the repository root:
+
+```sh
+./bin/vectis-cli jobs run examples/log-viewer.json --follow
+```
+
+Open **Runs**, select `log-viewer-demo`, and select tasks in the graph. The run deliberately fails with exit code 7 after both parallel tasks finish; `not-reached` remains without an execution attempt.
+
+- **stdout-demo:** each message occupies its own line. `a line written in two parts` must remain one line despite two writes separated by a one-second pause.
+- **stderr-demo:** warning lines appear in the stderr color, and the task's stdout remains readable.
+- **intentional-failure:** its failure messages belong only to that task's selected output.
+- **not-reached:** shows the no-execution empty state.
+- **All run output:** includes messages from every executed task. Parallel task order can vary.
+
+This demo needs only `sh` and `sleep`; it does not use network services, secrets, or extra action manifests. Its first dispatch creates one attempt per executed task. To exercise the attempt selector, wait for the deliberate failure, copy its run ID from the UI, and requeue that **same run**:
+
+```sh
+./bin/vectis-cli runs repair mark-queued RUN_ID --reason "Exercise log viewer attempt history"
+```
+
+The reconciler dispatches it again. Once it finishes, refresh the same run page and select `stdout-demo`, `stderr-demo`, or `intentional-failure`. **Attempt** now offers attempts 1 and 2, plus **All attempts**; switching attempts changes the execution ID and limits output to that execution. The second dispatch deliberately fails too. Submitting the JSON again creates a different run and does not add attempts to the original.
+
+This uses the operator repair path to exercise redispatch, not an automatic workflow retry policy. A `builtins/retry` loop inside an action remains one execution attempt. Compaction retains attempt identities, outcomes, and timing until the run is deleted; log availability separately follows the log retention window.

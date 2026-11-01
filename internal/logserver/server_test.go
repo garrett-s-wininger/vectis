@@ -118,12 +118,17 @@ func (s *fakeStreamLogsServer) RecvMsg(any) error {
 }
 
 type fakeGetLogsServer struct {
+	onSend func(*api.LogChunk)
 	ctx    context.Context
 	chunks []*api.LogChunk
 }
 
 func (s *fakeGetLogsServer) Send(chunk *api.LogChunk) error {
 	s.chunks = append(s.chunks, chunk)
+	if s.onSend != nil {
+		s.onSend(chunk)
+	}
+
 	return nil
 }
 

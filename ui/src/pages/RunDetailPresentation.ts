@@ -42,7 +42,13 @@ export function runTasksForDisplay(run: RunListItem): RunTaskDisplayNode[] {
     return depth;
   }
 
-  return tasks.map((task) => ({ ...task, depth: depthFor(task) })).sort((left, right) => left.depth - right.depth);
+  return tasks
+    .map((task) => ({
+      ...task,
+      attempts: task.attempts.filter((attempt) => (attempt.executionStatus ?? attempt.status) !== "planned"),
+      depth: depthFor(task)
+    }))
+    .sort((left, right) => left.depth - right.depth);
 }
 
 export function preferredRunTaskID(tasks: RunTaskDisplayNode[]) {
@@ -186,18 +192,6 @@ export function runTimelineEvents(run: RunListItem): RunTimelineEvent[] {
       ...timingParts(finishedAt, startedAt ?? acceptedAt)
     }
   ];
-}
-
-export function runLogLines(run: RunListItem) {
-  if (run.status === "queued") {
-    return [`accepted ${run.jobName}`, "waiting for queue dispatch"];
-  }
-
-  if (run.status === "running") {
-    return [`accepted ${run.jobName}`, `worker claimed run on ${run.cellName ?? "cell"}`, "streaming output"];
-  }
-
-  return [`accepted ${run.jobName}`, "finished execution"];
 }
 
 function fallbackRootTask(run: RunListItem): RunTaskItem {

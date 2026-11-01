@@ -23,8 +23,10 @@ const (
 )
 
 const (
-	getLogsReplayLimitMetadata = "vectis-log-replay-limit"
-	getLogsTailMetadata        = "vectis-log-tail"
+	getLogsReplayLimitMetadata   = "vectis-log-replay-limit"
+	getLogsTailMetadata          = "vectis-log-tail"
+	getLogsActiveRunMetadata     = "vectis-log-active-run"
+	getLogsRootExecutionMetadata = "vectis-log-root-execution-id"
 )
 
 func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
@@ -136,6 +138,35 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	status, found, err := s.runs.GetRunStatus(ctx, runID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	replay.ActiveRun = found && (status == dal.RunStatusQueued || status == dal.RunStatusRunning || status == dal.RunStatusOrphaned)
+	rootAttempts, err := s.runs.ListRunTaskAttemptHistory(ctx, runID, []string{runID + ":" + dal.RootTaskKey})
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	var latestAttempt int
+	for _, attempt := range rootAttempts {
+		if attempt.Attempt > latestAttempt {
+			latestAttempt = attempt.Attempt
+			replay.RootExecutionID = attempt.ExecutionID
+		}
+	}
+
 	s.streamRunLogs(w, r, runID, replay)
 }
 
@@ -167,6 +198,13 @@ func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID 
 		getLogsReplayLimitMetadata, strconv.Itoa(replay.ReplayLimit),
 	)
 
+	if replay.RootExecutionID != "" {
+		logCtx = metadata.AppendToOutgoingContext(logCtx, getLogsRootExecutionMetadata, replay.RootExecutionID)
+	}
+
+	if replay.ActiveRun {
+		logCtx = metadata.AppendToOutgoingContext(logCtx, getLogsActiveRunMetadata, "true")
+	}
 	if replay.Tail > 0 {
 		logCtx = metadata.AppendToOutgoingContext(logCtx, getLogsTailMetadata, strconv.Itoa(replay.Tail))
 	}
@@ -193,7 +231,7 @@ func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID 
 		}
 		flusher.Flush()
 
-		if chunk.GetCompleted() != api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
+		if chunk.GetExecutionId() == "" && chunk.GetCompleted() != api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
 			sawCompletion = true
 		}
 	}
@@ -244,9 +282,11 @@ func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID 
 }
 
 type logReplayRequest struct {
-	SinceSequence int64
-	Tail          int
-	ReplayLimit   int
+	RootExecutionID string
+	ActiveRun       bool
+	SinceSequence   int64
+	Tail            int
+	ReplayLimit     int
 }
 
 func parseLogReplayRequest(w http.ResponseWriter, r *http.Request) (logReplayRequest, bool) {
@@ -338,17 +378,19 @@ func formatLogChunkSSE(chunk *api.LogChunk) []byte {
 
 	data := string(chunk.GetData())
 	b, err := json.Marshal(struct {
-		Timestamp string         `json:"timestamp"`
-		Stream    api.Stream     `json:"stream"`
-		Sequence  int64          `json:"sequence"`
-		Data      string         `json:"data"`
-		Completed api.RunOutcome `json:"completed,omitempty"`
+		ExecutionID string         `json:"execution_id,omitempty"`
+		Timestamp   string         `json:"timestamp"`
+		Stream      api.Stream     `json:"stream"`
+		Sequence    int64          `json:"sequence"`
+		Data        string         `json:"data"`
+		Completed   api.RunOutcome `json:"completed,omitempty"`
 	}{
-		Timestamp: ts,
-		Stream:    chunk.GetStream(),
-		Sequence:  chunk.GetSequence(),
-		Data:      data,
-		Completed: chunk.GetCompleted(),
+		ExecutionID: chunk.GetExecutionId(),
+		Timestamp:   ts,
+		Stream:      chunk.GetStream(),
+		Sequence:    chunk.GetSequence(),
+		Data:        data,
+		Completed:   chunk.GetCompleted(),
 	})
 
 	if err != nil {

@@ -37,6 +37,8 @@ Ephemeral runs follow the same execution path, except the job definition is subm
 
 In a split global/cell deployment, steps 5 through 9 happen against the cell-local database and queue. `vectis-catalog` can backfill missing cell catalog events from observed cell-local state, fan in pending catalog events from configured cell databases, then apply them to the global database.
 
+Only the owning cell's database supplies backfilled execution events. The global projection does not carry the cell's live execution leases or full active task graph, so a running status without a local lease is not evidence of an expired execution. Reconciliation redispatches durable pending executions; accepted executions and hot task continuations remain under cell ownership until the cell publishes their results.
+
 ## Component Diagram
 
 ```mermaid

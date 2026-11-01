@@ -806,17 +806,16 @@ func (x *RenewExecutionLeaseRequest) GetLeaseUntilUnixNano() int64 {
 }
 
 type CompleteExecutionRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Convert a completed continuation to cancellation after durable intent is observed.
-	CancelContinuation *bool   `protobuf:"varint,8,opt,name=cancel_continuation,json=cancelContinuation" json:"cancel_continuation,omitempty"`
-	RootExecutionId    *string `protobuf:"bytes,9,opt,name=root_execution_id,json=rootExecutionId" json:"root_execution_id,omitempty"`
-	RunId              *string `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	ExecutionId        *string `protobuf:"bytes,2,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
-	Owner              *string `protobuf:"bytes,3,opt,name=owner" json:"owner,omitempty"`
-	ClaimToken         *string `protobuf:"bytes,4,opt,name=claim_token,json=claimToken" json:"claim_token,omitempty"`
-	Status             *string `protobuf:"bytes,5,opt,name=status" json:"status,omitempty"`
-	FailureCode        *string `protobuf:"bytes,6,opt,name=failure_code,json=failureCode" json:"failure_code,omitempty"`
-	Reason             *string `protobuf:"bytes,7,opt,name=reason" json:"reason,omitempty"`
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	CancelContinuation *bool                  `protobuf:"varint,8,opt,name=cancel_continuation,json=cancelContinuation" json:"cancel_continuation,omitempty"`
+	RootExecutionId    *string                `protobuf:"bytes,9,opt,name=root_execution_id,json=rootExecutionId" json:"root_execution_id,omitempty"`
+	RunId              *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	ExecutionId        *string                `protobuf:"bytes,2,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
+	Owner              *string                `protobuf:"bytes,3,opt,name=owner" json:"owner,omitempty"`
+	ClaimToken         *string                `protobuf:"bytes,4,opt,name=claim_token,json=claimToken" json:"claim_token,omitempty"`
+	Status             *string                `protobuf:"bytes,5,opt,name=status" json:"status,omitempty"`
+	FailureCode        *string                `protobuf:"bytes,6,opt,name=failure_code,json=failureCode" json:"failure_code,omitempty"`
+	Reason             *string                `protobuf:"bytes,7,opt,name=reason" json:"reason,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }

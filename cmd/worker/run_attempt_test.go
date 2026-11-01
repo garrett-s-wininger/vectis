@@ -69,9 +69,9 @@ func TestWorkerReportsCannotMutateRetry(t *testing.T) {
 					t.Fatalf("stale claim completion error: %v", err)
 				}
 			case "orphan":
-				err = w.markRunOrphanedWithRetry(env, dal.OrphanReasonAckUncertain)
+				err = w.markRunOrphanedWithRetry(t.Context(), env, dal.OrphanReasonAckUncertain)
 			default:
-				err = w.markRunFailedWithRetry(env, dal.FailureCodeInvalidEnvelope, "old delivery rejected")
+				err = w.markRunFailedWithRetry(t.Context(), env, dal.FailureCodeInvalidEnvelope, "old delivery rejected")
 			}
 
 			if !errors.Is(err, dal.ErrConflict) {

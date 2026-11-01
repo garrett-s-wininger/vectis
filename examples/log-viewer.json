@@ -1,0 +1,69 @@
+{
+  "id": "log-viewer-demo",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "with": {
+      "execution": "distributed"
+    },
+    "ports": {
+      "steps": {
+        "nodes": [
+          {
+            "id": "setup",
+            "uses": "builtins/script",
+            "with": {
+              "runner": "sh",
+              "script": "printf '[setup] Log viewer demo started\\n[setup] Parallel output comes next\\n'\nsleep 1"
+            }
+          },
+          {
+            "id": "parallel-output",
+            "uses": "builtins/parallel",
+            "with": {
+              "execution": "distributed"
+            },
+            "ports": {
+              "branches": {
+                "nodes": [
+                  {
+                    "id": "stdout-demo",
+                    "uses": "builtins/script",
+                    "with": {
+                      "runner": "sh",
+                      "script": "printf '[stdout] first line\\n[stdout] second line\\n'\nprintf '[stdout] a line written in'\nsleep 1\nprintf ' two parts\\n'\nfor n in 1 2 3; do\n  printf '[stdout] tick %s\\n' \"$n\"\n  sleep 1\ndone"
+                    }
+                  },
+                  {
+                    "id": "stderr-demo",
+                    "uses": "builtins/script",
+                    "with": {
+                      "runner": "sh",
+                      "script": "printf '[stderr task] normal stdout line\\n'\nfor n in 1 2 3; do\n  printf '[stderr] warning %s (expected demo output)\\n' \"$n\" >&2\n  sleep 1\ndone\nprintf '[stderr task] completed successfully\\n'"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "intentional-failure",
+            "uses": "builtins/script",
+            "with": {
+              "runner": "sh",
+              "script": "printf '[failure] The parallel tasks finished; this task now fails on purpose\\n'\nprintf '[failure] Expected demo failure: exit code 7\\n' >&2\nexit 7"
+            }
+          },
+          {
+            "id": "not-reached",
+            "uses": "builtins/script",
+            "with": {
+              "runner": "sh",
+              "script": "printf '[unexpected] This task should never execute\\n'"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

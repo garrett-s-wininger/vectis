@@ -1915,3 +1915,52 @@ func TestExecutor_ExecuteJobInWorkspace_RequiresWorkspace(t *testing.T) {
 		t.Fatalf("expected workspace required error, got %v", err)
 	}
 }
+
+func TestLogViewerExampleTaskOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the example uses the sh runner")
+	}
+
+	for _, tc := range []struct {
+		task, want string
+		failed     bool
+	}{
+		{"stdout-demo", "[stdout] a line written in two parts\n", false},
+		{"stderr-demo", "[stderr] warning 3 (expected demo output)\n", false},
+		{"intentional-failure", "[failure] Expected demo failure: exit code 7\n", true},
+	} {
+		t.Run(tc.task, func(t *testing.T) {
+			var definition api.Job
+			body, err := os.ReadFile(repoPath(t, "examples", "log-viewer.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := job.DecodeDefinitionJSON(body, &definition); err != nil {
+				t.Fatal(err)
+			}
+
+			definition.RunId = executorStrp("log-viewer-test-" + tc.task)
+			client := mocks.NewMockLogClient()
+			err = executeTaskAndWait(t, job.NewExecutor(), &definition, tc.task, client, mocks.NewMockLogger())
+			if (err != nil) != tc.failed {
+				t.Fatalf("execution error = %v, expected failure = %v", err, tc.failed)
+			}
+
+			var output strings.Builder
+			for _, chunk := range client.GetChunks() {
+				if chunk.GetStream() != api.Stream_STREAM_CONTROL {
+					output.Write(chunk.GetData())
+				}
+			}
+
+			if !strings.Contains(output.String(), tc.want) {
+				t.Fatalf("missing %q in output %q", tc.want, output.String())
+			}
+
+			if strings.Contains(output.String(), "[unexpected]") {
+				t.Fatal("unselected task executed")
+			}
+		})
+	}
+}

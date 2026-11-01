@@ -110,7 +110,7 @@ func (p CatalogEventPublisher) RecordRunStatus(ctx context.Context, update dal.R
 		return fmt.Errorf("%w: run_id and status are required", ErrInvalidCatalogEvent)
 	}
 
-	return p.record(ctx, CatalogRunStatusEventKey(update.RunID, update.Status), CatalogEventTypeRunStatus, payload)
+	return p.record(ctx, CatalogRunStatusEventKey(update.RunID, update.Status, update.RootExecutionID), CatalogEventTypeRunStatus, payload)
 }
 
 func (p CatalogEventPublisher) RecordExecutionStatus(ctx context.Context, update dal.ExecutionStatusUpdate) error {
@@ -199,7 +199,15 @@ func (p CatalogEventPublisher) RecordTerminalExecutionSnapshot(
 		return fmt.Errorf("%w: run_id, outcome, and executions are required", ErrInvalidCatalogEvent)
 	}
 
-	return p.record(ctx, CatalogTerminalSnapshotEventKey(update.RunID), CatalogEventTypeTerminalSnapshot, payload)
+	key := CatalogTerminalSnapshotEventKey(update.RunID)
+	for _, execution := range update.Executions {
+		if execution.Record.TaskKey == dal.RootTaskKey && execution.Record.ExecutionID != "" {
+			key += ":" + execution.Record.ExecutionID
+			break
+		}
+	}
+
+	return p.record(ctx, key, CatalogEventTypeTerminalSnapshot, payload)
 }
 
 func (p CatalogEventPublisher) record(ctx context.Context, eventKey, eventType string, payload []byte) error {
@@ -212,8 +220,13 @@ func (p CatalogEventPublisher) record(ctx context.Context, eventKey, eventType s
 	return err
 }
 
-func CatalogRunStatusEventKey(runID, status string) string {
-	return "run:" + strings.TrimSpace(runID) + ":" + strings.TrimSpace(status)
+func CatalogRunStatusEventKey(runID, status string, rootExecutionID ...string) string {
+	key := "run:" + strings.TrimSpace(runID) + ":" + strings.TrimSpace(status)
+	if len(rootExecutionID) > 0 && rootExecutionID[0] != "" {
+		key += ":" + rootExecutionID[0]
+	}
+
+	return key
 }
 
 func CatalogExecutionStatusEventKey(executionID, status string) string {

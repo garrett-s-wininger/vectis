@@ -82,7 +82,7 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 		}
 
 		runID := "run-1"
-		if err := stream.Send(&api.LogChunk{RunId: &runID, Data: []byte("hello")}); err != nil {
+		if err := stream.Send(&api.LogChunk{RunId: &runID, Data: []byte("hello"), ExecutionId: proto.String("spoofed-execution")}); err != nil {
 			return err
 		}
 
@@ -133,6 +133,12 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	}
 
 	chunks := logClient.GetChunks()
+	for _, chunk := range chunks {
+		if chunk.GetExecutionId() != "session-1" {
+			t.Fatalf("log execution identity = %q", chunk.GetExecutionId())
+		}
+	}
+
 	if len(chunks) != 1 || string(chunks[0].GetData()) != "hello" {
 		t.Fatalf("forwarded log chunks = %#v", chunks)
 	}

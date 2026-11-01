@@ -42,7 +42,22 @@ func (r *SQLRunsRepository) RecordExecutionSecurityEvent(
 		event.EventKey = ExecutionSecurityEventKey(event)
 	}
 
-	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	compacted, err := compactedExecutionIdentityTx(ctx, tx, event.RunID, event.TaskID, event.TaskAttemptID, event.ExecutionID)
+	if err != nil {
+		return err
+	}
+
+	if compacted {
+		event.TaskID, event.TaskAttemptID, event.ExecutionID = "", "", ""
+	}
+
+	_, err = tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO execution_security_events (
 			event_key,
 			run_id,
@@ -74,7 +89,10 @@ func (r *SQLRunsRepository) RecordExecutionSecurityEvent(
 		event.CreatedAt,
 	)
 
-	return normalizeSQLError(err)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+	return normalizeSQLError(tx.Commit())
 }
 
 func ExecutionSecurityEventKey(event RecordExecutionSecurityEventParams) string {

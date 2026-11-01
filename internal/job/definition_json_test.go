@@ -126,3 +126,28 @@ func exampleValidationResolver(t *testing.T) action.Resolver {
 
 	return resolver
 }
+
+func TestLogViewerExampleHasSeparateTaskBoundaries(t *testing.T) {
+	var decoded api.Job
+	if err := job.DecodeDefinitionJSON(readExampleFile(t, "../../examples/log-viewer.json"), &decoded); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := job.PlanTaskExecutions(&decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wanted := map[string]bool{"setup": false, "stdout-demo": false, "stderr-demo": false, "intentional-failure": false, "not-reached": false}
+	for _, entry := range plan {
+		if _, ok := wanted[entry.TaskKey]; ok {
+			wanted[entry.TaskKey] = true
+		}
+	}
+
+	for name, found := range wanted {
+		if !found {
+			t.Errorf("example task %q is not separately selectable", name)
+		}
+	}
+}

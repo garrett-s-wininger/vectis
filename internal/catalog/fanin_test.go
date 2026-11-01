@@ -606,6 +606,11 @@ func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 		t.Fatalf("mark run running: %v", err)
 	}
 
+	root, err := sourceRepos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	events := sourceRepos.CatalogEvents()
 	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
 		{
@@ -634,7 +639,7 @@ func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 	}
 
 	if len(targetPending) != 1 ||
-		targetPending[0].EventKey != cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning) {
+		targetPending[0].EventKey != cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning, root.ExecutionID) {
 		t.Fatalf("unexpected target event after backfill: %+v", targetPending)
 	}
 }

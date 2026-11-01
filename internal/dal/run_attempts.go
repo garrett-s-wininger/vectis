@@ -125,3 +125,11 @@ func (r *SQLRunsRepository) PersistTaskContinuation(ctx context.Context, runID, 
 
 	return tx.Commit()
 }
+
+func currentRunAttemptNumberTx(ctx context.Context, tx *sql.Tx, runID string) (int, error) {
+	var attempt int
+	err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT COALESCE(MAX(attempt), 1)
+ FROM segment_executions WHERE run_id = ? AND task_id = ?`), runID, rootTaskID(runID)).Scan(&attempt)
+
+	return attempt, normalizeSQLError(err)
+}

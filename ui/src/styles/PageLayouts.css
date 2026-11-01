@@ -360,3 +360,24 @@ h1 {
 .app-preferences p {
   color: var(--text-muted);
 }
+
+:where(.code-block, textarea) {
+  scrollbar-color: var(--text-subtle) var(--surface-page);
+  scrollbar-width: thin;
+}
+
+:where(.code-block, textarea)::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+:where(.code-block, textarea)::-webkit-scrollbar-track,
+:where(.code-block, textarea)::-webkit-scrollbar-corner {
+  background: var(--surface-page);
+}
+
+:where(.code-block, textarea)::-webkit-scrollbar-thumb {
+  background: var(--text-subtle);
+  border: 2px solid var(--surface-page);
+  border-radius: var(--control-radius);
+}

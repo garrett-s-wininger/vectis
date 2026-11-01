@@ -7,6 +7,10 @@ import (
 	api "vectis/api/gen/go"
 )
 
+const ExecutionEnvelopeMetadataKey = "vectis.execution_envelope"
+const ExecutionTaskKeyMetadataKey = "vectis.execution_task_key"
+const ExecutionPayloadHashMetadataKey = "vectis.execution_payload_hash"
+
 const StartDeadlineUnixNanoKey = "vectis.dispatch.start_deadline_unix_nano"
 
 func DeadlineUnixNano(now time.Time, ttl time.Duration) int64 {

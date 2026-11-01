@@ -53,6 +53,10 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(
 		return false, err
 	}
 
+	if err := prepareAcceptedRunGenerationTx(ctx, tx, normalized); err != nil {
+		return false, err
+	}
+
 	if err := ensureAcceptedTaskAttemptTx(ctx, tx, normalized); err != nil {
 		return false, err
 	}
@@ -551,7 +555,14 @@ func ensureJobRunTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance, 
 	}
 
 	if storedPayloadHash != executionPayloadHash {
-		return fmt.Errorf("%w: run %s has different execution payload", ErrConflict, a.RunID)
+		var frozen string
+		if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?"), storedPayloadHash).Scan(&frozen); err != nil {
+			return normalizeSQLError(err)
+		}
+
+		if !sameAcceptedRunPayload(frozen, a.RequestJSON) {
+			return fmt.Errorf("%w: run %s has different execution payload", ErrConflict, a.RunID)
+		}
 	}
 
 	return nil

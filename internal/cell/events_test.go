@@ -268,7 +268,7 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 		t.Fatalf("unexpected security event: %+v", records[3])
 	}
 
-	if records[4].SourceCell != "iad-a" || records[4].EventKey != "run:run-1:terminal-snapshot" ||
+	if records[4].SourceCell != "iad-a" || records[4].EventKey != "run:run-1:terminal-snapshot:execution-1" ||
 		records[4].EventType != CatalogEventTypeTerminalSnapshot {
 		t.Fatalf("unexpected terminal snapshot event: %+v", records[4])
 	}
@@ -584,6 +584,40 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.
 		},
 	}
 
+	security := dal.RecordExecutionSecurityEventParams{
+		RunID: runID, TaskID: childTaskID, TaskAttemptID: childAttemptID,
+		ExecutionID: childExecutionID, EventType: "secret_resolution", Outcome: "success", CreatedAt: 42,
+	}
+
+	artifact := dal.ArtifactCreate{RunID: runID, TaskID: childTaskID, TaskAttemptID: childAttemptID,
+		ExecutionID: childExecutionID, CellID: "iad-a", Name: "output.txt", BlobKey: "blob-key",
+
+		BlobAlgorithm: "sha256", BlobDigest: "abc123", SizeBytes: 42, ArtifactShardID: "artifact-shard"}
+	security.EventKey = dal.ExecutionSecurityEventKey(security)
+	for _, event := range []struct {
+		kind   string
+		update any
+	}{
+		{CatalogEventTypeExecutionStatus, dal.ExecutionStatusUpdate{ExecutionID: childExecutionID, Status: dal.ExecutionStatusRunning}},
+		{CatalogEventTypeExecutionSecurity, security},
+		{CatalogEventTypeArtifactRecord, artifact},
+	} {
+		payload, err := json.Marshal(event.update)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, _, err := repos.CatalogEvents().Record(ctx, "iad-a", event.kind+":late", event.kind, payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	processor := NewCatalogInboxProcessor(repos.CatalogEvents(), repos.Runs(), repos.Artifacts())
+	pending, err := processor.ProcessPending(ctx, 10)
+	if err != nil || pending.Retryable != 3 {
+		t.Fatalf("before snapshot: %+v, %v", pending, err)
+	}
+
 	payload, err := json.Marshal(update)
 	if err != nil {
 		t.Fatalf("marshal terminal snapshot event: %v", err)
@@ -594,13 +628,12 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.
 		t.Fatalf("record terminal snapshot event: %v", err)
 	}
 
-	processor := NewCatalogInboxProcessor(repos.CatalogEvents(), repos.Runs())
 	result, err := processor.ProcessPending(ctx, 10)
 	if err != nil {
 		t.Fatalf("ProcessPending: %v", err)
 	}
 
-	if result.Read != 1 || result.Applied != 1 || result.Failed != 0 {
+	if result.Read != 4 || result.Applied != 1 || result.Retryable != 3 || result.Failed != 0 {
 		t.Fatalf("unexpected process result: %+v", result)
 	}
 
@@ -630,6 +663,72 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.
 		child.Attempts[0].ExecutionStatus != dal.ExecutionStatusSucceeded {
 
 		t.Fatalf("child final fact after terminal snapshot event: child=%+v tasks=%+v", child, tasks)
+	}
+
+	result, err = processor.ProcessPending(ctx, 10)
+	if err != nil || result.Applied != 3 || result.Retryable != 0 || result.Failed != 0 {
+		t.Fatalf("late events should drain after compaction: %+v, %v", result, err)
+	}
+
+	result, err = processor.ProcessPending(ctx, 10)
+	if err != nil || result.Read != 0 {
+		t.Fatalf("inbox did not drain: %+v, %v", result, err)
+	}
+
+	storedArtifact, err := repos.Artifacts().GetByRunAndName(ctx, runID, artifact.Name)
+	if err != nil || storedArtifact.BlobKey != artifact.BlobKey || storedArtifact.SizeBytes != artifact.SizeBytes {
+		t.Fatalf("late artifact missing: %+v, %v", storedArtifact, err)
+	}
+
+	artifact.RunID = "wrong-run"
+	if _, err := repos.Artifacts().Record(ctx, artifact); !dal.IsConflict(err) {
+		t.Fatalf("compacted execution accepted mismatched artifact run: %v", err)
+	}
+
+	audit, err := repos.Runs().LatestRunSecurityEvent(ctx, runID, false)
+	if err != nil || audit == nil {
+		t.Fatalf("late audit missing: %+v, %v", audit, err)
+	}
+
+	if audit.EventType != security.EventType || audit.EventKey != dal.ExecutionSecurityEventKey(security) {
+		t.Fatalf("late audit changed: %+v", audit)
+	}
+
+	if err := repos.Runs().RecordExecutionSecurityEvent(ctx, security); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM execution_security_events WHERE run_id = ?", runID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("audit replay should be idempotent: count=%d, err=%v", count, err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM segment_executions WHERE run_id = ?", runID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("late events resurrected live rows: count=%d, err=%v", count, err)
+	}
+
+	if err := NewCatalogEventConsumer(repos.Runs()).Apply(ctx, CatalogEvent{
+		SourceCellID: "other-cell", ExecutionStatus: &dal.ExecutionStatusUpdate{ExecutionID: childExecutionID, Status: dal.ExecutionStatusRunning},
+	}); !dal.IsConflict(err) {
+		t.Fatalf("compacted execution accepted another cell: %v", err)
+	}
+
+	security.TaskID = "unrelated-task"
+	if err := repos.Runs().RecordExecutionSecurityEvent(ctx, security); !dal.IsConflict(err) {
+		t.Fatalf("compacted execution accepted mismatched audit identity: %v", err)
+	}
+
+	if err := repos.Runs().ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{ExecutionID: childExecutionID, Status: dal.ExecutionStatusFailed}); !dal.IsConflict(err) {
+		t.Fatalf("conflicting late terminal status accepted: %v", err)
+	}
+
+	if err := repos.Runs().ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusQueued}); err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil || run.Status != dal.RunStatusSucceeded {
+		t.Fatalf("late queued event changed terminal run: %+v, %v", run, err)
 	}
 }
 

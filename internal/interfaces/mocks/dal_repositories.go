@@ -2240,3 +2240,23 @@ func (m *MockRunsRepository) PersistTaskContinuation(ctx context.Context, runID,
 
 	return m.MarkRunQueuedForContinuation(ctx, runID)
 }
+
+func (m *MockRunsRepository) ListRunTaskAttemptHistory(ctx context.Context, runID string, taskIDs []string) ([]dal.TaskAttemptRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var out []dal.TaskAttemptRecord
+	for _, task := range m.TaskRecords {
+		if task.RunID != runID {
+			continue
+		}
+
+		for _, id := range taskIDs {
+			if id == task.TaskID {
+				out = append(out, task.Attempts...)
+			}
+		}
+	}
+
+	return out, m.ListRunTasksErr
+}
