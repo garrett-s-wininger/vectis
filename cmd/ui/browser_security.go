@@ -35,7 +35,7 @@ func (b *uiBackend) browserRequestAllowed(w http.ResponseWriter, r *http.Request
 		"Sec-Fetch-Mode": {"": true, "cors": true, "same-origin": true},
 		"Sec-Fetch-Dest": {"": true, "empty": true},
 	} {
-		if !allowed[r.Header.Get(name)] {
+		if !allowed[r.Header.Get(name)] && !isBrowserArtifactDownload(r) {
 			writeBFFError(w, http.StatusForbidden, "invalid_fetch_metadata", "API browser request required")
 			return false
 		}
@@ -81,6 +81,21 @@ func (b *uiBackend) browserRequestAllowed(w http.ResponseWriter, r *http.Request
 	}
 
 	return true
+}
+
+func isBrowserArtifactDownload(r *http.Request) bool {
+	if r.Method != http.MethodGet || r.Header.Get("Sec-Fetch-Site") != "same-origin" ||
+		r.Header.Get("Sec-Fetch-Mode") != "navigate" {
+		return false
+	}
+
+	if dest := r.Header.Get("Sec-Fetch-Dest"); dest != "document" && dest != "empty" {
+		return false
+	}
+
+	parts := strings.Split(strings.TrimPrefix(r.URL.EscapedPath(), "/"), "/")
+	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "runs" &&
+		parts[3] != "" && parts[4] == "artifacts" && parts[5] != "" && parts[6] == "download"
 }
 
 func sameBrowserOrigin(a, b *url.URL) bool {

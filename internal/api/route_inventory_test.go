@@ -524,6 +524,7 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 		"GET /api/v1/runs":            routeQueryParams("cursor", "limit"),
 		"GET /api/v1/runs/{id}/tasks": routeQueryParams("cursor", "limit"),
 		"GET /api/v1/runs/{id}/artifacts": routeQueryParams(
+			"attempt",
 			"cursor",
 			"execution_id",
 			"limit",

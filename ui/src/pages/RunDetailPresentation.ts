@@ -17,7 +17,7 @@ export function runDetailDescription() {
 }
 
 export function runGraphDescription() {
-  return "Execution flow for the run.";
+  return "Select a task to filter logs and artifacts.";
 }
 
 export function runTasksForDisplay(run: RunListItem): RunTaskDisplayNode[] {
@@ -49,17 +49,6 @@ export function runTasksForDisplay(run: RunListItem): RunTaskDisplayNode[] {
       depth: depthFor(task)
     }))
     .sort((left, right) => left.depth - right.depth);
-}
-
-export function preferredRunTaskID(tasks: RunTaskDisplayNode[]) {
-  const mostSpecificTasks = [...tasks].sort((left, right) => right.depth - left.depth);
-
-  return (
-    mostSpecificTasks.find((task) => task.status === "failed" || task.status === "aborted") ??
-    mostSpecificTasks.find((task) => task.status === "running" || task.status === "accepted") ??
-    tasks.find((task) => task.taskKey === "root") ??
-    tasks[0]
-  )?.taskID;
 }
 
 export function runTaskStatusLabel(status: RunTaskStatus) {

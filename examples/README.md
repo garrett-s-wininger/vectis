@@ -13,11 +13,20 @@ Start with `sequenced.json`. Each later file adds one control-flow idea. The def
 | `sequenced.json` | `builtins/sequence` runs three `builtins/script` steps in order. | Three log lines, then a succeeded run. |
 | `log-viewer.json` | Distributed tasks with stdout, stderr, split writes, and an intentional failure. | A failed run by design. Inspect each task in the UI; `not-reached` has no execution. |
 | `run-controls.json` | A distributed sequence with 30 seconds of heartbeat output. | Cancel it from run details, then use Run again to create a new run; letting it finish succeeds. |
+| `artifacts.json` | Two distributed tasks publish a text report and a compressed archive. | Artifacts appear on run details, with task attribution and download actions. Requires `sh`, `sleep`, `tar`, and gzip support. |
 | `parallel.json` | A local sequence with a distributed `builtins/parallel` branch for unit tests and lint. | `Preparing workspace`, both check lines, then `All checks complete`. |
 | `conditional.json` | `builtins/if` runs `then` when `deploy.changed` exists and `else` otherwise. | `No deploy changes detected`. A fresh workspace has no `deploy.changed` file, so the else branch runs. |
 | `fallback.json` | `builtins/fallback` tries choices in order and keeps the first success. | `running portable fallback build`. `./preferred-build.sh` is absent, so the first choice fails and the second runs. |
 | `dataflow.json` | A script writes `outputs.json`, and the next `builtins/test` step reads that `command` output. | A succeeded run. The test step executes the command produced by the first step. |
 | `outputs.json` | A script publishes a JSON output file through `with.outputs`. | A succeeded run whose task output includes `image` and `ok`. |
+
+## Try artifacts in the UI
+
+Open **Runs → Run Once**, load `examples/artifacts.json`, and submit it. In run details, the **Artifacts** panel lists `demo-report` and `demo-bundle` as their tasks publish them. It refreshes while the run is active and shortly after completion; **Refresh** can check again without reloading the page.
+
+Select `report` or `archive` in the graph to filter both logs and artifacts to that task. Click the selected task again, or choose **Clear task selection**, to show all tasks within the current attempt. Download the report as `report.txt` and the archive as `demo-bundle.tar.gz`; the archive contains `notes.txt`. Downloads use the browser's native download handling and do not buffer the file in the UI. Run again to verify that each run keeps its own artifact list.
+
+You can also submit it with `./bin/vectis-cli jobs run examples/artifacts.json --follow`. The example uses `sh`, `sleep`, `tar`, and gzip support, with no external services beyond the local Vectis stack.
 
 ## Try the run controls
 
@@ -107,6 +116,6 @@ This demo needs only `sh` and `sleep`; it does not use network services, secrets
 ./bin/vectis-cli runs repair mark-queued RUN_ID --reason "Exercise log viewer attempt history"
 ```
 
-The reconciler dispatches it again. Once it finishes, refresh the same run page and select `stdout-demo`, `stderr-demo`, or `intentional-failure`. **Attempt** now offers attempts 1 and 2, plus **All attempts**; switching attempts changes the execution ID and limits output to that execution. The second dispatch deliberately fails too. Submitting the JSON again creates a different run and does not add attempts to the original.
+The reconciler dispatches it again. Once it finishes, select `stdout-demo`, `stderr-demo`, or `intentional-failure` on the same run page. The shared **Attempt** selector above the execution graph offers attempts 1 and 2, plus **Latest**. Switching it updates task states, log execution IDs, and artifact filtering together; the numbered choice stays selected as you switch tasks. **Latest** follows new retries. The second dispatch deliberately fails too. Submitting the JSON again creates a different run and does not add attempts to the original.
 
 This uses the operator repair path to exercise redispatch, not an automatic workflow retry policy. A `builtins/retry` loop inside an action remains one execution attempt. Compaction retains attempt identities, outcomes, and timing until the run is deleted; log availability separately follows the log retention window.

@@ -815,7 +815,7 @@ describe("App", () => {
     expect(screen.getByText("run-1240")).toBeInTheDocument();
     expect(screen.getByText("Saved")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/runs/run-1240");
-    expect(screen.getByRole("heading", { name: "Task Logs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Run Logs" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Job Definition" })).toBeInTheDocument();
     expect(screen.getByText("Submitted via Manual by mira.")).toBeInTheDocument();

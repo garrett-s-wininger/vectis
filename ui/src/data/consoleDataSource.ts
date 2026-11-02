@@ -17,6 +17,7 @@ import type {
 } from "../domain/console";
 import { summarizeRoleBindings } from "../domain/roleBindings";
 import { requestJSON, requestNoContent } from "../api/client";
+import { loadRunArtifactPage, type LoadRunArtifacts } from "./runArtifacts";
 import {
   createMockConsoleDataSnapshot,
   nextMockRunID,
@@ -158,6 +159,7 @@ export type CreateUserResult = {
 };
 
 export type ConsoleDataSource = {
+  loadRunArtifacts: LoadRunArtifacts;
   cancelRun(runID: string): Promise<void>;
   replayRun(runID: string, idempotencyKey: string): Promise<string>;
   createJob(input: NewJob): Promise<ConsoleData>;
@@ -201,6 +203,9 @@ function createMockConsoleDataSource(): ConsoleDataSource {
   const replays = new Map<string, string>();
 
   return {
+    async loadRunArtifacts() {
+      return { data: [] };
+    },
     async cancelRun(runID) {
       const run = data.runs.find((item) => item.id === runID);
       if (!run || !["queued", "running"].includes(run.status)) throw new Error("Run is not executing.");
@@ -340,6 +345,7 @@ function createMockConsoleDataSource(): ConsoleDataSource {
 
 function createAPIConsoleDataSource(): ConsoleDataSource {
   return {
+    loadRunArtifacts: loadRunArtifactPage,
     async cancelRun(runID) {
       await requestNoContent(`/api/v1/runs/${encodeURIComponent(runID)}/cancel`, { method: "POST" });
     },

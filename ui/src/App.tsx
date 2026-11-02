@@ -1,5 +1,5 @@
 import type { FormEvent, MouseEvent, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "./index.css";
 import vectisLogo from "../../assets/brand/public/vectis.png";
 import vectisDarkLogo from "../../assets/brand/public/vectis-dark.png";
@@ -12,6 +12,7 @@ import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource, type CreatedUserCredential } from "./data/consoleDataSource";
 import { watchRun } from "./data/watchRun";
+import type { LoadRunArtifacts } from "./data/runArtifacts";
 import type { Cell, NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
 import type { NewUser, RoleBindingRole, UserStatus } from "./domain/console";
 import { canDeleteMockNamespace, nextMockRunID, scopeMockConsoleData, type MockConsoleData } from "./mocks/consoleData";
@@ -66,6 +67,11 @@ export function App() {
   const [accountName, setAccountName] = useState("admin");
   const [authEnabled, setAuthEnabled] = useState(true);
   const consoleDataSourceRef = useRef(createConsoleDataSource());
+  const loadArtifacts = useCallback<LoadRunArtifacts>(
+    (runID, query) => consoleDataSourceRef.current.loadRunArtifacts(runID, query),
+    []
+  );
+
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -590,6 +596,7 @@ export function App() {
       utilityNavItems={adminNavItems}
     >
       <RouteContent
+        loadArtifacts={loadArtifacts}
         actionError={actionError}
         consoleData={consoleData}
         consoleError={consoleError}
@@ -743,6 +750,7 @@ function AuthHeader({ subtitle, title, titleID }: { subtitle: string; title: str
 }
 
 function RouteContent({
+  loadArtifacts,
   actionError,
   jobDefinitionError,
   consoleData,
@@ -769,6 +777,7 @@ function RouteContent({
   onSelectNamespace,
   route
 }: {
+  loadArtifacts: LoadRunArtifacts;
   actionError: string;
   jobDefinitionError: string;
   consoleData: MockConsoleData | null;
@@ -875,6 +884,7 @@ function RouteContent({
 
         return withActionAlert(
           <RunDetailPage
+            loadArtifacts={loadArtifacts}
             onCancel={onCancelRun}
             onReplay={onReplayRun}
             onOpenRun={onOpenRun}

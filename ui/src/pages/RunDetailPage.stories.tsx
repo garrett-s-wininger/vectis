@@ -6,6 +6,8 @@ import { createMockConsoleDataSnapshot, submitMockEphemeralRun } from "../mocks/
 import { mockRunTasks } from "../mocks/fixtures";
 import { PageStoryFrame } from "../mocks/pageHarnesses";
 import { RunDetailPage } from "./RunDetailPage";
+import { artifactRun, loadMockArtifacts } from "../mocks/runArtifacts";
+import { retriedArtifactRun, loadRetriedArtifacts } from "../mocks/runAttempts";
 
 const data = createMockConsoleDataSnapshot();
 const ephemeralData = submitMockEphemeralRun(createMockConsoleDataSnapshot(), {
@@ -45,6 +47,10 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+
+export const WithArtifacts: Story = {
+  args: { run: artifactRun, runID: artifactRun.id, loadArtifacts: loadMockArtifacts }
+};
 
 export const StoredRun: Story = {
   args: {
@@ -249,4 +255,8 @@ export const RetriedRun: Story = {
       ]
     }
   }
+};
+
+export const SharedAttemptContext: Story = {
+  args: { run: retriedArtifactRun, runID: retriedArtifactRun.id, loadArtifacts: loadRetriedArtifacts }
 };

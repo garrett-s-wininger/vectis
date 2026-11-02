@@ -1639,6 +1639,23 @@ func TestWorkerDBUnavailableSignals_LogOutageAndRecoveryOnce(t *testing.T) {
 	}
 }
 
+type gatedExecutionCore struct {
+	workercore.Core
+	started chan struct{}
+	proceed <-chan struct{}
+}
+
+func (c *gatedExecutionCore) ExecuteTask(ctx context.Context, req workercore.ExecuteTaskRequest) error {
+	close(c.started)
+
+	select {
+	case <-c.proceed:
+		return c.Core.ExecuteTask(ctx, req)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -1653,6 +1670,12 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 	workerID := "worker-test-2"
 	queue := mocks.NewMockQueueClient()
 	logClient := mocks.NewMockLogClient()
+	started := make(chan struct{})
+	proceed := make(chan struct{})
+
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(proceed) }) }
+	t.Cleanup(release)
 	w := &worker{
 		ctx:           context.Background(),
 		runCtx:        context.Background(),
@@ -1662,7 +1685,7 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		core:          testWorkerCore(job.NewExecutor()),
+		core:          &gatedExecutionCore{Core: testWorkerCore(job.NewExecutor()), started: started, proceed: proceed},
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -1693,23 +1716,12 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 		close(done)
 	}()
 
-	deadline := time.Now().Add(workerRunStartTimeoutForTest())
-	for {
-		var status string
-		if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).
-			Scan(&status); err != nil {
-			t.Fatalf("query run status: %v", err)
-		}
-
-		if status == "running" {
-			break
-		}
-
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for run to reach running, last status=%q", status)
-		}
-
-		time.Sleep(5 * time.Millisecond)
+	// The run row becomes running before claim mirroring finishes. Gate on
+	// actual core admission so orphaning happens during execution, not before it.
+	select {
+	case <-started:
+	case <-time.After(workerRunStartTimeoutForTest()):
+		t.Fatal("timed out waiting for worker core admission")
 	}
 
 	if _, err := db.ExecContext(ctx, `
@@ -1719,6 +1731,7 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 	`, workerID, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
 		t.Fatalf("mark run orphaned during execution: %v", err)
 	}
+	release()
 
 	select {
 	case <-done:

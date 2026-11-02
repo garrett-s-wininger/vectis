@@ -334,3 +334,27 @@ button.node:focus-visible {
     padding: var(--space-sm);
   }
 }
+
+.controls {
+  align-items: center;
+  justify-content: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.controls > span {
+  min-width: 0;
+}
+
+@media (width <= 640px) {
+  .header {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+
+  .controls {
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+}

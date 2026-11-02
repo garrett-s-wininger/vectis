@@ -438,7 +438,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Pattern:   "GET /api/v1/runs/{id}/artifacts",
 			Handler:   http.HandlerFunc(s.ListRunArtifacts),
 			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
-			Query:     routeQueryParams("cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
+			Query:     routeQueryParams("attempt", "cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
 			RateLimit: defaultLimits.General,
 		},
 		{

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { ChevronDown, Clock, Code2, FileText, Fingerprint, Hash, History, Server, User, Zap } from "lucide-react";
 import { BreadcrumbTrail, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
+import { SelectControl } from "../components/primitives/SelectControl";
+import { runAttemptNumbers, runForAttempt, type RunAttemptSelection } from "./RunAttemptPresentation";
 import {
   runActorLabel,
   runDisplayName,
@@ -9,6 +11,8 @@ import {
   runTriggerLabel
 } from "../components/data/RunPresentation";
 import { RunLogs } from "./RunLogs";
+import { RunArtifacts } from "./RunArtifacts";
+import type { LoadRunArtifacts } from "../data/runArtifacts";
 import { RunControls, type RunControlActions } from "./RunControls";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import {
@@ -18,7 +22,6 @@ import {
   runDefinitionTitle,
   runDetailDescription,
   runTasksForDisplay,
-  preferredRunTaskID,
   runTimelineEvents,
   sourceLabel
 } from "./RunDetailPresentation";
@@ -33,6 +36,7 @@ type RunDetailPageProps = RunControlActions & {
   run?: RunListItem;
   runID: string;
   originalRun?: RunListItem;
+  loadArtifacts?: LoadRunArtifacts;
 };
 
 export function RunDetailPage({
@@ -43,7 +47,8 @@ export function RunDetailPage({
   onReplay,
   run,
   runID,
-  originalRun
+  originalRun,
+  loadArtifacts
 }: RunDetailPageProps) {
   if (!run) {
     return (
@@ -74,6 +79,7 @@ export function RunDetailPage({
       onReplay={onReplay}
       run={run}
       originalRun={originalRun}
+      loadArtifacts={loadArtifacts}
     />
   );
 }
@@ -85,6 +91,7 @@ function RunDetailContent({
   onCancel,
   onReplay,
   originalRun,
+  loadArtifacts,
   run
 }: RunControlActions & {
   onBack: () => void;
@@ -92,44 +99,38 @@ function RunDetailContent({
   onOpenRun?: (runID: string) => Promise<void>;
   run: RunListItem;
   originalRun?: RunListItem;
+  loadArtifacts?: LoadRunArtifacts;
 }) {
-  const tasks = runTasksForDisplay(run);
+  const [attemptSelection, setAttemptSelection] = useState<RunAttemptSelection>("latest");
+  const attemptNumbers = runAttemptNumbers(run);
+  const latestAttempt = attemptNumbers[0] ?? 1;
+  const selectedAttempt = attemptSelection === "latest" ? latestAttempt : attemptSelection;
+  const displayRun = runForAttempt(run, selectedAttempt);
+  const historical = selectedAttempt !== latestAttempt;
+  const tasks = runTasksForDisplay(displayRun);
+  const active = run.status === "queued" || run.status === "running";
   const awaitingTasks =
-    run.tasksUpdating ||
-    ((run.status === "queued" || run.status === "running") &&
-      tasks.length === 1 &&
-      tasks[0].taskKey === "root" &&
-      tasks[0].status === "succeeded");
-  const preferredTaskID = preferredRunTaskID(tasks);
-  const [automaticTaskID, setAutomaticTaskID] = useState(preferredTaskID);
+    !historical &&
+    (run.tasksUpdating ||
+      ((run.status === "queued" || run.status === "running") &&
+        tasks.length === 1 &&
+        tasks[0].taskKey === "root" &&
+        tasks[0].status === "succeeded"));
+
   const [selection, setSelection] = useState<string | null>(null);
   const [openingOriginal, setOpeningOriginal] = useState(false);
-  const preferredTask = tasks.find((task) => task.taskID === preferredTaskID);
-
-  if (
-    !selection &&
-    preferredTask &&
-    ["running", "accepted", "failed", "aborted"].includes(preferredTask.status) &&
-    automaticTaskID !== preferredTaskID
-  ) {
-    setAutomaticTaskID(preferredTaskID);
-  }
-
-  const selectedTaskID =
-    selection && tasks.some((task) => task.taskID === selection)
-      ? selection
-      : tasks.some((task) => task.taskID === automaticTaskID)
-        ? automaticTaskID
-        : preferredTaskID;
-
-  const selectedTask = tasks.find((task) => task.taskID === selectedTaskID) ?? tasks[0];
-  const selectTask = (taskID: string) => setSelection(taskID);
+  const selectedTask = tasks.find((task) => task.taskID === selection);
+  const selectTask = (taskID: string) => setSelection((current) => (current === taskID ? null : taskID));
   const runOnceID = run.source === "ephemeral" && run.jobID ? run.jobID.split("-").at(-1) : runFamilyIdentifier(run);
 
   return (
     <>
       <PageHeader
-        actions={onCancel || onReplay ? <RunControls run={run} onCancel={onCancel} onReplay={onReplay} /> : undefined}
+        actions={
+          (!historical && active && onCancel) || (!active && onReplay) ? (
+            <RunControls run={run} onCancel={historical ? undefined : onCancel} onReplay={onReplay} />
+          ) : undefined
+        }
         description={runDetailDescription()}
         navigation={
           <BreadcrumbTrail
@@ -153,11 +154,19 @@ function RunDetailContent({
           <div>
             <h2>Run summary</h2>
           </div>
-          <StatusBadge status={run.status} />
+          <div className={styles.overallStatus}>
+            <span>Overall run</span>
+            <StatusBadge status={run.status} />
+          </div>
         </div>
         <dl className={styles.facts}>
-          <OperationalFact emphasis icon={Clock} label={runDurationLabel(run.status)} value={run.duration} />
-          <OperationalFact icon={Server} label="Cell" value={run.cellName ?? "Unassigned"} />
+          <OperationalFact
+            emphasis
+            icon={Clock}
+            label={runDurationLabel(displayRun.status)}
+            value={displayRun.duration}
+          />
+          <OperationalFact icon={Server} label="Cell" value={displayRun.cellName ?? "Unassigned"} />
           <OperationalFact icon={Zap} label="Trigger" value={runTriggerLabel(run)} />
           <OperationalFact
             icon={User}
@@ -213,9 +222,34 @@ function RunDetailContent({
           awaitingTasks={awaitingTasks}
           onSelectTask={selectTask}
           selectedTaskID={selectedTask?.taskID}
+          onClearSelection={() => setSelection(null)}
           tasks={tasks}
+          controls={
+            attemptNumbers.length > 1 || attemptSelection !== "latest" ? (
+              <SelectControl
+                summaryLabel="Attempt"
+                aria-label="Attempt"
+                leadingIcon={<History />}
+                value={String(attemptSelection)}
+                onChange={(event) =>
+                  setAttemptSelection(event.target.value === "latest" ? event.target.value : Number(event.target.value))
+                }
+                options={[
+                  { value: "latest", label: attemptNumbers.length ? `Latest (attempt ${latestAttempt})` : "Latest" },
+                  ...[
+                    ...new Set([...attemptNumbers, ...(typeof attemptSelection === "number" ? [attemptSelection] : [])])
+                  ]
+                    .sort((a, b) => b - a)
+                    .map((attempt) => ({ value: String(attempt), label: `Attempt ${attempt}` }))
+                ]}
+              />
+            ) : null
+          }
         />
-        <RunLogs run={run} selectedTask={selectedTask} />
+        <RunLogs run={run} selectedTask={selectedTask} attempt={selectedAttempt} />
+        {loadArtifacts ? (
+          <RunArtifacts run={run} selectedTask={selectedTask} loadArtifacts={loadArtifacts} attempt={selectedAttempt} />
+        ) : null}
         <RunTimeline run={run} />
         <RunDefinition run={run} />
       </section>
@@ -232,7 +266,7 @@ function RunTimeline({ run }: { run: RunListItem }) {
       <div className={styles.panelHeader}>
         <div>
           <h2 id="run-timeline-title">Timeline</h2>
-          <p>System checkpoints and elapsed time.</p>
+          <p>Overall run checkpoints and elapsed time.</p>
         </div>
       </div>
       <ol className={styles.timelineList}>

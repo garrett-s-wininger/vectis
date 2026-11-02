@@ -170,3 +170,14 @@
     width: 100%;
   }
 }
+
+.icon {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.icon svg {
+  height: var(--space-lg);
+  width: var(--space-lg);
+}

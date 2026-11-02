@@ -2,7 +2,21 @@
 
 Artifacts are run-scoped files that a job explicitly publishes with `builtins/upload-artifact`. Vectis stores artifact metadata in SQL and stores artifact bytes in the internal `vectis-artifact` content-addressed storage service.
 
-There is no public API route for user-initiated artifact upload. Jobs publish artifacts from the worker, and users read them back through the CLI or the v1 runs API.
+There is no public API route for user-initiated artifact upload. Jobs publish artifacts from the worker, and users read them back through the UI, CLI, or v1 runs API.
+
+## Browse In The UI
+
+Run details include an **Artifacts** panel with each artifact's name, original file path, size, producing task when known, and content type. For runs with multiple attempts, the **Attempt** selector above the execution graph controls the graph, logs, and artifacts together. **Latest** follows new retries; a numbered attempt stays pinned when switching tasks or receiving updates. The page always shows one attempt at a time; records without attempt attribution are excluded. Overall run status and the run timeline remain explicitly run-level. A task that did not execute in the selected attempt has no execution context; the UI does not fall back to another attempt.
+
+The page initially shows logs and artifacts for all tasks in the latest attempt. Selecting a task in the graph filters both panels to that task. Select the same node again, or choose **Clear task selection**, to return to all tasks in the selected attempt. Task updates do not change your selection. Both panels always follow the shared attempt selection. **Load more artifacts** follows API pagination within that scope, with attempt filtering applied before pagination. Artifact names remain run-scoped: a later upload with the same name replaces its earlier manifest, so selecting an older attempt does not recover overwritten files. Publish distinct names when files from multiple attempts must remain downloadable.
+
+The panel refreshes while a run is active and briefly after completion so final catalog updates can arrive. **Refresh** checks again without reloading the run. Existing rows remain visible if a refresh fails, with an error explaining that the list could not be updated. An empty list means no manifests are currently available for the chosen scope; it does not guarantee a blob is still available for an existing manifest.
+
+**Download** uses the authenticated API route and the browser's native download handling. Files are served as attachments; the UI does not render artifact HTML or buffer whole archives in memory. A download failure is handled in a separate browser tab, preserving the run page. The artifact service must be available for the download to succeed.
+
+The UI proxy permits same-origin browser attachment navigations only for artifact-download GETs. Other browser API navigations and cross-site requests remain blocked, and upstream `run:read` authorization still applies. Producer task, attempt, and execution IDs survive task compaction, so completed runs retain attribution and task filtering.
+
+For a local demonstration, load `examples/artifacts.json` through **Runs → Run Once**. It publishes a text report and a gzip archive from separate tasks.
 
 ## Publish From A Job
 
@@ -75,7 +89,7 @@ Artifact reads require the same `run:read` authorization used for run, task, log
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /api/v1/runs/{id}/artifacts` | List artifact manifests for one run. Supports `limit`, `cursor`, `task_id`, `task_attempt_id`, and `execution_id`. |
+| `GET /api/v1/runs/{id}/artifacts` | List artifact manifests for one run. Supports `limit`, `cursor`, `task_id`, `task_attempt_id`, `execution_id`, and a positive integer `attempt` filter. The attempt filter uses live or retained producer identity and excludes manifests without attempt attribution. |
 | `GET /api/v1/runs/{id}/artifacts/{name}` | Get one artifact manifest by run-scoped `name`. |
 | `GET /api/v1/runs/{id}/artifacts/{name}/download` | Stream artifact bytes. The API verifies the blob descriptor against the SQL manifest before serving bytes. |
 

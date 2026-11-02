@@ -6,7 +6,6 @@ import {
   runDefinitionTitle,
   runDetailDescription,
   runGraphDescription,
-  preferredRunTaskID,
   runTaskExecutionLabel,
   runTaskStatusLabel,
   runTaskTimingLabel,
@@ -37,7 +36,7 @@ const run: RunListItem = {
 describe("run detail presentation", () => {
   it("describes run investigation states", () => {
     expect(runDetailDescription()).toBe("Execution graph, logs, timeline, and definition context.");
-    expect(runGraphDescription()).toBe("Execution flow for the run.");
+    expect(runGraphDescription()).toBe("Select a task to filter logs and artifacts.");
   });
 
   it("formats source and reference labels", () => {
@@ -112,7 +111,6 @@ describe("run detail presentation", () => {
       ["build", 1]
     ]);
 
-    expect(preferredRunTaskID(tasks)).toBe("task-build");
     expect(runTaskStatusLabel("accepted")).toBe("Accepted");
     expect(runTaskTimingLabel(tasks[1])).toMatch(/^Running /);
     expect(runTaskExecutionLabel(tasks[1])).toBe("execuild");

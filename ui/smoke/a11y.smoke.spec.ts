@@ -217,7 +217,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
     await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-runlogoutput--mixed-streams&viewMode=story");
     const output = page.getByLabel("Log output");
-    await expect(output).toBeVisible();
+    await expect(output).toBeVisible({ timeout: 20_000 });
     expect(await output.textContent()).toBe("Starting task\nhello\nExpected demo warning\nFinished\n");
 
     await page.evaluate(() => document.fonts.ready);

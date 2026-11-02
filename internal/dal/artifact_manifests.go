@@ -27,13 +27,8 @@ func (r *SQLArtifactsRepository) Record(ctx context.Context, create ArtifactCrea
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	compacted, err := compactedExecutionIdentityTx(ctx, tx, create.RunID, create.TaskID, create.TaskAttemptID, create.ExecutionID)
-	if err != nil {
+	if err := validateArtifactAttributionTx(ctx, tx, create); err != nil {
 		return ArtifactRecord{}, err
-	}
-
-	if compacted {
-		create.TaskID, create.TaskAttemptID, create.ExecutionID = "", "", ""
 	}
 
 	_, err = tx.ExecContext(ctx, rebindQueryForPgx(`
@@ -105,6 +100,53 @@ func (r *SQLArtifactsRepository) Record(ctx context.Context, create ArtifactCrea
 	return rec, nil
 }
 
+func validateArtifactAttributionTx(ctx context.Context, tx *sql.Tx, create ArtifactCreate) error {
+	var runID, taskID, attemptID string
+	var err error
+	switch {
+	case create.ExecutionID != "":
+		err = tx.QueryRowContext(ctx, rebindQueryForPgx(`
+			SELECT run_id, task_id, task_attempt_id FROM segment_executions WHERE execution_id = ?
+			UNION ALL
+			SELECT run_id, task_id, task_attempt_id FROM run_task_attempt_facts WHERE execution_id = ?
+			LIMIT 1
+		`), create.ExecutionID, create.ExecutionID).Scan(&runID, &taskID, &attemptID)
+	case create.TaskAttemptID != "":
+		attemptID = create.TaskAttemptID
+		err = tx.QueryRowContext(ctx, rebindQueryForPgx(`
+			SELECT run_id, task_id FROM task_attempts WHERE attempt_id = ?
+			UNION ALL
+			SELECT run_id, task_id FROM run_task_attempt_facts WHERE task_attempt_id = ?
+			LIMIT 1
+		`), create.TaskAttemptID, create.TaskAttemptID).Scan(&runID, &taskID)
+	case create.TaskID != "":
+		taskID = create.TaskID
+		err = tx.QueryRowContext(ctx, rebindQueryForPgx(`
+			SELECT run_id FROM run_tasks WHERE task_id = ?
+			UNION ALL
+			SELECT run_id FROM run_task_final_facts WHERE task_id = ?
+			LIMIT 1
+		`), create.TaskID, create.TaskID).Scan(&runID)
+	default:
+		return nil
+	}
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: artifact producer identity is not available", ErrConflict)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if runID != create.RunID || (create.TaskID != "" && taskID != create.TaskID) ||
+		(create.TaskAttemptID != "" && attemptID != create.TaskAttemptID) {
+		return fmt.Errorf("%w: artifact producer identity does not match its run and attempt", ErrConflict)
+	}
+
+	return nil
+}
+
 func (r *SQLArtifactsRepository) GetByRunAndName(ctx context.Context, runID, name string) (ArtifactRecord, error) {
 	runID = strings.TrimSpace(runID)
 	name = strings.TrimSpace(name)
@@ -149,6 +191,9 @@ func (r *SQLArtifactsRepository) ListByRunFiltered(
 	}
 
 	filter = normalizeArtifactListFilter(filter)
+	if filter.Attempt < 0 {
+		return nil, 0, fmt.Errorf("%w: artifact attempt must be positive", ErrConflict)
+	}
 	where := []string{"run_id = ?", "id > ?"}
 	args := []any{runID, cursor}
 	if filter.TaskID != "" {
@@ -164,6 +209,19 @@ func (r *SQLArtifactsRepository) ListByRunFiltered(
 	if filter.ExecutionID != "" {
 		where = append(where, "execution_id = ?")
 		args = append(args, filter.ExecutionID)
+	}
+	if filter.Attempt > 0 {
+		where = append(where, `(
+			EXISTS (SELECT 1 FROM task_attempts p
+				WHERE p.attempt_id = run_artifacts.task_attempt_id AND p.run_id = run_artifacts.run_id AND p.attempt = ?)
+			OR EXISTS (SELECT 1 FROM segment_executions e JOIN task_attempts p ON p.attempt_id = e.task_attempt_id
+				WHERE e.execution_id = run_artifacts.execution_id AND e.run_id = run_artifacts.run_id AND p.attempt = ?)
+			OR EXISTS (SELECT 1 FROM run_task_attempt_facts p
+				WHERE p.task_attempt_id = run_artifacts.task_attempt_id AND p.run_id = run_artifacts.run_id AND p.attempt = ?)
+			OR EXISTS (SELECT 1 FROM run_task_attempt_facts p
+				WHERE p.execution_id = run_artifacts.execution_id AND p.run_id = run_artifacts.run_id AND p.attempt = ?)
+		)`)
+		args = append(args, filter.Attempt, filter.Attempt, filter.Attempt, filter.Attempt)
 	}
 
 	args = append(args, limit+1)

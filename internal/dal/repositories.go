@@ -573,6 +573,7 @@ type ArtifactRecord struct {
 }
 
 type ArtifactListFilter struct {
+	Attempt       int
 	TaskID        string
 	TaskAttemptID string
 	ExecutionID   string

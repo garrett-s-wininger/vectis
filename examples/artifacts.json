@@ -1,0 +1,54 @@
+{
+  "id": "artifacts-demo",
+  "root": {
+    "id": "root",
+    "uses": "builtins/parallel",
+    "with": { "execution": "distributed" },
+    "ports": {
+      "branches": {
+        "nodes": [
+          {
+            "id": "report",
+            "uses": "builtins/sequence",
+            "ports": {
+              "steps": {
+                "nodes": [
+                  {
+                    "id": "write-report",
+                    "uses": "builtins/script",
+                    "with": { "runner": "sh", "script": "mkdir -p reports\nprintf 'Vectis artifact demo\\nAll demonstration checks passed.\\n' > reports/report.txt\nprintf 'Publishing the report artifact.\\n'\nsleep 2" }
+                  },
+                  {
+                    "id": "upload-report",
+                    "uses": "builtins/upload-artifact",
+                    "with": { "name": "demo-report", "path": "reports/report.txt", "content_type": "text/plain" }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "archive",
+            "uses": "builtins/sequence",
+            "ports": {
+              "steps": {
+                "nodes": [
+                  {
+                    "id": "write-archive",
+                    "uses": "builtins/script",
+                    "with": { "runner": "sh", "script": "mkdir -p bundle\nprintf 'This file came from the Vectis artifact demo.\\n' > bundle/notes.txt\ntar -czf demo-bundle.tar.gz -C bundle notes.txt\nprintf 'Waiting before publishing the archive so the artifact list can update live.\\n'\nsleep 6" }
+                  },
+                  {
+                    "id": "upload-archive",
+                    "uses": "builtins/upload-artifact",
+                    "with": { "name": "demo-bundle", "path": "demo-bundle.tar.gz", "content_type": "application/gzip" }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

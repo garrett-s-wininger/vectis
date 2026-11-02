@@ -316,9 +316,9 @@ CREATE INDEX idx_run_task_attempt_facts_task ON run_task_attempt_facts(run_id, t
 CREATE TABLE run_artifacts (
     id BIGSERIAL PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
-    task_id TEXT REFERENCES run_tasks(task_id) ON DELETE SET NULL,
-    task_attempt_id TEXT REFERENCES task_attempts(attempt_id) ON DELETE SET NULL,
-    execution_id TEXT REFERENCES segment_executions(execution_id) ON DELETE SET NULL,
+    task_id TEXT,
+    task_attempt_id TEXT,
+    execution_id TEXT,
     cell_id TEXT NOT NULL DEFAULT 'local',
     name TEXT NOT NULL,
     path TEXT NOT NULL DEFAULT '',

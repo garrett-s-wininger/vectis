@@ -1,4 +1,4 @@
-import type { ChangeEvent, KeyboardEvent, MouseEvent, SelectHTMLAttributes } from "react";
+import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode, SelectHTMLAttributes } from "react";
 import { useRef, useState } from "react";
 import {
   closeOtherDropdowns,
@@ -16,6 +16,7 @@ export type SelectControlOption = {
 
 type SelectControlProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "children" | "multiple" | "size"> & {
   invalid?: boolean;
+  leadingIcon?: ReactNode;
   options: SelectControlOption[];
   summaryLabel: string;
 };
@@ -27,6 +28,7 @@ export function SelectControl({
   defaultValue,
   disabled,
   invalid,
+  leadingIcon,
   onChange,
   options,
   summaryLabel,
@@ -254,6 +256,11 @@ export function SelectControl({
           onKeyDown={handleSummaryKeyDown}
           ref={summaryRef}
         >
+          {leadingIcon ? (
+            <span className={styles.icon} aria-hidden="true">
+              {leadingIcon}
+            </span>
+          ) : null}
           <span className={styles.value}>{selectedLabel}</span>
         </summary>
         <div className={styles.menu} hidden={!isOpen} onKeyDown={handleMenuKeyDown} role="listbox">

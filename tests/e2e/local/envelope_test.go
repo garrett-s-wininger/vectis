@@ -294,7 +294,6 @@ func triggerLocalEnvelopeBurst(
 
 	var wg sync.WaitGroup
 	for clientID := 0; clientID < clients; clientID++ {
-		clientID := clientID
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -392,7 +391,6 @@ func waitForLocalEnvelopeTerminalRuns(
 	results := make([]localEnvelopeTerminalResult, len(infos))
 	var wg sync.WaitGroup
 	for i, info := range infos {
-		i, info := i, info
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -448,7 +446,11 @@ func waitForLocalEnvelopeRunTerminal(
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	return last, statuses, fmt.Errorf("run did not become terminal within %s; lastErr=%v", timeout, lastErr)
+	if lastErr != nil {
+		return last, statuses, fmt.Errorf("run did not become terminal within %s; lastErr=%w", timeout, lastErr)
+	}
+
+	return last, statuses, fmt.Errorf("run did not become terminal within %s", timeout)
 }
 
 func getLocalEnvelopeRun(client *http.Client, runID string) (runShowResult, error) {

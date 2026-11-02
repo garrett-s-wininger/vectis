@@ -9,7 +9,11 @@ test.beforeEach(async ({ page }) => {
 test("keeps known nodes and selected context visible while a task snapshot is incomplete", async ({ page }) => {
   await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-run-detail--partial-task-updates&viewMode=story");
   const finish = page.getByRole("button", { name: "Finish: Running", exact: true });
-  await expect(finish).toHaveAttribute("aria-pressed", "true", { timeout: 20000 });
+  await expect(finish).toBeVisible({ timeout: 20000 });
+  await expect(finish).toHaveAttribute("aria-pressed", "false");
+
+  await finish.click();
+  await expect(finish).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("button", { name: "Receive partial update", exact: true }).click();
   await expect(page.getByText("Waiting for task updates", { exact: true })).toBeVisible();
@@ -49,7 +53,11 @@ for (const width of [1280, 390]) {
 test("keeps the final task selected while task completion precedes run completion", async ({ page }) => {
   await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-run-detail--task-completion&viewMode=story");
   const finish = page.getByRole("button", { name: "Finish: Running", exact: true });
-  await expect(finish).toHaveAttribute("aria-pressed", "true", { timeout: 20000 });
+  await expect(finish).toBeVisible({ timeout: 20000 });
+  await expect(finish).toHaveAttribute("aria-pressed", "false");
+
+  await finish.click();
+  await expect(finish).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("button", { name: "Finish task", exact: true }).click();
   const completed = page.getByRole("button", { name: "Finish: Succeeded", exact: true });

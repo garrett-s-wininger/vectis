@@ -112,8 +112,11 @@ test.describe("app smoke", () => {
     await expectDropdownUsesOverlaySafePanel(page, "Repository ID: Select a repository");
 
     await page.goto("/runs/run-1240");
-    await expect(page.getByRole("heading", { name: "Task Logs" })).toBeVisible();
-    await expectDropdownUsesOverlaySafePanel(page, "Attempt: Latest (attempt 1)");
+    await expect(page.getByRole("heading", { name: "Run Logs" })).toBeVisible();
+    await expect(page.getByLabel(/^Attempt:/)).toHaveCount(0);
+
+    await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-run-detail--shared-attempt-context&viewMode=story");
+    await expectDropdownUsesOverlaySafePanel(page, "Attempt: Latest (attempt 2)");
   });
 });
 

@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import { Ban, Check, CircleDashed, Clock, LoaderCircle, OctagonAlert, Play, X } from "lucide-react";
+import { Button } from "../components";
 import { runGraphDescription, runTaskStatusLabel, type RunTaskDisplayNode } from "./RunDetailPresentation";
 import styles from "./RunTaskGraph.module.css";
 
@@ -8,22 +10,44 @@ type RunTaskTreeNode = RunTaskDisplayNode & {
 
 type RunTaskGraphProps = {
   awaitingTasks?: boolean;
+  controls?: ReactNode;
   onSelectTask: (taskID: string) => void;
   selectedTaskID?: string;
+  onClearSelection?: () => void;
   tasks: RunTaskDisplayNode[];
 };
 
-export function RunTaskGraph({ awaitingTasks = false, onSelectTask, selectedTaskID, tasks }: RunTaskGraphProps) {
+export function RunTaskGraph({
+  awaitingTasks = false,
+  controls,
+  onSelectTask,
+  selectedTaskID,
+  onClearSelection,
+  tasks
+}: RunTaskGraphProps) {
   const tree = taskTree(tasks);
   const graphDescription = runGraphDescription();
 
   return (
-    <section className={`${styles.panel} polished-panel polished-panel--accent-top`} aria-labelledby="run-graph-title">
+    <section
+      className={`${styles.panel} polished-panel polished-panel--accent-top polished-panel--overlay-safe`}
+      aria-labelledby="run-graph-title"
+    >
       <div className={styles.header}>
         <div>
           <h2 id="run-graph-title">Graph</h2>
           {graphDescription ? <p>{graphDescription}</p> : null}
         </div>
+        {controls || (selectedTaskID && onClearSelection) ? (
+          <div className={styles.controls} role="group" aria-label="Run investigation controls">
+            {controls}
+            {selectedTaskID && onClearSelection ? (
+              <Button variant="quiet" onClick={onClearSelection}>
+                <X aria-hidden="true" /> Clear task selection
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className={styles.graph} role="group" aria-label="Execution graph">
         <div className={styles.tree}>

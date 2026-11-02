@@ -53,12 +53,28 @@ func (s *APIServer) ListRunArtifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	filter := artifactListFilterFromQuery(r)
+	if values, present := r.URL.Query()["attempt"]; present {
+		if len(values) != 1 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_query_parameter", "attempt must be one positive integer", nil)
+			return
+		}
+
+		attempt, err := strconv.Atoi(values[0])
+		if err != nil || attempt <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_query_parameter", "attempt must be a positive integer", nil)
+			return
+		}
+
+		filter.Attempt = attempt
+	}
+
 	records, nextCursor, err := s.artifacts.ListByRunFiltered(
 		ctx,
 		runID,
 		params.Cursor,
 		params.Limit,
-		artifactListFilterFromQuery(r),
+		filter,
 	)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {

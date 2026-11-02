@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import type { RunListItem } from "../components";
 import type { RunLogEntry } from "../data/runLogs";
 import { streamRunLogs } from "../data/runLogs";
@@ -119,13 +119,8 @@ function emit(data: string, sequence: number, executionID?: string) {
   act(() => entry({ data, sequence, executionID, stream: "stdout" }));
 }
 
-function choose(label: string, option: string) {
-  fireEvent.click(screen.getByLabelText(new RegExp(`^${label}: `)));
-  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: option }));
-}
-
-it("isolates task attempts, keeps raw chunks intact, and exposes legacy output only run-wide", () => {
-  render(<RunLogs run={run} selectedTask={task} />);
+it("isolates task attempts and keeps run-wide output within the same attempt", () => {
+  const view = render(<RunLogs run={run} selectedTask={task} attempt={2} />);
   emit("old attempt", 1, "execution-1");
   emit("unrelated", 2, "other-task");
   emit("legacy", 3);
@@ -134,15 +129,14 @@ it("isolates task attempts, keeps raw chunks intact, and exposes legacy output o
   emit("duplicate", 5, "execution-2");
   expect(screen.getByLabelText("Log output").textContent).toBe("hello\n");
 
-  choose("Attempt", "Attempt 1");
+  view.rerender(<RunLogs run={run} selectedTask={task} attempt={1} />);
   expect(screen.getByText("Failed")).toBeInTheDocument();
   expect(screen.queryByText("Succeeded")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Log output").textContent).toBe("old attempt");
 
-  choose("Attempt", "All attempts");
-  expect(screen.getByLabelText("Log output").textContent).toBe("old attempthello\n");
-  choose("Output", "All run output");
-  expect(screen.getByLabelText("Log output").textContent).toBe("old attemptunrelatedlegacyhello\n");
+  view.rerender(<RunLogs run={{ ...run, tasks: [task] }} attempt={2} />);
+  expect(screen.getByLabelText("Log output").textContent).toBe("hello\n");
+  expect(streamRunLogs).toHaveBeenCalledOnce();
 });
 
 it("switches tasks without reconnecting or leaking output, and retains logs on errors", () => {
@@ -181,7 +175,8 @@ it("reconnects for a new root dispatch and retains earlier-attempt output", () =
 
   emit("latest output\n", 2, "execution-2");
   expect(screen.getByLabelText("Log output")).toHaveTextContent("latest output");
-  choose("Attempt", "Attempt 1");
+
+  view.rerender(<RunLogs run={{ ...run, tasks: [retried] }} selectedTask={retried} attempt={1} />);
   expect(screen.getByLabelText("Log output")).toHaveTextContent("earlier output");
   expect(screen.getByLabelText("Log output")).not.toHaveTextContent("latest output");
 });

@@ -1637,6 +1637,9 @@
           },
           {
             "$ref": "#/components/parameters/TaskIDQuery"
+          },
+          {
+            "$ref": "#/components/parameters/ArtifactAttemptQuery"
           }
         ],
         "responses": {
@@ -3095,6 +3098,16 @@
         "required": true,
         "schema": {
           "$ref": "#/components/schemas/Role"
+        }
+      },
+      "ArtifactAttemptQuery": {
+        "name": "attempt",
+        "in": "query",
+        "required": false,
+        "description": "Filter artifacts by run attempt number, using live or retained task-attempt attribution.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
