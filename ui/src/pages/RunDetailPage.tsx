@@ -1,8 +1,15 @@
 import { useState } from "react";
-import { ChevronDown, Clock, Code2, FileText, Server, User, Zap } from "lucide-react";
+import { ChevronDown, Clock, Code2, FileText, Fingerprint, Hash, History, Server, User, Zap } from "lucide-react";
 import { BreadcrumbTrail, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
-import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel } from "../components/data/RunPresentation";
+import {
+  runActorLabel,
+  runDisplayName,
+  runDurationLabel,
+  runFamilyIdentifier,
+  runTriggerLabel
+} from "../components/data/RunPresentation";
 import { RunLogs } from "./RunLogs";
+import { RunControls, type RunControlActions } from "./RunControls";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import {
   formatRunDefinition,
@@ -19,14 +26,25 @@ import { RunTaskGraph } from "./RunTaskGraph";
 import { PageMissingState } from "./shared";
 import styles from "./RunDetailPage.module.css";
 
-type RunDetailPageProps = {
+type RunDetailPageProps = RunControlActions & {
   onBack: () => void;
   onOpenJob?: (jobName: string) => void;
+  onOpenRun?: (runID: string) => Promise<void>;
   run?: RunListItem;
   runID: string;
+  originalRun?: RunListItem;
 };
 
-export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPageProps) {
+export function RunDetailPage({
+  onBack,
+  onOpenJob,
+  onOpenRun,
+  onCancel,
+  onReplay,
+  run,
+  runID,
+  originalRun
+}: RunDetailPageProps) {
   if (!run) {
     return (
       <PageMissingState
@@ -46,36 +64,72 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
     );
   }
 
-  return <RunDetailContent onBack={onBack} onOpenJob={onOpenJob} run={run} />;
+  return (
+    <RunDetailContent
+      key={run.id}
+      onBack={onBack}
+      onOpenJob={onOpenJob}
+      onOpenRun={onOpenRun}
+      onCancel={onCancel}
+      onReplay={onReplay}
+      run={run}
+      originalRun={originalRun}
+    />
+  );
 }
 
 function RunDetailContent({
   onBack,
   onOpenJob,
+  onOpenRun,
+  onCancel,
+  onReplay,
+  originalRun,
   run
-}: {
+}: RunControlActions & {
   onBack: () => void;
   onOpenJob?: (jobName: string) => void;
+  onOpenRun?: (runID: string) => Promise<void>;
   run: RunListItem;
+  originalRun?: RunListItem;
 }) {
   const tasks = runTasksForDisplay(run);
   const awaitingTasks =
-    (run.status === "queued" || run.status === "running") &&
-    tasks.length > 0 &&
-    tasks.every((task) => task.status === "succeeded");
+    run.tasksUpdating ||
+    ((run.status === "queued" || run.status === "running") &&
+      tasks.length === 1 &&
+      tasks[0].taskKey === "root" &&
+      tasks[0].status === "succeeded");
   const preferredTaskID = preferredRunTaskID(tasks);
-  const [selection, setSelection] = useState<{ runID: string; taskID: string } | null>(null);
+  const [automaticTaskID, setAutomaticTaskID] = useState(preferredTaskID);
+  const [selection, setSelection] = useState<string | null>(null);
+  const [openingOriginal, setOpeningOriginal] = useState(false);
+  const preferredTask = tasks.find((task) => task.taskID === preferredTaskID);
+
+  if (
+    !selection &&
+    preferredTask &&
+    ["running", "accepted", "failed", "aborted"].includes(preferredTask.status) &&
+    automaticTaskID !== preferredTaskID
+  ) {
+    setAutomaticTaskID(preferredTaskID);
+  }
+
   const selectedTaskID =
-    selection?.runID === run.id && tasks.some((task) => task.taskID === selection.taskID)
-      ? selection.taskID
-      : preferredTaskID;
+    selection && tasks.some((task) => task.taskID === selection)
+      ? selection
+      : tasks.some((task) => task.taskID === automaticTaskID)
+        ? automaticTaskID
+        : preferredTaskID;
 
   const selectedTask = tasks.find((task) => task.taskID === selectedTaskID) ?? tasks[0];
-  const selectTask = (taskID: string) => setSelection({ runID: run.id, taskID });
+  const selectTask = (taskID: string) => setSelection(taskID);
+  const runOnceID = run.source === "ephemeral" && run.jobID ? run.jobID.split("-").at(-1) : runFamilyIdentifier(run);
 
   return (
     <>
       <PageHeader
+        actions={onCancel || onReplay ? <RunControls run={run} onCancel={onCancel} onReplay={onReplay} /> : undefined}
         description={runDetailDescription()}
         navigation={
           <BreadcrumbTrail
@@ -83,7 +137,7 @@ function RunDetailContent({
               { label: formatNamespaceCrumb(run.namespacePath ?? "/") },
               { label: "Runs", onClick: onBack },
               {
-                label: runDisplayName(run),
+                label: runOnceID ?? runDisplayName(run),
                 onClick: run.source === "stored" && onOpenJob ? () => onOpenJob(run.jobName) : undefined
               },
               { label: `#${run.runNumber}`, current: true }
@@ -94,14 +148,10 @@ function RunDetailContent({
         title={`${runDisplayName(run)} (#${run.runNumber})`}
       />
 
-      <section
-        className={`${styles.hero} polished-panel polished-panel--accent-top`}
-        aria-label="Run investigation summary"
-      >
+      <section className={`${styles.hero} polished-panel polished-panel--accent-top`} aria-label="Run summary">
         <div className={styles.heroHeader}>
           <div>
-            <h2>Investigation Summary</h2>
-            <p>{run.id}</p>
+            <h2>Run summary</h2>
           </div>
           <StatusBadge status={run.status} />
         </div>
@@ -116,6 +166,45 @@ function RunDetailContent({
           />
           <OperationalFact icon={FileText} label="Source" value={sourceLabel(run.source ?? "stored")} />
           <OperationalFact icon={Code2} label="Reference" value={referenceLabel(run)} />
+        </dl>
+        <dl className={styles.metadata}>
+          <OperationalFact icon={Fingerprint} label="Run ID" value={<code>{run.id}</code>} wrap />
+          {run.jobID ? <OperationalFact icon={Hash} label="Job ID" value={<code>{run.jobID}</code>} wrap /> : null}
+          {run.replayOfRunID ? (
+            <OperationalFact
+              icon={History}
+              label="Re-run of"
+              wrap
+              value={
+                <a
+                  href={`/runs/${encodeURIComponent(run.replayOfRunID)}`}
+                  aria-busy={openingOriginal || undefined}
+                  onClick={(event) => {
+                    if (
+                      !onOpenRun ||
+                      !run.replayOfRunID ||
+                      event.defaultPrevented ||
+                      event.button !== 0 ||
+                      event.altKey ||
+                      event.ctrlKey ||
+                      event.metaKey ||
+                      event.shiftKey
+                    )
+                      return;
+
+                    event.preventDefault();
+                    if (openingOriginal) return;
+
+                    setOpeningOriginal(true);
+                    void onOpenRun(run.replayOfRunID).finally(() => setOpeningOriginal(false));
+                  }}
+                  aria-label={`View original run${originalRun ? ` ${runDisplayName(originalRun)} #${originalRun.runNumber}` : ""}`}
+                >
+                  {originalRun ? `${runDisplayName(originalRun)} #${originalRun.runNumber}` : "Original run"}
+                </a>
+              }
+            />
+          ) : null}
         </dl>
       </section>
 

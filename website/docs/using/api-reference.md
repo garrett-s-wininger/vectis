@@ -421,7 +421,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/runs/{id}/artifacts/{name}/download` | Download one artifact blob by name | `run:read` | general | `200` artifact bytes |
 | GET | `/api/v1/runs/{id}/execution-payload` | Get the frozen execution payload for one run | `run:operator` | general | `200` JSON payload |
 | POST | `/api/v1/runs/{id}/replay` | Create a new run from the source run's captured definition version, optionally targeting `cell_id` | `run:operator` | general | `202` JSON run |
-| POST | `/api/v1/runs/{id}/cancel` | Record durable cancellation intent, with worker-control fast path when reachable | `run:operator` | general | `204` empty or `202` JSON pending result |
+| POST | `/api/v1/runs/{id}/cancel` | Request cancellation of queued or running work at its owning cell, with worker-control fast path for shared databases | `run:operator` | general | `204` empty or `202` JSON pending result |
 | POST | `/api/v1/runs/{id}/repair/mark-succeeded` | Resolve an orphaned run as succeeded | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/repair/mark-failed` | Resolve an orphaned run as failed | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/repair/mark-cancelled` | Resolve an orphaned run as cancelled | `run:operator` | general | `204` empty |
@@ -453,3 +453,9 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/namespaces/{id}/bindings` | List namespace role bindings | `admin:*` | general | `200` JSON list |
 | POST | `/api/v1/namespaces/{id}/bindings` | Create a namespace role binding | `admin:*` | general | `201` JSON binding |
 | DELETE | `/api/v1/namespaces/{id}/bindings/{user_id}` | Delete a namespace role binding | `admin:*` | general | `204` empty |
+
+### Run controls in the UI
+
+The run-detail header offers **Cancel run** for queued and running work. Click once to arm **Confirm cancel**, then click the same button again to request cancellation; Escape or moving focus away disarms it. **Cancel requested** means the intent has been accepted; it does not claim the worker has stopped. Queued cancellation may wait for a worker to consume the delivery, and workers check the intent before executing commands. If cell delivery fails, the API returns `503 cancel_unavailable` and the request can be retried. Run details expose `cancel_requested` while the intent is pending.
+
+Completed runs offer **Run again**, which calls the replay endpoint and creates a new run from the original saved definition. The UI opens that new run and links to its original through `replay_of_run_id`. It does not reset the original run or use operator repair. See `examples/run-controls.json` and the repository examples guide for a 30-second demonstration.

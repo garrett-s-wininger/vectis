@@ -328,7 +328,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { level: 1, name: "api-test-suite (#1240)" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Investigation Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Run summary" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -528,11 +528,219 @@ describe("App", () => {
       render(<App />);
 
       expect(await screen.findByRole("button", { name: "Root: Succeeded" })).toBeInTheDocument();
-      expect(
-        within(screen.getByRole("region", { name: "Run investigation summary" })).getByText("Succeeded")
-      ).toBeInTheDocument();
+      expect(within(screen.getByRole("region", { name: "Run summary" })).getByText("Succeeded")).toBeInTheDocument();
 
       expect(load).toHaveBeenCalledOnce();
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  it("opens a replay as a new run with a link back to the original", async () => {
+    window.history.replaceState(null, "", "/runs/run-1238");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Run again" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/runs/run-1241"));
+    expect(await screen.findByRole("link", { name: /^View original run/ })).toHaveAttribute("href", "/runs/run-1238");
+    expect(screen.getByRole("button", { name: "Cancel run" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("link", { name: /^View original run/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/runs/run-1238"));
+    expect(screen.getByRole("heading", { level: 1, name: "worker-image (#1238)" })).toBeVisible();
+  });
+
+  it("does not flash a log error when the stream closes before the run watcher reports success", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const data = await source.loadConsole();
+    const original = await source.loadRun(data.runs[0].id);
+    const tasks = original.tasks?.map((task) => ({
+      ...task,
+      status: "succeeded" as const,
+      attempts: task.attempts.map((attempt) => ({ ...attempt, status: "succeeded" as const }))
+    }));
+
+    const running = { ...original, status: "running" as const, tasks };
+    const finished = { ...original, status: "succeeded" as const, tasks };
+    source.loadConsole = async () => ({ ...data, runs: [running] });
+    source.loadRun = vi.fn().mockResolvedValueOnce(running).mockResolvedValue(finished);
+
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    const sources: FakeSource[] = [];
+
+    class FakeSource {
+      onopen?: () => void;
+      onerror?: () => void;
+      close = vi.fn();
+      constructor() {
+        sources.push(this);
+      }
+    }
+
+    vi.stubGlobal("EventSource", FakeSource);
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    const errors: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) {
+          if (node.textContent?.includes("Log Stream Unavailable")) errors.push(node.textContent);
+        }
+    });
+
+    try {
+      window.history.replaceState(null, "", `/runs/${running.id}`);
+      const view = render(<App />);
+      const summary = await screen.findByRole("region", { name: "Run summary" });
+      await waitFor(() => expect(source.loadRun).toHaveBeenCalledOnce());
+      expect(summary).toHaveTextContent("Running");
+
+      observer.observe(view.container, { childList: true, subtree: true });
+      act(() => {
+        sources.at(-1)!.onopen?.();
+        sources.at(-1)!.onerror?.();
+      });
+
+      expect(screen.getByText("Live log stream closed. Waiting for run status…")).toBeVisible();
+      await waitFor(() => expect(summary).toHaveTextContent("Succeeded"), { timeout: 4000 });
+      expect(screen.getByText("Run succeeded. Live log stream closed.")).toBeVisible();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(errors).toEqual([]);
+    } finally {
+      observer.disconnect();
+      create.mockRestore();
+    }
+  });
+
+  it("loads an uncached original run before navigating and leaves the replay visible on a failed read", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const replayID = await source.replayRun("run-1238", "test-replay");
+    const data = await source.loadConsole();
+    source.loadConsole = async () => ({ ...data, runs: data.runs.filter((run) => run.id !== "run-1238") });
+
+    const loadRun = source.loadRun.bind(source);
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let fail = true;
+    source.loadRun = vi.fn(async (id, jobs) => {
+      if (id === "run-1238") {
+        if (fail) {
+          fail = false;
+          throw new Error("Read temporarily unavailable");
+        }
+
+        await ready;
+      }
+
+      return loadRun(id, jobs);
+    });
+
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    try {
+      window.history.replaceState(null, "", `/runs/${replayID}`);
+      render(<App />);
+
+      const link = await screen.findByRole("link", { name: /^View original run/ });
+      const summary = screen.getByRole("region", { name: "Run summary" });
+      fireEvent.click(link);
+
+      expect(await screen.findByText("Read temporarily unavailable")).toBeVisible();
+      expect(window.location.pathname).toBe(`/runs/${replayID}`);
+      await waitFor(() => expect(link).not.toHaveAttribute("aria-busy"));
+
+      fireEvent.click(link);
+      await waitFor(() => expect(link).toHaveAttribute("aria-busy", "true"));
+
+      expect(screen.getByRole("region", { name: "Run summary" })).toBe(summary);
+      expect(screen.queryByText("Loading Run")).not.toBeInTheDocument();
+
+      await act(async () => release());
+      await waitFor(() => expect(window.location.pathname).toBe("/runs/run-1238"));
+
+      expect(screen.getByRole("heading", { level: 1, name: "worker-image (#1238)" })).toBeVisible();
+      expect(screen.queryByText("Read temporarily unavailable")).not.toBeInTheDocument();
+    } finally {
+      release();
+      create.mockRestore();
+    }
+  });
+
+  it("keeps the original page while preparing a replay and navigates without a loading-page flash", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const loadRun = source.loadRun.bind(source);
+
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    source.loadRun = vi.fn(async (id, jobs) => {
+      if (id === "run-1241") await ready;
+      return loadRun(id, jobs);
+    });
+
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    const addedContent: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) addedContent.push(node.textContent ?? "");
+      }
+    });
+
+    try {
+      window.history.replaceState(null, "", "/runs/run-1238");
+      const view = render(<App />);
+      const button = await screen.findByRole("button", { name: "Run again" });
+      const summary = screen.getByRole("region", { name: "Run summary" });
+
+      observer.observe(view.container, { childList: true, subtree: true });
+      fireEvent.click(button);
+
+      await waitFor(() => expect(source.loadRun).toHaveBeenCalledWith("run-1241", expect.any(Array)));
+      expect(window.location.pathname).toBe("/runs/run-1238");
+      expect(screen.getByRole("region", { name: "Run summary" })).toBe(summary);
+      expect(screen.getByRole("button", { name: "Starting run…" })).toBeDisabled();
+
+      await act(async () => release());
+      await waitFor(() => expect(window.location.pathname).toBe("/runs/run-1241"));
+      expect(screen.getByRole("heading", { level: 1, name: "worker-image (#1239)" })).toBeVisible();
+      expect(screen.getByRole("region", { name: "Run summary" })).toHaveTextContent("run-1241");
+      expect(addedContent.some((text) => text.includes("Loading Run"))).toBe(false);
+    } finally {
+      release();
+      observer.disconnect();
+      create.mockRestore();
+    }
+  });
+
+  it("still opens an accepted replay when its initial detail read fails", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const loadRun = source.loadRun.bind(source);
+
+    let failed = false;
+    source.loadRun = vi.fn(async (id, jobs) => {
+      if (id === "run-1241" && !failed) {
+        failed = true;
+        throw new Error("Temporary read failure");
+      }
+
+      return loadRun(id, jobs);
+    });
+
+    const replay = vi.spyOn(source, "replayRun");
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    try {
+      window.history.replaceState(null, "", "/runs/run-1238");
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Run again" }));
+      expect(await screen.findByRole("heading", { level: 1, name: "worker-image (#1239)" })).toBeVisible();
+      expect(window.location.pathname).toBe("/runs/run-1241");
+      expect(replay).toHaveBeenCalledOnce();
+      expect(screen.queryByText("Temporary read failure")).not.toBeInTheDocument();
     } finally {
       create.mockRestore();
     }
@@ -603,7 +811,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open run api-test-suite #1240" }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "api-test-suite (#1240)" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Investigation Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Run summary" })).toBeInTheDocument();
     expect(screen.getByText("run-1240")).toBeInTheDocument();
     expect(screen.getByText("Saved")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/runs/run-1240");
@@ -611,7 +819,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Job Definition" })).toBeInTheDocument();
     expect(screen.getByText("Submitted via Manual by mira.")).toBeInTheDocument();
-    expect(screen.getByText("Assigned ID run-1240.")).toBeInTheDocument();
+    expect(screen.getByText("Run #1240 saved.")).toBeInTheDocument();
     expect(screen.getByText("Worker selected on local.")).toBeInTheDocument();
     expect(screen.getByText(/\+0s/)).toBeInTheDocument();
     expect(screen.getByText(/\+5s/)).toBeInTheDocument();
@@ -644,7 +852,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit run" }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "database-backfill (#1241)" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Investigation Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Run summary" })).toBeInTheDocument();
     expect(screen.getByText("Ephemeral")).toBeInTheDocument();
     expect(screen.getByText("Inline")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Submitted Definition" })).toBeInTheDocument();

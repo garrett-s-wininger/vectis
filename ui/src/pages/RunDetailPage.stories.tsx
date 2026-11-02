@@ -1,4 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { Button, type RunListItem } from "../components";
+import { retainRunTasks } from "../data/watchRun";
 import { createMockConsoleDataSnapshot, submitMockEphemeralRun } from "../mocks/consoleData";
 import { mockRunTasks } from "../mocks/fixtures";
 import { PageStoryFrame } from "../mocks/pageHarnesses";
@@ -54,6 +57,85 @@ export const EphemeralRun: Story = {
   args: {
     run: ephemeralData.runs[0],
     runID: ephemeralData.runs[0].id
+  }
+};
+
+function TaskCompletionPreview({ partial = false }: { partial?: boolean }) {
+  const [stage, setStage] = useState(0);
+  const run: RunListItem = {
+    ...data.runs[0],
+    status: stage === 2 ? "succeeded" : "running",
+    tasks: [
+      { taskID: "root", taskKey: "root", name: "root", status: "succeeded", attempts: [] },
+      {
+        taskID: "finish",
+        taskKey: "finish",
+        name: "Finish",
+        parentTaskID: "root",
+        status: stage === 0 ? "running" : "succeeded",
+        attempts: []
+      }
+    ]
+  };
+
+  const visibleRun =
+    partial && stage === 1
+      ? retainRunTasks(
+          {
+            ...run,
+            tasks: run.tasks?.map((task) => ({ ...task, status: task.taskKey === "root" ? "succeeded" : "running" }))
+          },
+          { ...run, tasks: run.tasks?.slice(0, 1) }
+        )
+      : run;
+
+  return (
+    <>
+      <Button onClick={() => setStage(stage + 1)} disabled={stage === 2}>
+        {partial
+          ? stage === 0
+            ? "Receive partial update"
+            : "Receive complete update"
+          : stage === 0
+            ? "Finish task"
+            : "Finish run"}
+      </Button>
+      <RunDetailPage onBack={() => undefined} run={visibleRun} runID={run.id} />
+    </>
+  );
+}
+
+export const TaskCompletion: Story = { render: () => <TaskCompletionPreview /> };
+export const PartialTaskUpdates: Story = { render: () => <TaskCompletionPreview partial /> };
+
+const metadataJobID = "2a5ed99c-6d51-4c50-97e9-e31b23da7469";
+const metadataRunID = "95d24ba7-aef2-43cb-ae40-4fe6a63c2f82";
+const metadataOriginal = {
+  ...data.runs[0],
+  id: "db1d61ea-426e-46f1-8b20-b28d78747150",
+  jobID: metadataJobID,
+  jobName: metadataJobID,
+  source: "ephemeral" as const,
+  runNumber: 1,
+  status: "cancelled" as const
+};
+
+export const ReplayMetadata: Story = {
+  args: {
+    onReplay: async () => undefined,
+    originalRun: metadataOriginal,
+    run: {
+      ...metadataOriginal,
+      id: metadataRunID,
+      runNumber: 2,
+      replayOfRunID: metadataOriginal.id,
+      tasks: mockRunTasks(metadataRunID, [
+        { key: "root", name: "root", status: "cancelled" },
+        { key: "heartbeat", name: "Heartbeat", parentKey: "root", status: "cancelled" },
+        { key: "finish", name: "Finish", parentKey: "root", status: "planned" }
+      ])
+    },
+    runID: metadataRunID
   }
 };
 

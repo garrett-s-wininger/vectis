@@ -74,9 +74,10 @@ describe("RunList", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open run 97e9-e31b23da7469 #1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open run Run once #1" }));
 
-    expect(screen.getByText("97e9-e31b23da7469")).toBeInTheDocument();
+    expect(screen.getByText("Run once")).toBeInTheDocument();
+    expect(screen.getByText("Run #1 · e31b23da7469")).toBeInTheDocument();
     expect(screen.queryByText("2a5ed99c-6d51-4c50-97e9-e31b23da7469")).not.toBeInTheDocument();
     expect(selectRun).toHaveBeenCalledWith("run-2a5ed99c-6d51-4c50-97e9-e31b23da7469");
   });

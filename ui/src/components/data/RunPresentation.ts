@@ -1,4 +1,19 @@
 import type { RunStatus } from "../status/StatusBadge";
+import type { RunListItem } from "./RunList";
+
+const terminalRunStatuses = new Set<RunStatus>(["succeeded", "failed", "cancelled", "aborted", "abandoned"]);
+
+export function isTerminalRunStatus(status: RunStatus) {
+  return terminalRunStatuses.has(status);
+}
+
+export function runRootAttemptNumber(run: Pick<RunListItem, "tasks">) {
+  return (
+    run.tasks
+      ?.find((task) => task.taskKey === "root")
+      ?.attempts.reduce((latest, attempt) => Math.max(latest, attempt.attempt), 0) ?? 0
+  );
+}
 
 export type RunTrigger = "api" | "manual" | "poll" | "schedule" | "ui" | "webhook";
 
@@ -39,10 +54,16 @@ export function runDurationLabel(status: RunStatus) {
 
 export function runDisplayName(run: { id?: string; jobName: string; source?: "stored" | "ephemeral" }) {
   if (run.source === "ephemeral" && isGeneratedID(run.jobName)) {
-    return run.id ? shortRunID(run.id) : "Inline";
+    return "Run once";
   }
 
   return run.jobName;
+}
+
+export function runFamilyIdentifier(run: { jobID?: string; jobName: string; source?: "stored" | "ephemeral" }) {
+  return run.source === "ephemeral" && isGeneratedID(run.jobName)
+    ? (run.jobID ?? run.jobName).split("-").at(-1)
+    : undefined;
 }
 
 export function runStatusClass(status: RunStatus) {

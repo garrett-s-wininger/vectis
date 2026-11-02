@@ -9,6 +9,7 @@ import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
 import { RunList, type RunListItem } from "../components";
 import { SelectField } from "../components";
+import { runDisplayName } from "../components/data/RunPresentation";
 import { TextAreaField } from "../components";
 import type { Namespace } from "../domain/console";
 import {
@@ -126,7 +127,10 @@ export function RunsPage({
     const normalizedJobFilter = jobFilter.toLowerCase();
 
     return runs.filter((run) => {
-      const jobMatches = !normalizedJobFilter || run.jobName.toLowerCase().includes(normalizedJobFilter);
+      const jobMatches =
+        !normalizedJobFilter ||
+        run.jobName.toLowerCase().includes(normalizedJobFilter) ||
+        runDisplayName(run).toLowerCase().includes(normalizedJobFilter);
       const sourceMatches = source === "all" || (run.source ?? "stored") === source;
       const statusMatches = status === "all" || run.status === status;
       return jobMatches && sourceMatches && statusMatches;

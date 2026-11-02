@@ -12,11 +12,28 @@ Start with `sequenced.json`. Each later file adds one control-flow idea. The def
 | --- | --- | --- |
 | `sequenced.json` | `builtins/sequence` runs three `builtins/script` steps in order. | Three log lines, then a succeeded run. |
 | `log-viewer.json` | Distributed tasks with stdout, stderr, split writes, and an intentional failure. | A failed run by design. Inspect each task in the UI; `not-reached` has no execution. |
+| `run-controls.json` | A distributed sequence with 30 seconds of heartbeat output. | Cancel it from run details, then use Run again to create a new run; letting it finish succeeds. |
 | `parallel.json` | A local sequence with a distributed `builtins/parallel` branch for unit tests and lint. | `Preparing workspace`, both check lines, then `All checks complete`. |
 | `conditional.json` | `builtins/if` runs `then` when `deploy.changed` exists and `else` otherwise. | `No deploy changes detected`. A fresh workspace has no `deploy.changed` file, so the else branch runs. |
 | `fallback.json` | `builtins/fallback` tries choices in order and keeps the first success. | `running portable fallback build`. `./preferred-build.sh` is absent, so the first choice fails and the second runs. |
 | `dataflow.json` | A script writes `outputs.json`, and the next `builtins/test` step reads that `command` output. | A succeeded run. The test step executes the command produced by the first step. |
 | `outputs.json` | A script publishes a JSON output file through `with.outputs`. | A succeeded run whose task output includes `image` and `ok`. |
+
+## Try the run controls
+
+In the UI, open **Runs → Run Once**, load `examples/run-controls.json`, and submit it. The heartbeat task logs once per second for 30 seconds, giving you time to choose **Cancel run → Confirm cancel**. The UI shows **Cancel requested** until the worker confirms **Cancelled**; the remaining task should not execute.
+
+Choose **Run again** on the cancelled run. This opens a new run using the original saved definition, with **Re-run of** shown alongside its identifiers in the run summary. Leave it running to see it succeed after about 30 seconds, or cancel it again. The original run and its logs remain available. This is a new run, rather than an additional attempt on the original execution.
+
+The run-once breadcrumb identifies the job by its UUID suffix before the run number. The selected task stays selected when it finishes, and known graph nodes remain visible while a task snapshot is incomplete. Logs scroll inside a fixed-height viewport. If an established stream closes without a completion marker, the UI briefly waits for run status; a confirmed terminal run shows a neutral closure notice, while a stream failure during active work still reports an error.
+
+You can also submit the same example from the repository root:
+
+```bash
+./bin/vectis-cli jobs run examples/run-controls.json
+```
+
+The scripts use `sh`, `printf`, and `sleep`, so they run directly on Linux, macOS, or WSL without services or downloads.
 
 ## Custom action
 

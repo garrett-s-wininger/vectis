@@ -2012,11 +2012,33 @@ func (r *SQLRunsRepository) GetRunStatus(ctx context.Context, runID string) (sta
 }
 
 func (r *SQLRunsRepository) RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error) {
+	return r.requestRunCancel(ctx, runID, "", reason)
+}
+
+func (r *SQLRunsRepository) RequestRunAttemptCancel(ctx context.Context, runID, rootExecutionID, reason string) (RunForCancel, error) {
+	if strings.TrimSpace(rootExecutionID) == "" {
+		return RunForCancel{}, fmt.Errorf("%w: root execution is required", ErrConflict)
+	}
+
+	return r.requestRunCancel(ctx, runID, rootExecutionID, reason)
+}
+
+func (r *SQLRunsRepository) requestRunCancel(ctx context.Context, runID, rootExecutionID, reason string) (RunForCancel, error) {
 	if reason == "" {
 		reason = CancelReasonAPI
 	}
 
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RunForCancel{}, normalizeSQLError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if rootExecutionID != "" {
+		if err := lockRunAttemptTx(ctx, tx, runID, rootExecutionID); err != nil {
+			return RunForCancel{}, err
+		}
+	}
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs
 		SET cancel_requested_at = COALESCE(cancel_requested_at, ?),
 			cancel_reason = CASE
@@ -2024,8 +2046,8 @@ func (r *SQLRunsRepository) RequestRunCancel(ctx context.Context, runID, reason 
 				ELSE cancel_reason
 			END
 		WHERE run_id = ?
-			AND status = ?
-	`), time.Now().Unix(), reason, runID, RunStatusRunning)
+			AND status IN (?, ?)
+	`), time.Now().Unix(), reason, runID, RunStatusQueued, RunStatusRunning)
 
 	if err != nil {
 		return RunForCancel{}, normalizeSQLError(err)
@@ -2036,6 +2058,9 @@ func (r *SQLRunsRepository) RequestRunCancel(ctx context.Context, runID, reason 
 		return RunForCancel{}, err
 	}
 
+	if err := tx.Commit(); err != nil {
+		return RunForCancel{}, normalizeSQLError(err)
+	}
 	rec, err := r.GetRunForCancel(ctx, runID)
 	if err != nil {
 		return RunForCancel{}, err
@@ -2058,8 +2083,8 @@ func (r *SQLRunsRepository) RunCancelRequested(ctx context.Context, runID string
 		SELECT cancel_requested_at
 		FROM job_runs
 			WHERE run_id = ?
-				AND status IN (?, ?)
-	`), runID, RunStatusRunning, RunStatusOrphaned).Scan(&requestedAt); err != nil {
+				AND status IN (?, ?, ?)
+	`), runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned).Scan(&requestedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
@@ -6416,8 +6441,6 @@ func (r *SQLRunsRepository) TryClaimExecution(
 		SET lease_owner = ?,
 			lease_until = ?,
 			cancel_token = ?,
-			cancel_requested_at = CASE WHEN status = ? THEN cancel_requested_at ELSE NULL END,
-			cancel_reason = CASE WHEN status = ? THEN cancel_reason ELSE NULL END,
 			attempt = CASE WHEN status = ? THEN attempt + 1 ELSE attempt END,
 			orphan_reason = '',
 			failure_code = '',
@@ -6425,7 +6448,7 @@ func (r *SQLRunsRepository) TryClaimExecution(
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
 			AND status IN (?, ?)
-	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning)
+	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning)
 
 	if err != nil {
 		return ExecutionClaimResult{}, normalizeSQLError(err)
@@ -6614,8 +6637,6 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(
 		SET lease_owner = ?,
 			lease_until = ?,
 			cancel_token = ?,
-			cancel_requested_at = CASE WHEN status = ? THEN cancel_requested_at ELSE NULL END,
-			cancel_reason = CASE WHEN status = ? THEN cancel_reason ELSE NULL END,
 			attempt = CASE WHEN status = ? THEN attempt + 1 ELSE attempt END,
 			orphan_reason = '',
 			failure_code = '',
@@ -6623,7 +6644,8 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
 			AND status IN (?, ?)
-	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning)
+	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning)
+
 	if err != nil {
 		return normalizeSQLError(err)
 	}

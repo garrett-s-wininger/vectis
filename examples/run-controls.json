@@ -1,0 +1,29 @@
+{
+  "id": "run-controls-demo",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "with": { "execution": "distributed" },
+    "ports": {
+      "steps": {
+        "nodes": [
+          {
+            "id": "prepare",
+            "uses": "builtins/script",
+            "with": { "runner": "sh", "script": "printf '[controls] Ready. Select Cancel run, then Confirm cancel to stop this run.\n'" }
+          },
+          {
+            "id": "heartbeat",
+            "uses": "builtins/script",
+            "with": { "runner": "sh", "script": "i=1\nwhile [ \"$i\" -le 30 ]; do\n  printf '[controls] Working: tick %s/30\\n' \"$i\"\n  sleep 1\n  i=$((i + 1))\ndone" }
+          },
+          {
+            "id": "finish",
+            "uses": "builtins/script",
+            "with": { "runner": "sh", "script": "printf '[controls] Completed normally. Run again creates a separate run using this same definition.\n'" }
+          }
+        ]
+      }
+    }
+  }
+}

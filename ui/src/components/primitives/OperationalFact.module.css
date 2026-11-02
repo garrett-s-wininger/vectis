@@ -50,3 +50,33 @@
 .emphasis .value {
   font-weight: var(--font-weight-strong);
 }
+
+.wrap {
+  grid-template-columns: var(--space-2xl) minmax(0, 1fr);
+}
+
+.wrap .value {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.value code {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+.value a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.value a:hover {
+  color: var(--color-primary-hover);
+}
+
+.value a:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
+}

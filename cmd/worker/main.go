@@ -4334,6 +4334,17 @@ func (w *worker) executeWithLeaseRenewal(
 	w.setCurrentRun(runID, executionClaim.get())
 	defer w.clearCurrentRun()
 
+	if w.store != nil {
+		requested, err := w.store.RunCancelRequested(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("check cancellation before execution: %w", err)
+		}
+
+		if requested {
+			return errRunCancelled
+		}
+	}
+
 	execCtx, execCancel := context.WithCancel(ctx)
 	defer execCancel()
 	cancelled := make(chan struct{})

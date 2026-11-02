@@ -638,6 +638,10 @@ func (m *MockRunsRepository) RunCancelRequested(ctx context.Context, runID strin
 	return m.CancelRequested, nil
 }
 
+func (m *MockRunsRepository) RequestRunAttemptCancel(ctx context.Context, runID, _ string, reason string) (dal.RunForCancel, error) {
+	return m.RequestRunCancel(ctx, runID, reason)
+}
+
 func (m *MockRunsRepository) TouchDispatched(ctx context.Context, runID string) error {
 	if m.TouchDispatchedErr != nil {
 		return m.TouchDispatchedErr

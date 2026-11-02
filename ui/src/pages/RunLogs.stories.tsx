@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { Button } from "../components";
 import { RunLogOutput } from "./RunLogs";
 
 const meta = {
@@ -18,6 +20,25 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const MixedStreams: Story = {};
+
+function GrowingOutputPreview() {
+  const [lines, setLines] = useState(0);
+  return (
+    <>
+      <Button onClick={() => setLines(lines === 0 ? 1 : 100)}>Append output</Button>
+      <RunLogOutput
+        entries={Array.from({ length: lines }, (_, sequence) => ({
+          sequence,
+          stream: "stdout",
+          data: `Line ${sequence + 1}\n`
+        }))}
+      />
+      <p>Content after logs</p>
+    </>
+  );
+}
+
+export const GrowingOutput: Story = { render: () => <GrowingOutputPreview /> };
 
 export const Overflow: Story = {
   args: {

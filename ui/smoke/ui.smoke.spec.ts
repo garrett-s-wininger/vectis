@@ -127,6 +127,19 @@ test.describe("storybook smoke", () => {
       const rows = page.getByRole("listitem");
       await expect(rows).toHaveCount(4);
 
+      const subtitle = page.getByText("Run #2 · e31b23da7469", { exact: true });
+      await expect(subtitle).toBeVisible();
+
+      const labelSize = await subtitle.evaluate((element) => ({
+        width: element.clientWidth,
+        contentWidth: element.scrollWidth,
+        height: element.getBoundingClientRect().height,
+        lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight)
+      }));
+
+      expect(labelSize.contentWidth).toBeLessThanOrEqual(labelSize.width);
+      expect(labelSize.height).toBeLessThanOrEqual(labelSize.lineHeight + 1);
+
       const positions = await rows.evaluateAll((items) =>
         items.map((item) => ({
           right: item.getBoundingClientRect().right,

@@ -19,6 +19,7 @@ import (
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/database"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	jobpkg "vectis/internal/job"
@@ -718,6 +719,52 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	run, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "cancel_unavailable", "unable to locate the owning cell", nil)
+		return
+	}
+
+	if database.GlobalAndCellDatabasesAreSplit() || (run.OwningCell != "" && run.OwningCell != config.CellID()) {
+		endpoints, err := config.APICellIngressEndpoints()
+		if err != nil || endpoints[run.OwningCell] == "" {
+			writeAPIError(w, http.StatusServiceUnavailable, "cancel_unavailable", "owning cell cancellation route is unavailable; retry the request", nil)
+			return
+		}
+
+		ingress := cell.NewHTTPExecutionIngressWithOptions(endpoints[run.OwningCell], nil, s.logger, cell.HTTPExecutionIngressOptions{TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig})
+		rootID, err := s.currentRootExecutionID(ctx, runID)
+		if err != nil {
+			writeAPIError(w, http.StatusServiceUnavailable, "cancel_unavailable", "unable to identify the current run execution; retry the request", nil)
+			return
+		}
+
+		if err := ingress.CancelRun(ctx, runID, rootID); err != nil {
+			if dal.IsConflict(err) {
+				writeAPIError(w, http.StatusConflict, "run_not_executing", "run is no longer executing", nil)
+			} else {
+				s.logger.Warn("Cancellation delivery to cell %s for run %s failed: %v", run.OwningCell, runID, err)
+				writeAPIError(w, http.StatusServiceUnavailable, "cancel_unavailable", "unable to deliver cancellation to the owning cell; retry the request", nil)
+			}
+
+			return
+		}
+
+		if _, err := s.runs.RequestRunAttemptCancel(ctx, runID, rootID, dal.CancelReasonAPI); err != nil && !dal.IsConflict(err) {
+			writeAPIError(w, http.StatusServiceUnavailable, "cancel_unavailable", "cell accepted cancellation but global state is unavailable", nil)
+			return
+		}
+
+		_ = s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{"run_id": runID, "namespace": nsPath, "delivery": "cell_ingress"})
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "cancel_requested", "run_id": runID, "delivery": "cell_ingress"})
+		return
+	}
+
 	rec, err := s.runs.RequestRunCancel(ctx, runID, dal.CancelReasonAPI)
 	if err != nil {
 		if dal.IsNotFound(err) {
@@ -745,11 +792,6 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
 
 	if rec.LeaseOwner != "" && rec.CancelToken != "" && s.ResolveWorkerAddress != nil {
 		workerAddr, err := s.ResolveWorkerAddress(ctx, rec.LeaseOwner)
@@ -2749,6 +2791,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		DispatchEvents            []dispatchEventRow         `json:"dispatch_events"`
 		TaskCompletion            *taskCompletionRow         `json:"task_completion,omitempty"`
 		LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
+		CancelRequested           bool                       `json:"cancel_requested,omitempty"`
 	}
 
 	hotOwner, activeHotOwner, err := s.activeRunHotStateOwner(ctx, rec.RunID, time.Now())
@@ -2769,8 +2812,18 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	effectiveStatus := effectiveRunStatusFromHotOwner(rec.Status, activeHotOwner)
+	cancelRequested, err := s.runs.RunCancelRequested(ctx, runID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "unable to read cancellation state", nil)
+		return
+	}
 
 	resp := runRow{
+		CancelRequested:       cancelRequested,
 		RunID:                 rec.RunID,
 		JobID:                 jobID,
 		Namespace:             nsPath,
@@ -3001,10 +3054,68 @@ func (s *APIServer) activeRunHotStateOwner(
 	}
 
 	if !found || !owner.LeaseUntil.After(now.UTC()) {
+		if database.GlobalAndCellDatabasesAreSplit() {
+			if owner, ok := s.liveRunReadOwner(ctx, runID, now); ok {
+				return owner, true, nil
+			}
+		}
+
 		return dal.RunHotStateOwnerRecord{}, false, nil
 	}
 
 	return owner, true, nil
+}
+
+func (s *APIServer) liveRunReadOwner(ctx context.Context, runID string, now time.Time) (dal.RunHotStateOwnerRecord, bool) {
+	client := s.orchestratorReadClient()
+	if client == nil {
+		return dal.RunHotStateOwnerRecord{}, false
+	}
+
+	run, err := s.runs.GetRun(ctx, runID)
+	if err != nil || (run.Status != dal.RunStatusQueued && run.Status != dal.RunStatusRunning) {
+		return dal.RunHotStateOwnerRecord{}, false
+	}
+
+	rootID, err := s.currentRootExecutionID(ctx, runID)
+	if err != nil {
+		return dal.RunHotStateOwnerRecord{}, false
+	}
+
+	limit := int32(1)
+	snapshot, err := client.GetRunTaskSnapshot(ctx, &api.GetRunTaskSnapshotRequest{RunId: &runID, Limit: &limit})
+	if err != nil || snapshot.GetRunId() != runID {
+		return dal.RunHotStateOwnerRecord{}, false
+	}
+
+	for _, execution := range snapshot.GetExecutions() {
+		if execution.GetTaskKey() == dal.RootTaskKey && execution.GetExecutionId() == rootID {
+			return dal.RunHotStateOwnerRecord{RunID: runID, CellID: run.OwningCell, LeaseUntil: now.Add(time.Second)}, true
+		}
+	}
+
+	return dal.RunHotStateOwnerRecord{}, false
+}
+
+func (s *APIServer) currentRootExecutionID(ctx context.Context, runID string) (string, error) {
+	history, err := s.runs.ListRunTaskAttemptHistory(ctx, runID, []string{runID + ":" + dal.RootTaskKey})
+	if err != nil {
+		return "", err
+	}
+
+	var id string
+	var attempt int
+	for _, item := range history {
+		if item.Attempt > attempt {
+			id, attempt = item.ExecutionID, item.Attempt
+		}
+	}
+
+	if id == "" {
+		return "", dal.ErrNotFound
+	}
+
+	return id, nil
 }
 
 func effectiveRunStatusFromHotOwner(status string, activeHotOwner bool) string {

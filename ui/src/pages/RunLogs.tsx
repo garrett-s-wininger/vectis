@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Clock, FileText, Server, Zap } from "lucide-react";
 import { Button, ErrorAlert, OperationalFact, SelectField, type RunListItem } from "../components";
 import { streamRunLogs, type RunLogEntry } from "../data/runLogs";
+import { isTerminalRunStatus, runRootAttemptNumber } from "../components/data/RunPresentation";
 import {
   runTaskExecutionLabel,
   runTaskStatusLabel,
@@ -11,23 +12,32 @@ import {
 import styles from "./RunDetailPage.module.css";
 
 const retainedLogEntries = 5000;
+const streamClosureGrace = 3000;
 
 export function RunLogs({ run, selectedTask }: { run: RunListItem; selectedTask?: RunTaskDisplayNode }) {
   const [scope, setScope] = useState("task");
   const [selection, setSelection] = useState({ taskID: "", runID: "", attempt: "latest" });
-  const [state, setState] = useState<{ runID: string; entries: RunLogEntry[]; error: string }>({
+  const [state, setState] = useState<{
+    runID: string;
+    entries: RunLogEntry[];
+    error: string;
+    streamOpened: boolean;
+    awaitingStatus: boolean;
+    completedAttempt: number | null;
+  }>({
     runID: run.id,
     entries: [],
-    error: ""
+    error: "",
+    streamOpened: false,
+    awaitingStatus: false,
+    completedAttempt: null
   });
 
-  const rootAttempt =
-    run.tasks
-      ?.find((task) => task.taskKey === "root")
-      ?.attempts.reduce((latest, attempt) => Math.max(latest, attempt.attempt), 0) ?? 0;
+  const rootAttempt = runRootAttemptNumber(run);
 
   useEffect(() => {
     let active = true;
+    let closureTimer: ReturnType<typeof setTimeout> | undefined;
     const close = streamRunLogs(
       run.id,
       (entry) => {
@@ -39,23 +49,57 @@ export function RunLogs({ run, selectedTask }: { run: RunListItem; selectedTask?
           return {
             runID: run.id,
             error: "",
+            streamOpened: false,
+            awaitingStatus: false,
+            completedAttempt: null,
             entries: [...entries, entry].sort((a, b) => a.sequence - b.sequence).slice(-retainedLogEntries)
           };
         });
       },
-      (error) => {
+      (error, streamOpened = false) => {
         if (!active) return;
-        setState((previous) => ({ runID: run.id, entries: previous.runID === run.id ? previous.entries : [], error }));
+
+        setState((previous) => ({
+          runID: run.id,
+          entries: previous.runID === run.id ? previous.entries : [],
+          error,
+          streamOpened,
+          awaitingStatus: streamOpened,
+          completedAttempt: null
+        }));
+
+        if (streamOpened)
+          closureTimer = setTimeout(() => {
+            if (active) setState((previous) => ({ ...previous, awaitingStatus: false }));
+          }, streamClosureGrace);
+      },
+      () => {
+        if (!active) return;
+        clearTimeout(closureTimer);
+        setState((previous) => ({
+          runID: run.id,
+          entries: previous.runID === run.id ? previous.entries : [],
+          error: "",
+          streamOpened: false,
+          awaitingStatus: false,
+          completedAttempt: rootAttempt
+        }));
       }
     );
 
     return () => {
       active = false;
+      clearTimeout(closureTimer);
       close();
     };
   }, [run.id, rootAttempt]);
 
-  const visible = state.runID === run.id ? state : { entries: [], error: "" };
+  const visible =
+    state.runID === run.id
+      ? state
+      : { entries: [], error: "", streamOpened: false, awaitingStatus: false, completedAttempt: null };
+  const terminalStreamClosed = isTerminalRunStatus(run.status) && visible.streamOpened && Boolean(visible.error);
+  const awaitingRunStatus = !terminalStreamClosed && visible.awaitingStatus && Boolean(visible.error);
   const taskScope = scope === "task" && Boolean(selectedTask);
   const attempts = [...(selectedTask?.attempts ?? [])].sort((a, b) => b.attempt - a.attempt);
   const requested =
@@ -132,17 +176,37 @@ export function RunLogs({ run, selectedTask }: { run: RunListItem; selectedTask?
           )}
         </dl>
       ) : null}
-      <ErrorAlert message={visible.error} title="Log Stream Unavailable" />
+      <ErrorAlert
+        message={terminalStreamClosed || awaitingRunStatus ? "" : visible.error}
+        title="Log Stream Unavailable"
+      />
+      {terminalStreamClosed ? (
+        <p className={styles.logNotice} role="status">
+          Run {run.status}. Live log stream closed.
+        </p>
+      ) : null}
+      {awaitingRunStatus ? (
+        <p className={styles.logNotice} role="status">
+          Live log stream closed. Waiting for run status…
+        </p>
+      ) : null}
+      {visible.completedAttempt === rootAttempt ? (
+        <p className={styles.logNotice} role="status">
+          Output complete.
+        </p>
+      ) : null}
       {entries.length > 0 ? (
         <RunLogOutput entries={entries} />
       ) : (
-        <p className={styles.logNotice}>
-          {taskScope && attempts.length === 0
-            ? "This task has not started an execution attempt."
-            : taskScope
-              ? "No attributed output for this task in the recent run log."
-              : "No output received for this run."}
-        </p>
+        <div className={styles.logFrame}>
+          <p className={`${styles.logNotice} ${styles.emptyLogs}`}>
+            {taskScope && attempts.length === 0
+              ? "This task has not started an execution attempt."
+              : taskScope
+                ? "No attributed output for this task in the recent run log."
+                : "No output received for this run."}
+          </p>
+        </div>
       )}
       {taskScope && visible.entries.some((entry) => !entry.executionID) ? (
         <div className={styles.logNotice}>

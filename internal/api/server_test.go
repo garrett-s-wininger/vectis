@@ -4023,6 +4023,10 @@ func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
+	if err := runs.MarkRunSucceeded(ctx, runID); err != nil {
+		t.Fatal(err)
+	}
+
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/cancel", nil)
 	req.SetPathValue("id", runID)
 	rec := httptest.NewRecorder()

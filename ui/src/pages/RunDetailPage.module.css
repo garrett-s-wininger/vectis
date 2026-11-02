@@ -5,6 +5,15 @@
   width: min(var(--layout-panel-max), 100%);
 }
 
+.metadata {
+  border-top: var(--panel-border-subtle);
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  margin: 0;
+  padding-top: var(--space-lg);
+}
+
 .heroHeader {
   align-items: center;
   display: grid;
@@ -56,6 +65,8 @@
   background: var(--surface-page);
   border: var(--control-border);
   border-radius: var(--panel-radius);
+  box-sizing: border-box;
+  height: 320px;
   min-width: 0;
   overflow: hidden;
 }
@@ -69,8 +80,13 @@
   background: var(--surface-page);
   border-radius: 0;
   color: var(--text-primary);
-  max-height: 320px;
-  min-height: 96px;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.emptyLogs {
+  padding: var(--space-xl);
 }
 
 .panelHeader {

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel, shortRunID } from "./RunPresentation";
+import {
+  runActorLabel,
+  runDisplayName,
+  runDurationLabel,
+  runTriggerLabel,
+  runFamilyIdentifier,
+  shortRunID
+} from "./RunPresentation";
 
 describe("run presentation", () => {
   it("labels run timing by status", () => {
@@ -27,7 +34,8 @@ describe("run presentation", () => {
         jobName: "2a5ed99c-6d51-4c50-97e9-e31b23da7469",
         source: "ephemeral"
       })
-    ).toBe("97e9-e31b23da7469");
+    ).toBe("Run once");
+
     expect(runDisplayName({ jobName: "database-backfill", source: "ephemeral" })).toBe("database-backfill");
     expect(runDisplayName({ jobName: "2a5ed99c-6d51-4c50-97e9-e31b23da7469", source: "stored" })).toBe(
       "2a5ed99c-6d51-4c50-97e9-e31b23da7469"
@@ -37,5 +45,11 @@ describe("run presentation", () => {
   it("shortens generated run IDs with stable trailing context", () => {
     expect(shortRunID("run-2a5ed99c-6d51-4c50-97e9-e31b23da7469")).toBe("97e9-e31b23da7469");
     expect(shortRunID("run-1240")).toBe("run-1240");
+  });
+
+  it("uses only the final UUID section for a run-list family identifier", () => {
+    expect(runFamilyIdentifier({ jobName: "2a5ed99c-6d51-4c50-97e9-e31b23da7469", source: "ephemeral" })).toBe(
+      "e31b23da7469"
+    );
   });
 });

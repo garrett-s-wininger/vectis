@@ -1,0 +1,35 @@
+.root {
+  display: grid;
+  gap: var(--space-md);
+  max-width: 24rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.actionButton {
+  gap: var(--space-sm);
+  white-space: nowrap;
+}
+
+.cancelButton {
+  min-width: 12rem;
+  width: 12rem;
+}
+
+.actionButton svg {
+  height: var(--space-lg);
+  width: var(--space-lg);
+}
+
+@media (max-width: 440px) {
+  .root,
+  .actions,
+  .actionButton {
+    min-width: 0;
+    width: 100%;
+  }
+}

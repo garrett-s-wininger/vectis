@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { RunListItem } from "../components";
 import { RunDetailPage } from "./RunDetailPage";
@@ -58,6 +58,52 @@ const run: RunListItem = {
 };
 
 describe("RunDetailPage", () => {
+  it("keeps actions in the header and shows identifiers with replay context in the summary", () => {
+    const jobID = "2a5ed99c-6d51-4c50-97e9-e31b23da7469";
+    const original: RunListItem = {
+      ...run,
+      id: "original-execution",
+      jobID,
+      jobName: jobID,
+      source: "ephemeral",
+      runNumber: 1
+    };
+
+    const replay: RunListItem = { ...original, id: "different-execution", runNumber: 2, replayOfRunID: original.id };
+    render(
+      <RunDetailPage
+        run={replay}
+        originalRun={original}
+        runID={replay.id}
+        onBack={() => undefined}
+        onReplay={async () => undefined}
+      />
+    );
+
+    const heading = screen.getByRole("heading", { level: 1, name: "Run once (#2)" });
+    expect(heading.closest("header")).toContainElement(screen.getByRole("button", { name: "Run again" }));
+
+    const summary = screen.getByRole("region", { name: "Run summary" });
+    expect(summary).toHaveTextContent("Re-run of");
+    expect(summary).toHaveTextContent("Run once #1");
+    expect(screen.getByRole("link", { name: /^View original run/ })).toHaveAttribute(
+      "href",
+      "/runs/original-execution"
+    );
+
+    expect(screen.getByText("different-execution")).toBeVisible();
+    expect(within(summary).getByText(jobID)).toBeVisible();
+    expect(summary).toContainElement(screen.getByRole("link", { name: /^View original run/ }));
+
+    const crumbs = screen.getByRole("navigation", { name: "Run location" });
+    expect(Array.from(crumbs.children).map((crumb) => crumb.textContent)).toEqual([
+      "/team-a",
+      "Runs",
+      "e31b23da7469",
+      "#2"
+    ]);
+  });
+
   it("shows the fanout handoff until child tasks arrive without changing root status", () => {
     const root = { ...run.tasks![0], status: "succeeded" as const };
     const activeRun: RunListItem = { ...run, status: "running", tasks: [root] };
@@ -139,6 +185,52 @@ describe("RunDetailPage", () => {
     );
 
     expect(screen.getByRole("button", { name: /Report/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it.each([false, true])(
+    "keeps the final task selected through the status handoff, explicit selection: %s",
+    async (explicit) => {
+      const active: RunListItem = {
+        ...run,
+        status: "running",
+        tasks: run.tasks?.map((task) => ({ ...task, status: task.taskID === "task-report" ? "running" : "succeeded" }))
+      };
+
+      const view = render(<RunDetailPage onBack={() => undefined} run={active} runID={run.id} />);
+      const report = screen.getByRole("button", { name: "Report: Running" });
+      if (explicit) await userEvent.click(report);
+
+      expect(report).toHaveAttribute("aria-pressed", "true");
+
+      const tasks = active.tasks?.map((task) => ({ ...task, status: "succeeded" as const }));
+      view.rerender(<RunDetailPage onBack={() => undefined} run={{ ...active, tasks }} runID={run.id} />);
+      expect(screen.getByRole("button", { name: "Report: Succeeded" })).toBe(report);
+      expect(report).toHaveAttribute("aria-pressed", "true");
+      expect(screen.queryByText("Waiting for task updates")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "root: Succeeded" })).toHaveAttribute("aria-pressed", "false");
+
+      view.rerender(
+        <RunDetailPage onBack={() => undefined} run={{ ...active, status: "succeeded", tasks }} runID={run.id} />
+      );
+
+      expect(report).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getAllByText("Report").length).toBeGreaterThan(0);
+    }
+  );
+
+  it("resets automatic task context when navigating to a different run", () => {
+    const view = render(<RunDetailPage onBack={() => undefined} run={run} runID={run.id} />);
+    expect(screen.getByRole("button", { name: "API tests: Failed" })).toHaveAttribute("aria-pressed", "true");
+
+    const next: RunListItem = {
+      ...run,
+      id: "next-run",
+      status: "succeeded",
+      tasks: run.tasks?.map((task) => ({ ...task, status: "succeeded" }))
+    };
+
+    view.rerender(<RunDetailPage onBack={() => undefined} run={next} runID={next.id} />);
+    expect(screen.getByRole("button", { name: "root: Succeeded" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("opens the run definition disclosure on request", async () => {

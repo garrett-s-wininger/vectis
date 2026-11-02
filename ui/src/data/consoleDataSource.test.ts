@@ -13,6 +13,27 @@ describe("console data source", () => {
     vi.unstubAllGlobals();
   });
 
+  it("requests cancellation and creates a replay with an idempotency key", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockResolvedValueOnce(jsonResponse({ run_id: "new-run" }));
+
+    const source = createConsoleDataSource();
+    await source.cancelRun("original/run");
+
+    expect(await source.replayRun("original/run", "stable-key")).toBe("new-run");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/runs/original%2Frun/cancel",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    const [path, options] = fetchMock.mock.calls[1];
+    expect(path).toBe("/api/v1/runs/original%2Frun/replay");
+    expect(new Headers(options.headers).get("Idempotency-Key")).toBe("stable-key");
+  });
+
   it("loads stored jobs and namespaces from the API source", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 

@@ -1,5 +1,5 @@
 import type { RunListItem, RunTaskItem, RunTaskStatus } from "../components";
-import { runActorLabel, runTriggerLabel, shortRunID } from "../components/data/RunPresentation";
+import { runActorLabel, runTriggerLabel } from "../components/data/RunPresentation";
 
 export type RunTimelineEvent = {
   delta?: string;
@@ -178,7 +178,7 @@ export function runTimelineEvents(run: RunListItem): RunTimelineEvent[] {
     },
     {
       label: "Persisted",
-      detail: `Assigned ID ${shortRunID(run.id)}.`,
+      detail: `Run #${run.runNumber} saved.`,
       ...timingParts(acceptedAt, acceptedAt)
     },
     {

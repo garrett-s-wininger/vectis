@@ -14,12 +14,14 @@ import {
   runDisplayName,
   runDurationLabel,
   runTriggerLabel,
+  runFamilyIdentifier,
   type RunTrigger
 } from "./RunPresentation";
 
 export type RunListItem = {
   id: string;
   jobName: string;
+  jobID?: string;
   runNumber: number;
   commit: string;
   createdAt?: string;
@@ -33,8 +35,11 @@ export type RunListItem = {
   startedAt?: string;
   submittedBy?: string;
   tasks?: RunTaskItem[];
+  tasksUpdating?: boolean;
   trigger?: RunTrigger;
   status: RunStatus;
+  cancelRequested?: boolean;
+  replayOfRunID?: string;
 };
 
 export type RunTaskStatus =
@@ -94,7 +99,11 @@ export function RunList({
         content: (
           <RecordListSummary>
             <RecordListIdentity
-              subtitle={!hideJobName ? `Run #${run.runNumber}` : undefined}
+              subtitle={
+                !hideJobName
+                  ? [`Run #${run.runNumber}`, runFamilyIdentifier(run)].filter(Boolean).join(" · ")
+                  : undefined
+              }
               title={hideJobName ? `Run #${run.runNumber}` : runDisplayName(run)}
             />
             <RecordListMeta>

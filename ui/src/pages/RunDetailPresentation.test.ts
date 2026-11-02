@@ -63,15 +63,15 @@ describe("run detail presentation", () => {
   it("builds timeline events with deltas", () => {
     expect(runTimelineEvents(run)).toEqual([
       expect.objectContaining({ label: "Accepted", detail: "Submitted via API by Anonymous." }),
-      expect.objectContaining({ label: "Persisted", detail: "Assigned ID run-1.", delta: "+0s" }),
+      expect.objectContaining({ label: "Persisted", detail: "Run #1 saved.", delta: "+0s" }),
       expect.objectContaining({ label: "Dispatched", detail: "Worker selected on local.", delta: "+5s" }),
       expect.objectContaining({ label: "Finished", detail: "Worker finished execution.", delta: "+37s" })
     ]);
   });
 
-  it("uses the compact run identifier in persisted timeline copy", () => {
+  it("uses the run number instead of the execution UUID in timeline copy", () => {
     expect(runTimelineEvents({ ...run, id: "123e4567-e89b-12d3-a456-426614174000" })[1]).toEqual(
-      expect.objectContaining({ detail: "Assigned ID a456-426614174000." })
+      expect.objectContaining({ detail: "Run #1 saved." })
     );
   });
 

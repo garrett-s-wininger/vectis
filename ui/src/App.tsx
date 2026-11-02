@@ -79,6 +79,12 @@ export function App() {
   const definitionJob = consoleData?.jobs.find((job) => job.id === definitionJobID);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
   const runJobs = consoleData?.jobs;
+  const runCacheRef = useRef<MockConsoleData["runs"]>([]);
+
+  useEffect(() => {
+    runCacheRef.current = consoleData?.runs ?? [];
+  }, [consoleData?.runs]);
+
   const consoleActive = route.kind !== "login" && route.kind !== "setup" && route.kind !== "health";
 
   useEffect(() => {
@@ -251,7 +257,8 @@ export function App() {
 
         setConsoleError(message);
         return true;
-      }
+      },
+      runCacheRef.current.find((run) => run.id === runID)
     );
   }, [runJobs, route.kind, route.runID]);
 
@@ -455,6 +462,50 @@ export function App() {
     }
   }
 
+  async function handleCancelRun(runID: string) {
+    await consoleDataSourceRef.current.cancelRun(runID);
+    setConsoleData(
+      (data) =>
+        data && { ...data, runs: data.runs.map((run) => (run.id === runID ? { ...run, cancelRequested: true } : run)) }
+    );
+  }
+
+  async function handleReplayRun(runID: string, idempotencyKey: string) {
+    const newRunID = await consoleDataSourceRef.current.replayRun(runID, idempotencyKey);
+    const run = await consoleDataSourceRef.current.loadRun(newRunID, consoleData?.jobs).catch(() => undefined);
+
+    if (run) {
+      setConsoleData((data) =>
+        data ? { ...data, runs: [run, ...data.runs.filter((candidate) => candidate.id !== run.id)] } : data
+      );
+    }
+
+    setConsoleError("");
+    setActionError("");
+    navigateTo(`/runs/${encodeURIComponent(newRunID)}`);
+  }
+
+  async function handleOpenRun(runID: string) {
+    const fromPath = window.location.pathname;
+
+    try {
+      const cached = consoleData?.runs.find((run) => run.id === runID);
+      if (!cached?.tasks) {
+        const run = await consoleDataSourceRef.current.loadRun(runID, consoleData?.jobs);
+        setConsoleData((data) =>
+          data ? { ...data, runs: [run, ...data.runs.filter((candidate) => candidate.id !== run.id)] } : data
+        );
+      }
+
+      if (window.location.pathname !== fromPath) return;
+      setConsoleError("");
+      setActionError("");
+      navigateTo(`/runs/${encodeURIComponent(runID)}`);
+    } catch (error) {
+      if (window.location.pathname === fromPath) setActionError(errorMessage(error, "Unable to open run."));
+    }
+  }
+
   async function handleSubmitEphemeralRun(definition: string) {
     const fallbackRunID = consoleData ? nextMockRunID(consoleData) : null;
 
@@ -558,6 +609,9 @@ export function App() {
         onRevokeRoleBinding={handleRevokeRoleBinding}
         onSubmitEphemeralRun={handleSubmitEphemeralRun}
         onTriggerRun={handleTriggerRun}
+        onCancelRun={handleCancelRun}
+        onReplayRun={handleReplayRun}
+        onOpenRun={handleOpenRun}
         onUpdateJob={handleUpdateJob}
         onUpdateNamespace={handleUpdateNamespace}
         onUpdateUserStatus={handleUpdateUserStatus}
@@ -706,6 +760,9 @@ function RouteContent({
   onRevokeRoleBinding,
   onSubmitEphemeralRun,
   onTriggerRun,
+  onCancelRun,
+  onReplayRun,
+  onOpenRun,
   onUpdateJob,
   onUpdateNamespace,
   onUpdateUserStatus,
@@ -729,6 +786,9 @@ function RouteContent({
   onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
   onTriggerRun: (jobID: string) => void;
+  onCancelRun: (runID: string) => Promise<void>;
+  onReplayRun: (runID: string, idempotencyKey: string) => Promise<void>;
+  onOpenRun: (runID: string) => Promise<void>;
   onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
   onUpdateNamespace: (namespaceID: number, input: UpdateNamespace) => Promise<void> | void;
   onUpdateUserStatus: (userID: string, status: UserStatus) => Promise<void> | void;
@@ -815,9 +875,13 @@ function RouteContent({
 
         return withActionAlert(
           <RunDetailPage
+            onCancel={onCancelRun}
+            onReplay={onReplayRun}
+            onOpenRun={onOpenRun}
             onBack={() => navigateTo("/runs")}
             onOpenJob={(jobName) => navigateTo(jobPathForRunJob(consoleData, jobName))}
             run={run}
+            originalRun={consoleData.runs.find((candidate) => candidate.id === run?.replayOfRunID)}
             runID={route.runID}
           />
         );

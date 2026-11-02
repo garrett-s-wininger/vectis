@@ -123,6 +123,7 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 
 	ingressServer := cellingress.NewQueueServer(config.CellID(), queue, logger)
 	ingressServer.SetAcceptanceStore(acceptances)
+	ingressServer.SetRunStore(dal.NewSQLRepositoriesWithCellID(db, config.CellID()).Runs())
 	handler := ingressServer.Handler()
 	httpSrv := cellingress.HTTPServer(addr, handler)
 	logger.Info("Cell ingress listening on %s://%s; execution repair polling every %v", scheme, addr, repairInterval)

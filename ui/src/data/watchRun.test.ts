@@ -1,5 +1,5 @@
 import type { RunListItem } from "../components";
-import { watchRun } from "./watchRun";
+import { retainRunTasks, watchRun } from "./watchRun";
 
 const run: RunListItem = {
   id: "run-1",
@@ -105,5 +105,80 @@ describe("watchRun", () => {
 
     expect(load).toHaveBeenCalledOnce();
     stop();
+  });
+
+  it.each(["running", "succeeded"] as const)(
+    "retains known nodes through empty and partial snapshots and polls for the full final tree, last child state: %s",
+    async (childStatus) => {
+      const known: RunListItem = {
+        ...run,
+        status: "running",
+        tasks: [
+          { ...run.tasks![0], status: "succeeded" },
+          { taskID: "child", taskKey: "child", name: "Child", parentTaskID: "root", status: childStatus, attempts: [] }
+        ]
+      };
+
+      const final = {
+        ...known,
+        status: "succeeded" as const,
+        tasks: known.tasks!.map((task) => ({ ...task, status: "succeeded" as const }))
+      };
+
+      const load = vi
+        .fn()
+        .mockResolvedValueOnce({ ...final, tasks: [] })
+        .mockResolvedValueOnce({ ...final, tasks: [final.tasks[0]] })
+        .mockResolvedValue(final);
+
+      const update = vi.fn();
+      const stop = watchRun(load, update, () => true, known);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(update.mock.calls[0][0]).toMatchObject({ tasksUpdating: true, tasks: known.tasks });
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(update.mock.calls[1][0].tasks.map((task: { taskID: string }) => task.taskID)).toEqual(["root", "child"]);
+      expect(update.mock.calls[1][0].tasksUpdating).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(update).toHaveBeenLastCalledWith(final);
+
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(load).toHaveBeenCalledTimes(3);
+
+      stop();
+    }
+  );
+
+  it("does not stop at an empty terminal snapshot before it has seen any tasks", async () => {
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce({ ...completed, tasks: [] })
+      .mockResolvedValue(completed);
+
+    const stop = watchRun(load, vi.fn(), () => true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(load).toHaveBeenCalledTimes(2);
+
+    stop();
+  });
+
+  it("starts a fresh task snapshot for a new root attempt or a different run", () => {
+    const previous: RunListItem = {
+      ...run,
+      tasks: [
+        { ...run.tasks![0], attempts: [{ attempt: 1, attemptID: "root-1", cellID: "local", status: "succeeded" }] },
+        { taskID: "old-child", taskKey: "old-child", name: "Old child", status: "succeeded", attempts: [] }
+      ]
+    };
+
+    const next: RunListItem = {
+      ...run,
+      tasks: [{ ...run.tasks![0], attempts: [{ attempt: 2, attemptID: "root-2", cellID: "local", status: "running" }] }]
+    };
+
+    expect(retainRunTasks(previous, next)).toBe(next);
+    expect(retainRunTasks(previous, { ...run, id: "other-run" }).tasks).toEqual(run.tasks);
+    expect(retainRunTasks(next, previous)).toMatchObject({ tasks: next.tasks, tasksUpdating: true });
   });
 });

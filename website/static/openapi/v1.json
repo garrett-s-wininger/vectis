@@ -1545,7 +1545,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": " Run details include cancel_requested while a cancellation is pending, and replay_of_run_id for a run created by replay."
       }
     },
     "/api/v1/runs/{id}/definition": {
@@ -1808,7 +1809,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Accepts queued or running runs. In split deployments, cancellation is acknowledged only after the owning cell stores it. A 202 response means cancellation was requested, not that execution has stopped; poll run details for the final state. Returns 503 with cancel_unavailable when delivery fails and can be retried."
       }
     },
     "/api/v1/runs/{id}/repair/mark-succeeded": {

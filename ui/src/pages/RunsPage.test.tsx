@@ -25,6 +25,35 @@ function openRunOnce(submit = vi.fn()) {
 
 afterEach(() => vi.restoreAllMocks());
 
+it("filters unnamed one-off runs by their displayed label or stable job identifier", () => {
+  const jobID = "2a5ed99c-6d51-4c50-97e9-e31b23da7469";
+  const props = {
+    namespaces: [],
+    namespacePath: "/",
+    onSelectNamespace: vi.fn(),
+    onSelectRun: vi.fn(),
+    onSubmitEphemeralRun: vi.fn(),
+    runs: [
+      {
+        id: "new-execution-id",
+        jobID,
+        jobName: jobID,
+        runNumber: 2,
+        duration: "1s",
+        commit: "v1",
+        source: "ephemeral" as const,
+        status: "succeeded" as const
+      }
+    ]
+  };
+
+  const view = render(<RunsPage {...props} jobName="Run once" />);
+  expect(screen.getByRole("button", { name: "Open run Run once #2" })).toBeInTheDocument();
+
+  view.rerender(<RunsPage {...props} jobName={jobID} />);
+  expect(screen.getByRole("button", { name: "Open run Run once #2" })).toBeInTheDocument();
+});
+
 it("imports a JSON file for review and submits subsequent edits only on request", async () => {
   const { submit, input, editor } = openRunOnce();
   const definition = '{"root":{"uses":"builtins/script","with":{"script":"echo demo"}}}';

@@ -19,6 +19,7 @@ import { summarizeRoleBindings } from "../domain/roleBindings";
 import { requestJSON, requestNoContent } from "../api/client";
 import {
   createMockConsoleDataSnapshot,
+  nextMockRunID,
   createMockJob,
   createMockNamespace,
   deleteMockNamespace,
@@ -71,6 +72,8 @@ type APINamespace = {
 };
 
 type APIRun = {
+  cancel_requested?: boolean;
+  replay_of_run_id?: string;
   created_at?: string;
   submitted_by?: string;
   trigger_type?: string;
@@ -155,6 +158,8 @@ export type CreateUserResult = {
 };
 
 export type ConsoleDataSource = {
+  cancelRun(runID: string): Promise<void>;
+  replayRun(runID: string, idempotencyKey: string): Promise<string>;
   createJob(input: NewJob): Promise<ConsoleData>;
   createNamespace(input: NewNamespace): Promise<ConsoleData>;
   createUser(input: NewUser): Promise<CreateUserResult>;
@@ -193,8 +198,69 @@ function shouldUseMockDataSource() {
 
 function createMockConsoleDataSource(): ConsoleDataSource {
   let data = createMockConsoleDataSnapshot();
+  const replays = new Map<string, string>();
 
   return {
+    async cancelRun(runID) {
+      const run = data.runs.find((item) => item.id === runID);
+      if (!run || !["queued", "running"].includes(run.status)) throw new Error("Run is not executing.");
+      data = {
+        ...data,
+        runs: data.runs.map((item) =>
+          item.id === runID
+            ? {
+                ...item,
+                status: "cancelled",
+                finishedAt: new Date().toISOString(),
+                tasks: item.tasks?.map((task) => ({
+                  ...task,
+                  status: task.status === "succeeded" ? "succeeded" : "cancelled",
+                  attempts: task.attempts.map((attempt) => ({
+                    ...attempt,
+                    status: attempt.status === "succeeded" ? "succeeded" : "cancelled",
+                    executionStatus: attempt.status === "succeeded" ? "succeeded" : "cancelled"
+                  }))
+                }))
+              }
+            : item
+        )
+      };
+    },
+    async replayRun(runID, idempotencyKey) {
+      const existing = replays.get(`${runID}:${idempotencyKey}`);
+      if (existing) return existing;
+
+      const original = data.runs.find((item) => item.id === runID);
+      if (!original || ["queued", "running"].includes(original.status)) throw new Error("Run cannot be replayed.");
+
+      const id = nextMockRunID(data);
+      const runNumber =
+        Math.max(...data.runs.filter((item) => item.jobName === original.jobName).map((item) => item.runNumber)) + 1;
+      data = {
+        ...data,
+        runs: [
+          {
+            ...original,
+            id,
+            runNumber,
+            status: "queued",
+            cancelRequested: false,
+            replayOfRunID: runID,
+            createdAt: new Date().toISOString(),
+            startedAt: undefined,
+            finishedAt: undefined,
+            duration: "Queued",
+            submittedBy: "admin",
+            trigger: "ui",
+            tasks: [{ taskID: `${id}:root`, taskKey: "root", name: "root", status: "pending", attempts: [] }]
+          },
+          ...data.runs
+        ]
+      };
+
+      replays.set(`${runID}:${idempotencyKey}`, id);
+      return id;
+    },
     async createJob(input) {
       data = createMockJob(data, input);
       return cloneConsoleData(data);
@@ -274,6 +340,17 @@ function createMockConsoleDataSource(): ConsoleDataSource {
 
 function createAPIConsoleDataSource(): ConsoleDataSource {
   return {
+    async cancelRun(runID) {
+      await requestNoContent(`/api/v1/runs/${encodeURIComponent(runID)}/cancel`, { method: "POST" });
+    },
+    async replayRun(runID, idempotencyKey) {
+      const response = await requestJSON<{ run_id: string }>(`/api/v1/runs/${encodeURIComponent(runID)}/replay`, {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey }
+      });
+
+      return response.run_id;
+    },
     async createJob(input) {
       const definition = sourceDefinition(JSON.parse(input.definition));
 
@@ -845,8 +922,11 @@ function stringField(value: Record<string, unknown>, key: string) {
 
 function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
   return {
+    cancelRequested: run.cancel_requested,
+    replayOfRunID: run.replay_of_run_id,
     id: run.run_id,
     jobName: job.name,
+    jobID: run.job_id,
     namespacePath: job.namespacePath,
     runNumber: run.run_index,
     createdAt: run.created_at,

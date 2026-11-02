@@ -31,7 +31,16 @@ export const VariedContent: Story = {
         submittedBy: "organization-administrator-with-a-long-name",
         status: "succeeded"
       },
-      { ...storyRunListItems[0], id: "unknown-actor", jobName: "test", submittedBy: undefined, status: "queued" },
+      {
+        ...storyRunListItems[0],
+        id: "unknown-actor",
+        jobName: "2a5ed99c-6d51-4c50-97e9-e31b23da7469",
+        jobID: "2a5ed99c-6d51-4c50-97e9-e31b23da7469",
+        source: "ephemeral",
+        runNumber: 2,
+        submittedBy: undefined,
+        status: "queued"
+      },
       { ...storyRunListItems[0], id: "failed", jobName: "integration-tests", status: "failed" }
     ]
   }

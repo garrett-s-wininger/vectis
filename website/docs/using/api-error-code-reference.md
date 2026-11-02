@@ -166,6 +166,7 @@ Most API failures use this JSON envelope:
 | `missing_id` | `400` | Required path ID is missing. |
 | `missing_job_id` | `400` | Job definition omitted a job ID. |
 | `run_not_executing` | `409` | Run is not in a state that can accept the requested execution operation. |
+| `cancel_unavailable` | `503` | Cancellation could not be delivered to the owning cell or its state store. Retry the request; an unavailable cell is not an acknowledgement of cancellation. |
 | `run_not_found` | `404` | Run does not exist or is hidden by namespace authorization. |
 | `run_repair_conflict` | `409` | Run cannot be repair-marked from its current status. |
 | `run_requeue_conflict` | `409` | Run cannot be requeued from its current status. |

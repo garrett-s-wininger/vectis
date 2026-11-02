@@ -26,6 +26,7 @@ type Server struct {
 	localCellID string
 	router      cell.ExecutionIngress
 	acceptances dal.CellExecutionAcceptancesRepository
+	runs        dal.RunsRepository
 	logger      interfaces.Logger
 	mux         *http.ServeMux
 	handler     http.Handler
@@ -113,7 +114,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == http.MethodPost && r.URL.Path == "/cell/v1/executions" &&
+	if r.Method == http.MethodPost &&
 		!config.CellIngressProducerIdentityAllowed(r) {
 		writeError(w, http.StatusForbidden, "authorization_denied", "producer service identity is not allowed")
 		return
@@ -153,7 +154,7 @@ func cellIngressAllowedMethods(path string) []string {
 	switch path {
 	case "/health/live", "/health/ready":
 		return []string{http.MethodGet}
-	case "/cell/v1/executions":
+	case "/cell/v1/executions", "/cell/v1/runs/cancel":
 		return []string{http.MethodPost}
 	default:
 		return nil
@@ -164,6 +165,56 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health/live", s.handleLive)
 	s.mux.HandleFunc("GET /health/ready", s.handleReady)
 	s.mux.HandleFunc("POST /cell/v1/executions", s.submitExecution)
+	s.mux.HandleFunc("POST /cell/v1/runs/cancel", s.cancelRun)
+}
+
+func (s *Server) SetRunStore(runs dal.RunsRepository) { s.runs = runs }
+
+func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
+	if s.runs == nil {
+		writeError(w, http.StatusServiceUnavailable, "run_store_unavailable", "run store is unavailable")
+		return
+	}
+
+	var req struct {
+		RunID           string `json:"run_id"`
+		RootExecutionID string `json:"root_execution_id"`
+	}
+
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxExecutionRequestBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil || strings.TrimSpace(req.RunID) == "" || strings.TrimSpace(req.RootExecutionID) == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "run_id and root_execution_id are required")
+		return
+	}
+
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid_request", "expected one JSON object")
+		return
+	}
+
+	run, err := s.runs.GetRun(r.Context(), req.RunID)
+	if err != nil && !dal.IsNotFound(err) {
+		writeError(w, http.StatusServiceUnavailable, "run_store_unavailable", "run store is unavailable")
+		return
+	}
+
+	if err != nil || run.OwningCell != s.localCellID {
+		writeError(w, http.StatusNotFound, "run_not_found", "run not found in this cell")
+		return
+	}
+
+	if _, err := s.runs.RequestRunAttemptCancel(r.Context(), req.RunID, req.RootExecutionID, dal.CancelReasonAPI); err != nil {
+		if dal.IsConflict(err) {
+			writeError(w, http.StatusConflict, "run_not_executing", "run is not executing")
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "cancel_unavailable", "unable to store cancellation")
+		}
+
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "cancel_requested", "run_id": req.RunID})
 }
 
 func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {

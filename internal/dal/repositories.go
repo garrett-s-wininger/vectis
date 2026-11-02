@@ -1087,6 +1087,7 @@ type RunsRepository interface {
 	MarkExpiredQueuedExecutionsFailed(ctx context.Context, cutoffUnixNano int64, limit int) ([]ExpiredExecution, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
 	RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error)
+	RequestRunAttemptCancel(ctx context.Context, runID, rootExecutionID, reason string) (RunForCancel, error)
 	RunCancelRequested(ctx context.Context, runID string) (bool, error)
 	TouchDispatched(ctx context.Context, runID string) error
 	GetLogShard(ctx context.Context, runID string) (shardID string, assigned bool, err error)
