@@ -257,3 +257,93 @@ describe("RunDetailPage", () => {
     expect(details).toHaveAttribute("open");
   });
 });
+
+it("restores incoming investigation context without remounting graph nodes", () => {
+  const view = render(
+    <RunDetailPage onBack={() => undefined} run={run} runID={run.id} investigation={{ task: "task-api", attempt: 1 }} />
+  );
+
+  const node = screen.getByRole("button", { name: "API tests: Failed" });
+
+  expect(node).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("heading", { name: "Task Logs" })).toBeVisible();
+
+  view.rerender(
+    <RunDetailPage onBack={() => undefined} run={run} runID={run.id} investigation={{ attempt: "latest" }} />
+  );
+
+  expect(screen.getByRole("button", { name: "API tests: Failed" })).toBe(node);
+  expect(node).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("heading", { name: "Run Logs" })).toBeVisible();
+});
+
+it("preserves a linked task until its graph node arrives", () => {
+  const view = render(
+    <RunDetailPage
+      onBack={() => undefined}
+      run={{ ...run, tasksUpdating: true, status: "running", tasks: [run.tasks![0]] }}
+      runID={run.id}
+      investigation={{ task: "task-api", attempt: "latest" }}
+    />
+  );
+
+  view.rerender(
+    <RunDetailPage
+      onBack={() => undefined}
+      run={run}
+      runID={run.id}
+      investigation={{ task: "task-api", attempt: "latest" }}
+    />
+  );
+
+  expect(screen.getByRole("button", { name: "API tests: Failed" })).toHaveAttribute("aria-pressed", "true");
+});
+
+it("explains unavailable tasks and lets users clear the linked selection", async () => {
+  const onInvestigationChange = vi.fn();
+  render(
+    <RunDetailPage
+      onBack={() => undefined}
+      run={run}
+      runID={run.id}
+      investigation={{ task: "removed-task", attempt: 1 }}
+      onInvestigationChange={onInvestigationChange}
+    />
+  );
+
+  expect(screen.getByRole("status")).toHaveTextContent("Showing all tasks.");
+
+  await userEvent.click(screen.getByRole("button", { name: "Clear task selection" }));
+  expect(onInvestigationChange).toHaveBeenCalledWith({ task: undefined, attempt: 1 });
+});
+
+it("uses task keys without parsing IDs or requiring unique display names", async () => {
+  const keyedRun: RunListItem = {
+    ...run,
+    tasks: run.tasks?.map((task) =>
+      task.taskID === "task-root"
+        ? task
+        : {
+            ...task,
+            name: "Build",
+            taskKey: task.taskID === "task-api" ? "compile:linux" : "compile:windows"
+          }
+    )
+  };
+
+  const onInvestigationChange = vi.fn();
+  render(
+    <RunDetailPage
+      onBack={() => undefined}
+      run={keyedRun}
+      runID={run.id}
+      investigation={{ task: "compile:linux", attempt: 1 }}
+      onInvestigationChange={onInvestigationChange}
+    />
+  );
+
+  expect(screen.getByRole("button", { name: "Build: Failed" })).toHaveAttribute("aria-pressed", "true");
+
+  await userEvent.click(screen.getByRole("button", { name: "Build: Planned" }));
+  expect(onInvestigationChange).toHaveBeenCalledWith({ task: "compile:windows", attempt: 1 });
+});

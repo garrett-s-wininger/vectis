@@ -20,7 +20,7 @@ export default [
     }
   },
   {
-    files: ["*.cjs"],
+    files: ["**/*.cjs"],
     languageOptions: {
       sourceType: "commonjs"
     }

@@ -1264,3 +1264,50 @@ func TestLocalNetworkHTTPDemoConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestUIEnvAdvertisesLocalDocsOnlyWhenEnabled(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			withViperSettings(t, map[string]any{"ui_enabled": true, "docs_enabled": enabled, "docs_port": 8098, "host": "0.0.0.0"})
+			if got := hasEnv(uiEnv(), "VECTIS_UI_DOCS_PORT=8098"); got != enabled {
+				t.Fatalf("docs port advertised=%v want=%v", got, enabled)
+			}
+		})
+	}
+}
+
+func TestDocsEnvAcceptsExplicitPublicUIHostnameWithoutBroadeningOtherHosts(t *testing.T) {
+	t.Setenv("VECTIS_DOCS_ALLOWED_HOSTS", "")
+	withViperSettings(t, map[string]any{"host": "0.0.0.0", "docs_enabled": true, "docs_port": 8088, "ui_public_url": "http://dev-vm:8089"})
+	var allowed string
+	for _, entry := range docsEnv() {
+		if value, ok := strings.CutPrefix(entry, "VECTIS_DOCS_ALLOWED_HOSTS="); ok {
+			allowed = value
+		}
+	}
+
+	if allowed == "" {
+		t.Fatal("missing docs Host allowlist")
+	}
+
+	t.Setenv("VECTIS_DOCS_ALLOWED_HOSTS", allowed)
+	for _, host := range []string{"dev-vm:8088", "localhost:8088", "127.0.0.1:8088", "[::1]:8088"} {
+		if !config.DocsHostAllowed("0.0.0.0", host) {
+			t.Fatalf("rejected expected docs host %s", host)
+		}
+	}
+
+	if config.DocsHostAllowed("0.0.0.0", "other.invalid:8088") {
+		t.Fatal("accepted unrelated docs host")
+	}
+}
+
+func TestDocsEnvPreservesExplicitHostAllowlist(t *testing.T) {
+	t.Setenv("VECTIS_DOCS_ALLOWED_HOSTS", "docs.example.test")
+	withViperSettings(t, map[string]any{"host": "0.0.0.0", "docs_enabled": true, "ui_public_url": "http://dev-vm:8089"})
+	for _, entry := range docsEnv() {
+		if strings.HasPrefix(entry, "VECTIS_DOCS_ALLOWED_HOSTS=") {
+			t.Fatalf("overrode explicit docs allowlist: %s", entry)
+		}
+	}
+}

@@ -237,7 +237,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 
     await output.focus();
     await output.press("Control+End");
-    await expect.poll(() => output.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect
+      .poll(() =>
+        output.evaluate((element) => Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop))
+      )
+      .toBeLessThanOrEqual(1);
+
     const geometry = await output.evaluate((element) => {
       const frame = element.parentElement!;
       const rect = element.getBoundingClientRect();

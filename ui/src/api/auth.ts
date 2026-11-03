@@ -23,6 +23,7 @@ export type LoginResponse = {
 };
 
 export type UIContext = {
+  docs_url?: string;
   auth_enabled: boolean;
   principal: {
     kind: "auth_disabled" | "local_user";

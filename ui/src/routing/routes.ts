@@ -1,3 +1,5 @@
+import { Briefcase, FolderTree, HeartPulse, Play, Shield, Users } from "lucide-react";
+import { runInvestigationFromSearch, type RunInvestigationContext } from "./runInvestigation";
 import type { NavEntry } from "../components";
 
 export type AppRouteKind =
@@ -24,21 +26,23 @@ export type AppRoute = {
   pathname: string;
   runJobName?: string;
   runID?: string;
+  runInvestigation?: RunInvestigationContext;
   userID?: string;
 };
 
 export const primaryNavItems: NavEntry[] = [
-  { href: "/jobs", label: "Jobs" },
-  { href: "/runs", label: "Runs" }
+  { href: "/jobs", label: "Jobs", icon: Briefcase },
+  { href: "/runs", label: "Runs", icon: Play }
 ];
 
 export const adminNavItems: NavEntry[] = [
   {
     label: "Admin",
+    icon: Shield,
     items: [
-      { href: "/health", label: "Health" },
-      { href: "/users", label: "Users" },
-      { href: "/namespaces", label: "Namespaces" }
+      { href: "/health", label: "Health", icon: HeartPulse },
+      { href: "/users", label: "Users", icon: Users },
+      { href: "/namespaces", label: "Namespaces", icon: FolderTree }
     ]
   }
 ];
@@ -74,7 +78,8 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
       kind: "runs",
       activeHref: "/runs",
       pathname,
-      runID: pathname.slice("/runs/".length)
+      runID: pathname.slice("/runs/".length),
+      runInvestigation: runInvestigationFromSearch(search)
     };
   }
 

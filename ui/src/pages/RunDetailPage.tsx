@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { ChevronDown, Clock, Code2, FileText, Fingerprint, Hash, History, Server, User, Zap } from "lucide-react";
-import { BreadcrumbTrail, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
+import { BreadcrumbTrail, CopyValue, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
 import { SelectControl } from "../components/primitives/SelectControl";
-import { runAttemptNumbers, runForAttempt, type RunAttemptSelection } from "./RunAttemptPresentation";
+import type { RunInvestigationContext } from "../routing/runInvestigation";
+import { runAttemptNumbers, runForAttempt } from "./RunAttemptPresentation";
 import {
   runActorLabel,
   runDisplayName,
@@ -37,6 +38,8 @@ type RunDetailPageProps = RunControlActions & {
   runID: string;
   originalRun?: RunListItem;
   loadArtifacts?: LoadRunArtifacts;
+  investigation?: RunInvestigationContext;
+  onInvestigationChange?: (context: RunInvestigationContext) => void;
 };
 
 export function RunDetailPage({
@@ -48,7 +51,9 @@ export function RunDetailPage({
   run,
   runID,
   originalRun,
-  loadArtifacts
+  loadArtifacts,
+  investigation,
+  onInvestigationChange
 }: RunDetailPageProps) {
   if (!run) {
     return (
@@ -80,6 +85,8 @@ export function RunDetailPage({
       run={run}
       originalRun={originalRun}
       loadArtifacts={loadArtifacts}
+      investigation={investigation}
+      onInvestigationChange={onInvestigationChange}
     />
   );
 }
@@ -92,6 +99,8 @@ function RunDetailContent({
   onReplay,
   originalRun,
   loadArtifacts,
+  investigation,
+  onInvestigationChange,
   run
 }: RunControlActions & {
   onBack: () => void;
@@ -100,8 +109,13 @@ function RunDetailContent({
   run: RunListItem;
   originalRun?: RunListItem;
   loadArtifacts?: LoadRunArtifacts;
+  investigation?: RunInvestigationContext;
+  onInvestigationChange?: (context: RunInvestigationContext) => void;
 }) {
-  const [attemptSelection, setAttemptSelection] = useState<RunAttemptSelection>("latest");
+  const [localInvestigation, setLocalInvestigation] = useState<RunInvestigationContext>({ attempt: "latest" });
+  const context = investigation ?? localInvestigation;
+  const updateInvestigation = onInvestigationChange ?? setLocalInvestigation;
+  const attemptSelection = context.attempt;
   const attemptNumbers = runAttemptNumbers(run);
   const latestAttempt = attemptNumbers[0] ?? 1;
   const selectedAttempt = attemptSelection === "latest" ? latestAttempt : attemptSelection;
@@ -117,10 +131,13 @@ function RunDetailContent({
         tasks[0].taskKey === "root" &&
         tasks[0].status === "succeeded"));
 
-  const [selection, setSelection] = useState<string | null>(null);
   const [openingOriginal, setOpeningOriginal] = useState(false);
-  const selectedTask = tasks.find((task) => task.taskID === selection);
-  const selectTask = (taskID: string) => setSelection((current) => (current === taskID ? null : taskID));
+  const selectedTask =
+    tasks.find((task) => task.taskKey === context.task) ?? tasks.find((task) => task.taskID === context.task);
+  const selectTask = (taskID: string) => {
+    const task = tasks.find((candidate) => candidate.taskID === taskID);
+    updateInvestigation({ ...context, task: selectedTask?.taskID === taskID ? undefined : task?.taskKey });
+  };
   const runOnceID = run.source === "ephemeral" && run.jobID ? run.jobID.split("-").at(-1) : runFamilyIdentifier(run);
 
   return (
@@ -177,8 +194,28 @@ function RunDetailContent({
           <OperationalFact icon={Code2} label="Reference" value={referenceLabel(run)} />
         </dl>
         <dl className={styles.metadata}>
-          <OperationalFact icon={Fingerprint} label="Run ID" value={<code>{run.id}</code>} wrap />
-          {run.jobID ? <OperationalFact icon={Hash} label="Job ID" value={<code>{run.jobID}</code>} wrap /> : null}
+          <OperationalFact
+            icon={Fingerprint}
+            label="Run ID"
+            value={
+              <CopyValue label="Run ID" value={run.id}>
+                <code>{run.id}</code>
+              </CopyValue>
+            }
+            wrap
+          />
+          {run.jobID ? (
+            <OperationalFact
+              icon={Hash}
+              label="Job ID"
+              value={
+                <CopyValue label="Job ID" value={run.jobID}>
+                  <code>{run.jobID}</code>
+                </CopyValue>
+              }
+              wrap
+            />
+          ) : null}
           {run.replayOfRunID ? (
             <OperationalFact
               icon={History}
@@ -221,8 +258,13 @@ function RunDetailContent({
         <RunTaskGraph
           awaitingTasks={awaitingTasks}
           onSelectTask={selectTask}
-          selectedTaskID={selectedTask?.taskID}
-          onClearSelection={() => setSelection(null)}
+          selectedTaskID={selectedTask?.taskID ?? context.task}
+          onClearSelection={() => updateInvestigation({ ...context, task: undefined })}
+          selectionNotice={
+            context.task && run.tasks && !awaitingTasks && !selectedTask
+              ? "The selected task is not available in the current graph. Showing all tasks."
+              : undefined
+          }
           tasks={tasks}
           controls={
             attemptNumbers.length > 1 || attemptSelection !== "latest" ? (
@@ -232,7 +274,11 @@ function RunDetailContent({
                 leadingIcon={<History />}
                 value={String(attemptSelection)}
                 onChange={(event) =>
-                  setAttemptSelection(event.target.value === "latest" ? event.target.value : Number(event.target.value))
+                  updateInvestigation({
+                    ...context,
+                    task: selectedTask?.taskKey ?? context.task,
+                    attempt: event.target.value === "latest" ? "latest" : Number(event.target.value)
+                  })
                 }
                 options={[
                   { value: "latest", label: attemptNumbers.length ? `Latest (attempt ${latestAttempt})` : "Latest" },

@@ -35,3 +35,5 @@ export { ResourceStatus } from "./status/ResourceStatus";
 export type { ResourceStatusTone } from "./status/ResourceStatus";
 export { StatusBadge, statusBadgeLabel } from "./status/StatusBadge";
 export type { RunStatus } from "./status/StatusBadge";
+
+export { CopyValue } from "./primitives/CopyValue";

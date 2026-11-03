@@ -102,6 +102,7 @@
 
 .navLink {
   align-items: center;
+  gap: var(--space-sm);
   background:
     linear-gradient(
       180deg,
@@ -239,9 +240,14 @@
   position: absolute;
   top: calc(100% + var(--space-sm));
   z-index: 10;
+  width: max-content;
 }
 
 .navMenuLink {
+  align-items: center;
+  display: flex;
+  gap: var(--space-sm);
+  white-space: nowrap;
   border-radius: var(--control-radius);
   color: var(--text-navigation);
   font-size: var(--font-size-md);
@@ -378,6 +384,9 @@
 }
 
 .accountAction {
+  align-items: center;
+  display: flex;
+  gap: var(--space-sm);
   background: transparent;
   border: 0;
   border-radius: var(--control-radius);
@@ -467,7 +476,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 600px) {
   .topbar {
     align-items: stretch;
     grid-template-areas:
@@ -518,7 +527,7 @@
 
   .utilityNav .navGroup {
     min-width: 0;
-    position: relative;
+    position: static;
     width: 100%;
   }
 
@@ -533,11 +542,12 @@
 
   .utilityNav .navMenu {
     left: 0;
-    min-width: 100%;
+    max-width: calc(100vw - 2 * var(--space-xl));
+    min-width: 14rem;
     position: absolute;
     right: auto;
     top: calc(100% + var(--space-sm));
-    width: 100%;
+    width: max-content;
   }
 
   .actions {
@@ -546,12 +556,13 @@
     flex-direction: row;
     gap: var(--space-sm);
     grid-area: actions;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
     justify-self: center;
     width: min(100%, 360px);
   }
 
   .utilityNav {
+    position: relative;
     border-left: 0;
     border-top: 0;
     flex-direction: row;
@@ -635,7 +646,9 @@
   }
 
   .utilityNav .navMenu {
+    min-width: 0;
     position: static;
+    width: 100%;
   }
 }
 
@@ -647,4 +660,23 @@
 .accountAction:focus-visible {
   outline: var(--control-focus-ring);
   outline-offset: var(--control-focus-offset);
+}
+
+.navLink > svg,
+.navMenuLink svg,
+.accountAction svg,
+.navGroupSummary > svg {
+  flex: 0 0 var(--space-lg);
+  height: var(--space-lg);
+  width: var(--space-lg);
+}
+
+.navGroupSummary > svg {
+  margin-right: var(--space-sm);
+}
+
+.navMenuLink .externalIcon {
+  height: var(--space-md);
+  margin-left: auto;
+  width: var(--space-md);
 }

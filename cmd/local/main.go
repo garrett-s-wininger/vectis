@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -1051,6 +1052,13 @@ func docsEnv() []string {
 		fmt.Sprintf("VECTIS_DOCS_PORT=%d", viper.GetInt("docs_port")),
 	}
 
+	if raw := strings.TrimSpace(viper.GetString("ui_public_url")); raw != "" && strings.TrimSpace(os.Getenv("VECTIS_DOCS_ALLOWED_HOSTS")) == "" {
+		if public, err := url.Parse(raw); err == nil && public.Hostname() != "" && (public.Scheme == "http" || public.Scheme == "https") {
+			hosts := append(config.DocsAllowedHosts(localHost()), public.Hostname())
+			env = append(env, "VECTIS_DOCS_ALLOWED_HOSTS="+strings.Join(hosts, ","))
+		}
+	}
+
 	if dir := strings.TrimSpace(viper.GetString("docs_dir")); dir != "" {
 		env = append(env, "VECTIS_DOCS_DIR="+dir)
 	}
@@ -1072,6 +1080,10 @@ func uiEnv(browserTLS ...localBrowserTLSConfig) []string {
 		"VECTIS_UI_HOST=" + localHost(),
 		fmt.Sprintf("VECTIS_UI_PORT=%d", viper.GetInt("ui_port")),
 		fmt.Sprintf("VECTIS_UI_API_URL=%s://%s:%d", scheme, localAPIProxyHost(), config.APIEffectiveListenPort()),
+	}
+
+	if viper.GetBool("docs_enabled") {
+		env = append(env, fmt.Sprintf("VECTIS_UI_DOCS_PORT=%d", viper.GetInt("docs_port")))
 	}
 
 	if publicURL := strings.TrimSpace(viper.GetString("ui_public_url")); publicURL != "" {

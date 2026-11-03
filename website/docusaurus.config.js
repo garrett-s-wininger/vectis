@@ -22,7 +22,7 @@ const config = {
   themes: ["@docusaurus/theme-mermaid"],
   presets: [
     [
-      "classic",
+      require.resolve("./presets/classic.cjs"),
       {
         docs: {
           sidebarPath: "./sidebars.js",
@@ -57,6 +57,11 @@ const config = {
           sidebarId: "docs",
           position: "left",
           label: "Docs"
+        },
+        {
+          to: "/api",
+          label: "API",
+          position: "left"
         },
         {
           href: "https://github.com/garrett-s-wininger/vectis",

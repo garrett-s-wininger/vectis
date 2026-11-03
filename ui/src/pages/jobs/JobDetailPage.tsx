@@ -1,4 +1,14 @@
-import { BreadcrumbTrail, Button, PageHeader, ResourceStatus, StatusBadge, type RunListItem } from "../../components";
+import {
+  BreadcrumbTrail,
+  Button,
+  CopyValue,
+  OperationalFact,
+  PageHeader,
+  ResourceStatus,
+  StatusBadge,
+  type RunListItem
+} from "../../components";
+import { Fingerprint } from "lucide-react";
 import type { Job } from "../../domain/console";
 import { JobTriggers } from "./JobTriggers";
 import { jobDetailBreadcrumbItems } from "./JobBreadcrumbs";
@@ -57,6 +67,18 @@ export function JobDetailPage({
             <p>{runHealth.detail}</p>
           </div>
           <div className={styles.executionSummary}>
+            <dl className={styles.identity}>
+              <OperationalFact
+                icon={Fingerprint}
+                label="Job ID"
+                wrap
+                value={
+                  <CopyValue label="Job ID" value={job.id}>
+                    <code>{job.id}</code>
+                  </CopyValue>
+                }
+              />
+            </dl>
             <div className={styles.healthSummary}>
               <StatusBadge status={runHealth.tone} />
               <Button aria-label={`View all runs for ${job.name}`} onClick={onOpenRuns}>

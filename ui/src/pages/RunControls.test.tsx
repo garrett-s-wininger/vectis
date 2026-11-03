@@ -82,3 +82,28 @@ describe("RunControls", () => {
     expect(screen.queryByRole("button", { name: "Cancel requested" })).not.toBeInTheDocument();
   });
 });
+
+it("retries Run again with the same secure key in HTTP demo contexts", async () => {
+  const getRandomValues = vi.fn((bytes: Uint8Array) => {
+    bytes.fill(255);
+    return bytes;
+  });
+
+  vi.stubGlobal("crypto", { getRandomValues });
+
+  try {
+    const replay = vi.fn().mockRejectedValueOnce(new Error("Connection lost")).mockResolvedValue(undefined);
+    render(<RunControls run={{ ...run, status: "succeeded" }} onReplay={replay} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Run again" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Connection lost");
+
+    fireEvent.click(screen.getByRole("button", { name: "Run again" }));
+    await waitFor(() => expect(replay).toHaveBeenCalledTimes(2));
+    expect(replay.mock.calls[0]).toEqual(["run-1", "ffffffff-ffff-4fff-bfff-ffffffffffff"]);
+    expect(replay.mock.calls[1]).toEqual(replay.mock.calls[0]);
+    expect(getRandomValues).toHaveBeenCalledOnce();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

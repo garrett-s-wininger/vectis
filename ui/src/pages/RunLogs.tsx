@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Clock, FileText, Server, Zap } from "lucide-react";
-import { ErrorAlert, OperationalFact, type RunListItem } from "../components";
+import { CopyValue, ErrorAlert, OperationalFact, type RunListItem } from "../components";
 import { streamRunLogs, type RunLogEntry } from "../data/runLogs";
 import { isTerminalRunStatus, runRootAttemptNumber } from "../components/data/RunPresentation";
 import {
@@ -147,7 +147,19 @@ export function RunLogs({
           <OperationalFact icon={FileText} label="Task" value={context.name || context.taskKey} />
           <OperationalFact icon={Zap} label="Status" value={runTaskStatusLabel(context.status)} />
           <OperationalFact icon={Clock} label="Duration" value={runTaskTimingLabel(context)} />
-          <OperationalFact icon={Server} label="Execution" value={runTaskExecutionLabel(context)} />
+          <OperationalFact
+            icon={Server}
+            label="Execution"
+            value={
+              chosen?.executionID ? (
+                <CopyValue label="Execution ID" value={chosen.executionID}>
+                  {runTaskExecutionLabel(context)}
+                </CopyValue>
+              ) : (
+                runTaskExecutionLabel(context)
+              )
+            }
+          />
         </dl>
       ) : null}
       <ErrorAlert

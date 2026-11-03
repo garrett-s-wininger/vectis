@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { Download, File, HardDrive, ListTree, RefreshCw } from "lucide-react";
-import { Button, ErrorAlert, OperationalFact, type RunListItem } from "../components";
+import { Button, CopyValue, ErrorAlert, OperationalFact, type RunListItem } from "../components";
 import { artifactDownloadURL, artifactSizeLabel, type LoadRunArtifacts, type RunArtifact } from "../data/runArtifacts";
 import { useRunArtifacts } from "../data/useRunArtifacts";
 import type { RunTaskDisplayNode } from "./RunDetailPresentation";
@@ -64,7 +64,7 @@ export function RunArtifacts({
             <li key={artifact.name} className={styles.item}>
               <div className={styles.identity}>
                 <strong>{artifact.name}</strong>
-                <span>{artifact.path}</span>
+                <CopyValue label={`path for ${artifact.name}`} value={artifact.path} />
               </div>
               <dl className={styles.facts}>
                 <OperationalFact icon={HardDrive} label="Size" value={artifactSizeLabel(artifact.sizeBytes)} />

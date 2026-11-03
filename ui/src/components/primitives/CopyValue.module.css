@@ -1,0 +1,58 @@
+.root {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--space-xs);
+  max-width: 100%;
+  position: relative;
+  vertical-align: middle;
+}
+
+.value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--text-navigation);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 24px;
+  height: 24px;
+  justify-content: center;
+  padding: 0;
+  width: 24px;
+}
+
+.button svg {
+  height: var(--space-lg);
+  width: var(--space-lg);
+}
+
+.button:hover {
+  background: var(--dropdown-menu-item-bg);
+  color: var(--color-primary-hover);
+}
+
+.button:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
+}
+
+.feedback {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.fallback {
+  left: -10000px;
+  position: fixed;
+  top: 0;
+}

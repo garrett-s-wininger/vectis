@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { primaryNavItems, adminNavItems } from "../../routing/routes";
 import { AppShell, type NavEntry } from "./AppShell";
 import { Button } from "../primitives/Button";
 import { NamespacePicker } from "../navigation/NamespacePicker";
@@ -249,4 +250,50 @@ describe("AppShell", () => {
 
     expect(accountMenu).not.toHaveAttribute("open");
   });
+});
+
+it("keeps Help links outside SPA routing and separate from account actions", () => {
+  const onNavigate = vi.fn();
+  render(
+    <AppShell
+      brand="Vectis"
+      activeHref="/jobs"
+      navItems={navItems}
+      accountName="admin"
+      docsURL="https://docs.example.test/base/"
+      onNavigate={onNavigate}
+      onSignOut={() => {}}
+    >
+      Content
+    </AppShell>
+  );
+
+  fireEvent.click(screen.getByText("Help"));
+  const link = screen.getByRole("link", { name: "API reference (opens in a new tab)" });
+  expect(link).toHaveAttribute("href", "https://docs.example.test/base/api");
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+  fireEvent.click(link);
+  expect(onNavigate).not.toHaveBeenCalled();
+  expect(link.closest("details")).not.toHaveAttribute("open");
+});
+
+it("shows decorative icons beside the primary and admin navigation labels", () => {
+  render(
+    <AppShell brand="Vectis" activeHref="/runs" navItems={primaryNavItems} utilityNavItems={adminNavItems}>
+      Content
+    </AppShell>
+  );
+
+  for (const name of ["Jobs", "Runs"]) {
+    const link = screen.getByRole("link", { name });
+    expect(link.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  }
+
+  fireEvent.click(screen.getByText("Admin", { exact: true }));
+  for (const name of ["Health", "Users", "Namespaces"]) {
+    const link = screen.getByRole("link", { name });
+    expect(link.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  }
 });

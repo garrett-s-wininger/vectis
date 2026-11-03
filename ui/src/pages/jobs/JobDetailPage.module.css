@@ -93,3 +93,7 @@
     grid-template-columns: 1fr;
   }
 }
+
+.identity {
+  margin: 0;
+}

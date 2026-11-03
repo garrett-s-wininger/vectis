@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { RotateCcw, Square } from "lucide-react";
 import { Button, ErrorAlert, type RunListItem } from "../components";
+import { randomRequestID } from "../api/requestID";
 import styles from "./RunControls.module.css";
 
 export type RunControlActions = {
@@ -31,7 +32,7 @@ export function RunControls({ run, onCancel, onReplay }: RunControlActions & { r
         setCancelRequested(true);
         setConfirmCancel(false);
       } else {
-        replayKey.current ??= crypto.randomUUID();
+        replayKey.current ??= randomRequestID();
         await onReplay?.(run.id, replayKey.current);
       }
     } catch (cause) {
@@ -66,7 +67,7 @@ export function RunControls({ run, onCancel, onReplay }: RunControlActions & { r
             }}
             title={confirmCancel ? "Click again to cancel this run. Escape keeps it running." : undefined}
           >
-            <Square aria-hidden="true" />
+            <Square aria-hidden="true" fill="currentColor" />
             {busy ? "Requesting…" : requested ? "Cancel requested" : confirmCancel ? "Confirm cancel" : "Cancel run"}
           </Button>
         ) : null}

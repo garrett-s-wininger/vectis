@@ -15,6 +15,7 @@ type RunTaskGraphProps = {
   selectedTaskID?: string;
   onClearSelection?: () => void;
   tasks: RunTaskDisplayNode[];
+  selectionNotice?: string;
 };
 
 export function RunTaskGraph({
@@ -23,6 +24,7 @@ export function RunTaskGraph({
   onSelectTask,
   selectedTaskID,
   onClearSelection,
+  selectionNotice,
   tasks
 }: RunTaskGraphProps) {
   const tree = taskTree(tasks);
@@ -37,6 +39,7 @@ export function RunTaskGraph({
         <div>
           <h2 id="run-graph-title">Graph</h2>
           {graphDescription ? <p>{graphDescription}</p> : null}
+          {selectionNotice ? <p role="status">{selectionNotice}</p> : null}
         </div>
         {controls || (selectedTaskID && onClearSelection) ? (
           <div className={styles.controls} role="group" aria-label="Run investigation controls">
@@ -122,7 +125,7 @@ function TaskStatusGlyph({ status }: { status: RunTaskDisplayNode["status"] }) {
     case "pending":
       return <Clock className={styles.statusIcon} />;
     case "accepted":
-      return <Play className={styles.statusIcon} />;
+      return <Play className={styles.statusIcon} fill="currentColor" />;
     case "running":
       return <LoaderCircle className={styles.statusIcon} />;
     case "succeeded":

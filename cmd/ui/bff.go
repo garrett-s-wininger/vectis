@@ -23,6 +23,8 @@ const (
 )
 
 type uiBackend struct {
+	docsURL               string
+	docsPort              int
 	apiURL                *url.URL
 	publicURL             *url.URL
 	allowLocalHTTPCookies bool
@@ -83,6 +85,7 @@ type uiContextPrincipal struct {
 }
 
 type uiContextResponse struct {
+	DocsURL     string             `json:"docs_url"`
 	AuthEnabled bool               `json:"auth_enabled"`
 	Principal   uiContextPrincipal `json:"principal"`
 }
@@ -399,6 +402,7 @@ func (b *uiBackend) context(w http.ResponseWriter, r *http.Request) {
 
 	if !status.AuthEnabled {
 		writeBFFJSON(w, http.StatusOK, uiContextResponse{
+			DocsURL:     b.browserDocsURL(r),
 			AuthEnabled: false,
 			Principal: uiContextPrincipal{
 				Kind:     "auth_disabled",
@@ -415,6 +419,7 @@ func (b *uiBackend) context(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeBFFJSON(w, http.StatusOK, uiContextResponse{
+		DocsURL:     b.browserDocsURL(r),
 		AuthEnabled: true,
 		Principal: uiContextPrincipal{
 			Kind:     "local_user",

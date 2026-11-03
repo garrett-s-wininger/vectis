@@ -28,7 +28,8 @@ var (
 		"servers":     true,
 		"summary":     true,
 	}
-	operationIDPattern = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
+	operationIDPattern   = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
+	pathParameterPattern = regexp.MustCompile(`\{([^{}]+)\}`)
 )
 
 func main() {
@@ -115,7 +116,7 @@ func lintDocument(doc map[string]any) []string {
 			continue
 		}
 
-		lintPathItem(path, item, declaredTags, securitySchemes, seenOperationIDs, add)
+		lintPathItem(path, item, doc, declaredTags, securitySchemes, seenOperationIDs, add)
 	}
 
 	walkRefs(doc, "$", doc, add)
@@ -187,10 +188,12 @@ func collectSecuritySchemes(doc map[string]any, add func(string, ...any)) map[st
 func lintPathItem(
 	path string,
 	item map[string]any,
+	root map[string]any,
 	declaredTags, securitySchemes map[string]bool,
 	seenOperationIDs map[string]string,
 	add func(string, ...any),
 ) {
+	inherited := collectParameters("paths."+path, item, root, add)
 	for _, key := range sortedKeys(item) {
 		if httpMethods[key] {
 			op, ok := asObject(item[key])
@@ -200,6 +203,7 @@ func lintPathItem(
 			}
 
 			lintOperation(path, key, op, declaredTags, securitySchemes, seenOperationIDs, add)
+			lintPathParameters(path, key, op, inherited, root, add)
 			continue
 		}
 
@@ -207,6 +211,123 @@ func lintPathItem(
 			add("paths.%s.%s: unsupported path item field", path, key)
 		}
 	}
+}
+
+func lintPathParameters(path, method string, op map[string]any, inherited map[string]map[string]any, root map[string]any, add func(string, ...any)) {
+	context := strings.ToUpper(method) + " " + path
+	effective := make(map[string]map[string]any, len(inherited))
+	for key, parameter := range inherited {
+		effective[key] = parameter
+	}
+
+	for key, parameter := range collectParameters(context, op, root, add) {
+		effective[key] = parameter
+	}
+
+	placeholders := map[string]bool{}
+	for _, match := range pathParameterPattern.FindAllStringSubmatch(path, -1) {
+		name := match[1]
+		placeholders[name] = true
+		if _, ok := effective["path:"+name]; !ok {
+			add("%s: missing path parameter %q", context, name)
+		}
+	}
+
+	for _, key := range sortedParameterKeys(effective) {
+		parameter := effective[key]
+		if stringField(parameter, "in") != "path" {
+			continue
+		}
+
+		name := stringField(parameter, "name")
+		if !placeholders[name] {
+			add("%s: path parameter %q has no matching placeholder", context, name)
+		}
+
+		if parameter["required"] != true {
+			add("%s: path parameter %q must set required to true", context, name)
+		}
+
+		schema, hasSchema := objectField(parameter, "schema")
+		content, hasContent := objectField(parameter, "content")
+		if (hasSchema && len(schema) > 0) == (hasContent && len(content) > 0) {
+			add("%s: path parameter %q must declare one non-empty schema or content object", context, name)
+		}
+	}
+}
+
+func collectParameters(context string, object, root map[string]any, add func(string, ...any)) map[string]map[string]any {
+	parameters := map[string]map[string]any{}
+	raw, exists := object["parameters"]
+	if !exists {
+		return parameters
+	}
+
+	list, ok := asArray(raw)
+	if !ok {
+		add("%s: parameters must be an array", context)
+		return parameters
+	}
+
+	for index, value := range list {
+		parameter, ok := asObject(value)
+		if !ok {
+			add("%s parameters[%d]: parameter must be an object", context, index)
+			continue
+		}
+
+		seen := map[string]bool{}
+		for ref := stringField(parameter, "$ref"); ref != ""; ref = stringField(parameter, "$ref") {
+			if seen[ref] {
+				add("%s parameters[%d]: cyclic parameter reference %q", context, index, ref)
+				parameter = nil
+				break
+			}
+
+			seen[ref] = true
+			resolved, err := localRefValue(root, ref)
+			if err != nil {
+				add("%s parameters[%d]: %v", context, index, err)
+				parameter = nil
+				break
+			}
+
+			parameter, ok = asObject(resolved)
+			if !ok {
+				add("%s parameters[%d]: reference %q must resolve to a parameter object", context, index, ref)
+				break
+			}
+		}
+
+		if parameter == nil {
+			continue
+		}
+
+		name, location := stringField(parameter, "name"), stringField(parameter, "in")
+		if name == "" || location == "" {
+			add("%s parameters[%d]: parameter must declare name and in", context, index)
+			continue
+		}
+
+		key := location + ":" + name
+		if _, duplicate := parameters[key]; duplicate {
+			add("%s: duplicate %s parameter %q", context, location, name)
+		}
+
+		parameters[key] = parameter
+	}
+
+	return parameters
+}
+
+func sortedParameterKeys(parameters map[string]map[string]any) []string {
+	keys := make([]string, 0, len(parameters))
+	for key := range parameters {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+	return keys
 }
 
 func lintOperation(
@@ -343,8 +464,13 @@ func walkRefs(value any, path string, root map[string]any, add func(string, ...a
 }
 
 func resolveLocalRef(root map[string]any, ref string) error {
+	_, err := localRefValue(root, ref)
+	return err
+}
+
+func localRefValue(root map[string]any, ref string) (any, error) {
 	if !strings.HasPrefix(ref, "#/") {
-		return fmt.Errorf("external references are not allowed: %q", ref)
+		return nil, fmt.Errorf("external references are not allowed: %q", ref)
 	}
 
 	var current any = root
@@ -352,16 +478,16 @@ func resolveLocalRef(root map[string]any, ref string) error {
 		part = strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
 		object, ok := asObject(current)
 		if !ok {
-			return fmt.Errorf("unresolvable reference %q", ref)
+			return nil, fmt.Errorf("unresolvable reference %q", ref)
 		}
 
 		current, ok = object[part]
 		if !ok {
-			return fmt.Errorf("unresolvable reference %q", ref)
+			return nil, fmt.Errorf("unresolvable reference %q", ref)
 		}
 	}
 
-	return nil
+	return current, nil
 }
 
 func objectField(object map[string]any, field string) (map[string]any, bool) {

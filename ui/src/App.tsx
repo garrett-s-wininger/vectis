@@ -23,6 +23,7 @@ import { NamespacesPage } from "./pages/NamespacesPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { useResolvedTheme } from "./theme";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { runInvestigationPath } from "./routing/runInvestigation";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
@@ -64,6 +65,7 @@ export function App() {
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [docsURL, setDocsURL] = useState<string | undefined>(undefined);
   const [accountName, setAccountName] = useState("admin");
   const [authEnabled, setAuthEnabled] = useState(true);
   const consoleDataSourceRef = useRef(createConsoleDataSource());
@@ -91,6 +93,7 @@ export function App() {
     runCacheRef.current = consoleData?.runs ?? [];
   }, [consoleData?.runs]);
 
+  const shellActive = route.kind !== "login" && route.kind !== "setup";
   const consoleActive = route.kind !== "login" && route.kind !== "setup" && route.kind !== "health";
 
   useEffect(() => {
@@ -112,10 +115,7 @@ export function App() {
   }, [consoleData]);
 
   useEffect(() => {
-    if (route.kind === "login" || route.kind === "setup") {
-      return;
-    }
-
+    if (!shellActive) return;
     let ignore = false;
 
     loadUIContext()
@@ -126,19 +126,16 @@ export function App() {
 
         setAuthEnabled(context.auth_enabled);
         setAccountName(context.principal.username);
+        setDocsURL(context.docs_url);
       })
       .catch(() => {
-        // Older dev servers and Storybook do not expose UI context. Keep the
-        // existing authenticated-looking shell as the compatibility fallback.
+        // NOTE(garrett): Dev servers may not expose UI context; keep the shell defaults.
       });
 
     return () => {
       ignore = true;
     };
-    // Only discover server context for the route the BFF initially served.
-    // Login/setup responses update the account state directly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shellActive]);
 
   useEffect(() => {
     let ignore = false;
@@ -590,6 +587,7 @@ export function App() {
       accountDetail={authEnabled ? undefined : "Auth disabled"}
       accountName={accountName}
       brand="Vectis"
+      docsURL={docsURL}
       navItems={primaryNavItems}
       onNavigate={handleShellNavigate}
       onSignOut={authEnabled ? signOut : undefined}
@@ -884,6 +882,12 @@ function RouteContent({
 
         return withActionAlert(
           <RunDetailPage
+            investigation={route.runInvestigation}
+            onInvestigationChange={(context) => {
+              const { pathname, search, hash } = window.location;
+              const path = runInvestigationPath(pathname, search, hash, context);
+              if (path !== `${pathname}${search}${hash}`) navigateTo(path);
+            }}
             loadArtifacts={loadArtifacts}
             onCancel={onCancelRun}
             onReplay={onReplayRun}

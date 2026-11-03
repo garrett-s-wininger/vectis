@@ -54,6 +54,10 @@ func runUI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Invalid API URL: %v", err)
 	}
 
+	if err := backend.configureDocs(viper.GetString("docs-url"), viper.GetInt("docs-port")); err != nil {
+		logger.Fatal("Invalid UI docs configuration: %v", err)
+	}
+
 	backend.allowNetworkHTTP = viper.GetBool("allow_insecure_http")
 	if err := backend.configureTransport(viper.GetString("public-url"), viper.GetString("api-ca-file")); err != nil {
 		logger.Fatal("Invalid UI transport: %v", err)
@@ -231,6 +235,11 @@ func init() {
 	rootCmd.PersistentFlags().String("dir", "", "Directory containing a UI build to serve instead of embedded UI")
 	rootCmd.PersistentFlags().String("dev-assets-url", "", "Vite dev server URL for hot-reloaded UI assets")
 	rootCmd.PersistentFlags().String("api-url", defaultAPIURL, "Base URL for proxied API requests")
+	rootCmd.PersistentFlags().String("docs-url", "", "Browser-facing docs site URL or same-origin base path (defaults to vectis.dev)")
+	rootCmd.PersistentFlags().Int("docs-port", 0, "Local docs port on the browser hostname; docs-url takes precedence")
+	_ = viper.BindPFlag("docs-port", rootCmd.PersistentFlags().Lookup("docs-port"))
+	_ = viper.BindEnv("docs-port", "VECTIS_UI_DOCS_PORT")
+
 	rootCmd.PersistentFlags().String("api-ca-file", "", "CA bundle for the upstream HTTPS API")
 	rootCmd.PersistentFlags().String("public-url", "", "Browser-facing UI origin for a reverse proxy or explicit HTTP network demo")
 	rootCmd.PersistentFlags().Bool("session-allow-insecure-cookies", false, "Allow HTTP browser sessions on a loopback listener for local development")
@@ -244,11 +253,12 @@ func init() {
 	_ = viper.BindPFlag("dir", rootCmd.PersistentFlags().Lookup("dir"))
 	_ = viper.BindPFlag("dev-assets-url", rootCmd.PersistentFlags().Lookup("dev-assets-url"))
 	_ = viper.BindPFlag("api-url", rootCmd.PersistentFlags().Lookup("api-url"))
-	for _, key := range []string{"api-ca-file", "public-url", "tls-cert-file", "tls-key-file"} {
+	for _, key := range []string{"api-ca-file", "public-url", "docs-url", "tls-cert-file", "tls-key-file"} {
 		configKey := key
 		if strings.HasPrefix(key, "tls-") {
 			configKey = strings.ReplaceAll(key, "-", "_")
 		}
+
 		_ = viper.BindPFlag(configKey, rootCmd.PersistentFlags().Lookup(key))
 		_ = viper.BindEnv(configKey, "VECTIS_UI_"+strings.ToUpper(strings.ReplaceAll(key, "-", "_")))
 	}

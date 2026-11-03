@@ -228,3 +228,15 @@ for (const colorScheme of ["light", "dark"] as const) {
     });
   }
 }
+
+test("Run again works without the secure-context randomUUID API", async ({ page }) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true })
+  );
+
+  await page.goto("/runs/run-1238");
+  await page.getByRole("button", { name: "Run again", exact: true }).click();
+  await expect(page).toHaveURL(/\/runs\/run-1241$/);
+  await expect(page.getByRole("link", { name: /^View original run/ })).toHaveAttribute("href", "/runs/run-1238");
+  await expect(page.getByText(/crypto.randomUUID is not a function/)).toHaveCount(0);
+});

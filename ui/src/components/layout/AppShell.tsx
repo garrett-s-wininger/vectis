@@ -1,4 +1,6 @@
 import type { MouseEvent, ReactNode } from "react";
+import { ExternalLink, LogOut, UserRound, type LucideIcon } from "lucide-react";
+import { helpLinks } from "../navigation/helpLinks";
 import { useEffect } from "react";
 import {
   closeCoordinatedDropdowns,
@@ -12,11 +14,14 @@ import styles from "./AppShell.module.css";
 import { useResolvedTheme } from "../../theme";
 
 export type NavItem = {
+  icon?: LucideIcon;
+  external?: boolean;
   href: string;
   label: string;
 };
 
 export type NavGroup = {
+  icon?: LucideIcon;
   items: NavItem[];
   label: string;
 };
@@ -25,6 +30,7 @@ export type NavEntry = NavItem | NavGroup;
 
 type AppShellProps = {
   brand: string;
+  docsURL?: string;
   navItems: NavEntry[];
   activeHref: string;
   actions?: ReactNode;
@@ -41,6 +47,7 @@ export function AppShell({
   accountName,
   accountDetail,
   brand,
+  docsURL,
   navItems,
   activeHref,
   actions,
@@ -103,11 +110,13 @@ export function AppShell({
         </nav>
         <div className={styles.actions}>
           {actions}
-          {utilityNavItems.length > 0 ? (
-            <nav className={styles.utilityNav} aria-label="Utility">
-              <NavEntries activeHref={activeHref} items={utilityNavItems} onNavigate={onNavigate} />
-            </nav>
-          ) : null}
+          <nav className={styles.utilityNav} aria-label="Utility">
+            <NavEntries
+              activeHref={activeHref}
+              items={[...utilityNavItems, helpLinks(docsURL)]}
+              onNavigate={onNavigate}
+            />
+          </nav>
           {accountName && !hasAccountMenu ? (
             <div className={`${styles.accountSummary} ${styles.accountIndicator}`} title={accountDetail}>
               <span className={styles.accountAvatar}>{accountName.slice(0, 1).toUpperCase()}</span>
@@ -122,6 +131,7 @@ export function AppShell({
             >
               <summary
                 className={styles.accountSummary}
+                aria-label={`Account menu for ${accountName}`}
                 onClick={(event) => closeOtherDropdownsFromTrigger(event.currentTarget)}
               >
                 <span className={styles.accountAvatar}>{accountName.slice(0, 1).toUpperCase()}</span>
@@ -139,7 +149,7 @@ export function AppShell({
                       closeParentDropdown(event.currentTarget);
                     }}
                   >
-                    Profile
+                    <UserRound aria-hidden="true" /> Profile
                   </a>
                 ) : null}
                 {onSignOut ? (
@@ -151,7 +161,7 @@ export function AppShell({
                     }}
                     type="button"
                   >
-                    Sign out
+                    <LogOut aria-hidden="true" /> Sign out
                   </button>
                 ) : null}
               </div>
@@ -188,21 +198,27 @@ function NavEntries({
             className={styles.navGroupSummary}
             onClick={(event) => closeOtherDropdownsFromTrigger(event.currentTarget)}
           >
+            {item.icon ? <item.icon aria-hidden="true" /> : null}
             <span className={styles.navGroupLabel}>{item.label}</span>
           </summary>
           <div className={styles.navMenu}>
             {item.items.map((child) => (
               <a
-                aria-current={child.href === activeHref ? "page" : undefined}
+                aria-current={!child.external && child.href === activeHref ? "page" : undefined}
                 className={styles.navMenuLink}
                 href={child.href}
                 key={child.href}
+                target={child.external ? "_blank" : undefined}
+                rel={child.external ? "noopener noreferrer" : undefined}
+                aria-label={child.external ? `${child.label} (opens in a new tab)` : undefined}
                 onClick={(event) => {
-                  onNavigate?.(child.href, event);
+                  if (!child.external) onNavigate?.(child.href, event);
                   closeParentDropdown(event.currentTarget);
                 }}
               >
+                {child.icon ? <child.icon aria-hidden="true" /> : null}
                 {child.label}
+                {child.external ? <ExternalLink className={styles.externalIcon} aria-hidden="true" /> : null}
               </a>
             ))}
           </div>
@@ -218,6 +234,7 @@ function NavEntries({
         key={item.href}
         onClick={(event) => onNavigate?.(item.href, event)}
       >
+        {item.icon ? <item.icon aria-hidden="true" /> : null}
         {item.label}
       </a>
     );

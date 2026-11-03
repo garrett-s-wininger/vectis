@@ -529,7 +529,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceScheduleID"
+          }
+        ]
       },
       "delete": {
         "operationId": "deleteSourceSchedule",
@@ -550,7 +555,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceScheduleID"
+          }
+        ]
       }
     },
     "/api/v1/source-schedules/{schedule_id}/override": {
@@ -573,7 +583,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceScheduleID"
+          }
+        ]
       },
       "delete": {
         "operationId": "deleteSourceScheduleOverride",
@@ -594,7 +609,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceScheduleID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories": {
@@ -670,7 +690,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       },
       "put": {
         "operationId": "updateSourceRepository",
@@ -692,7 +717,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       },
       "delete": {
         "operationId": "deleteSourceRepository",
@@ -713,7 +743,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/sync": {
@@ -747,7 +782,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/status": {
@@ -770,7 +810,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/schedules": {
@@ -793,7 +838,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/refs/branches": {
@@ -816,7 +866,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/tree": {
@@ -839,7 +894,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/definitions": {
@@ -862,7 +922,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/jobs": {
@@ -885,7 +950,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/definitions/resolve": {
@@ -908,7 +978,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/jobs/{job_id}/definition": {
@@ -931,7 +1006,15 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "$ref": "#/components/parameters/SourceJobID"
+          }
+        ]
       },
       "put": {
         "operationId": "putSourceRepositoryJobDefinition",
@@ -952,7 +1035,15 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "$ref": "#/components/parameters/SourceJobID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/jobs/{job_id}/runs": {
@@ -996,7 +1087,15 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "$ref": "#/components/parameters/SourceJobID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": {
@@ -1026,7 +1125,18 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "$ref": "#/components/parameters/SourceJobID"
+          },
+          {
+            "$ref": "#/components/parameters/SourceRunID"
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}/jobs/{job_id}/trigger": {
@@ -1057,7 +1167,15 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "$ref": "#/components/parameters/SourceJobID"
+          }
+        ]
       }
     },
     "/api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs": {
@@ -1075,33 +1193,20 @@
         "x-vectis-auth-action": "run:read",
         "responses": {
           "200": {
-            "description": "Paginated runs with durable submitter attribution when known",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/RunRead"
-                      }
-                    },
-                    "next_cursor": {
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ]
-                }
-              }
-            }
+            "$ref": "#/components/responses/EventStream"
           },
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "$ref": "#/components/parameters/SourceJobID"
+          }
+        ]
       }
     },
     "/api/v1/cells/status": {
@@ -1569,7 +1674,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ]
       }
     },
     "/api/v1/runs/{id}/tasks": {
@@ -3108,6 +3218,42 @@
         "schema": {
           "type": "integer",
           "minimum": 1
+        }
+      },
+      "SourceRepositoryID": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Registered source repository identifier.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "SourceJobID": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "description": "Job identifier within the source repository.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "SourceRunID": {
+        "name": "run_id",
+        "in": "path",
+        "required": true,
+        "description": "Run identifier for the source repository job.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "SourceScheduleID": {
+        "name": "schedule_id",
+        "in": "path",
+        "required": true,
+        "description": "Source-backed schedule identifier.",
+        "schema": {
+          "type": "string"
         }
       }
     },

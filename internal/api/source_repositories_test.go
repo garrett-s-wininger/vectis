@@ -3524,6 +3524,14 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 	}
 	defer sseResp.Body.Close()
 
+	if sseResp.StatusCode != http.StatusOK {
+		t.Fatalf("source SSE status = %d, want 200", sseResp.StatusCode)
+	}
+
+	if got := sseResp.Header.Get("Content-Type"); strings.TrimSpace(strings.SplitN(got, ";", 2)[0]) != "text/event-stream" {
+		t.Fatalf("source SSE Content-Type = %q, want text/event-stream", got)
+	}
+
 	reader := bufio.NewReader(sseResp.Body)
 	var dataBuf strings.Builder
 	readEvent := func(label string) struct {

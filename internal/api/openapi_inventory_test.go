@@ -76,3 +76,66 @@ func TestOpenAPISpecOperationIDsAreUnique(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAPISpecStreamingResponseMediaTypes(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "website", "static", "openapi", "v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type response struct {
+		Ref     string                     `json:"$ref"`
+		Content map[string]json.RawMessage `json:"content"`
+	}
+
+	var spec struct {
+		Paths map[string]map[string]struct {
+			Responses map[string]response `json:"responses"`
+		} `json:"paths"`
+		Components struct {
+			Responses map[string]response `json:"responses"`
+		} `json:"components"`
+	}
+
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		t.Fatal(err)
+	}
+
+	server := &APIServer{}
+	for _, route := range server.routeSpecs(false) {
+		if route.Accept.mode != routeAcceptSSE {
+			continue
+		}
+
+		t.Run(route.Pattern, func(t *testing.T) {
+			method, path, ok := strings.Cut(route.Pattern, " ")
+			if !ok {
+				t.Fatalf("invalid route pattern %q", route.Pattern)
+			}
+
+			value, ok := spec.Paths[path][strings.ToLower(method)].Responses["200"]
+			if !ok {
+				t.Fatal("missing successful streaming response")
+			}
+
+			seen := map[string]bool{}
+			for value.Ref != "" {
+				const prefix = "#/components/responses/"
+				if !strings.HasPrefix(value.Ref, prefix) || seen[value.Ref] {
+					t.Fatalf("invalid response reference %q", value.Ref)
+				}
+
+				seen[value.Ref] = true
+				ref := value.Ref
+				value, ok = spec.Components.Responses[strings.TrimPrefix(ref, prefix)]
+				if !ok {
+					t.Fatalf("missing response reference %q", ref)
+				}
+			}
+
+			if _, ok := value.Content["text/event-stream"]; !ok || len(value.Content) != 1 {
+				t.Fatalf("SSE route must document text/event-stream as its response media type, got %v", value.Content)
+			}
+		})
+	}
+}

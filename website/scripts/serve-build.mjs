@@ -105,6 +105,7 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'");
     res.setHeader('Content-Type', contentType(filePath));
     fs.createReadStream(filePath).pipe(res);
   })().catch(() => {

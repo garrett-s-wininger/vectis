@@ -47,7 +47,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
 
     expect(window.location.pathname).toBe("/runs");
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "/ui/api/setup/complete",
       expect.objectContaining({ credentials: "same-origin", method: "POST" })
     );
@@ -84,7 +84,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Users" })).toBeInTheDocument();
 
     expect(window.location.pathname).toBe("/users");
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "/ui/api/login",
       expect.objectContaining({ credentials: "same-origin", method: "POST" })
     );
@@ -229,6 +229,16 @@ describe("App", () => {
       )
       .mockResolvedValueOnce(
         new Response(
+          JSON.stringify({
+            auth_enabled: true,
+            principal: { kind: "local_user", username: "admin" },
+            docs_url: "https://docs.example.test/"
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
           JSON.stringify([
             {
               id: 1,
@@ -291,6 +301,13 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Jobs" })).toBeInTheDocument();
     expect(await screen.findByText("live-smoke")).toBeInTheDocument();
     expect(screen.getByText("admin")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Help"));
+    expect(screen.getByRole("link", { name: "Documentation (opens in a new tab)" })).toHaveAttribute(
+      "href",
+      "https://docs.example.test/docs/getting-started"
+    );
+
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/jobs?limit=200&repository_id=vectis-local&ref=main",
       expect.objectContaining({ credentials: "same-origin" })
@@ -1075,5 +1092,46 @@ describe("App", () => {
     expect(await screen.findByText("Anonymous")).toBeInTheDocument();
     expect(screen.getByText("Auth disabled")).not.toBeVisible();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+  });
+
+  it("updates run context through history without reloading the console or run", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const data = await source.loadConsole();
+    const run = data.runs.find((item) => item.id === "run-1238")!;
+    const loadConsole = vi.fn().mockResolvedValue(data);
+    const loadRun = vi.fn().mockResolvedValue(run);
+
+    source.loadConsole = loadConsole;
+    source.loadRun = loadRun;
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    const initial = "/runs/run-1238?task=run-1238%3Abuild&attempt=1&keep=yes#run-graph-title";
+
+    window.history.replaceState(null, "", initial);
+
+    try {
+      render(<App />);
+      const build = await screen.findByRole("button", { name: "Build image: Succeeded" });
+      await waitFor(() => expect(loadRun).toHaveBeenCalledOnce());
+      expect(build).toHaveAttribute("aria-pressed", "true");
+
+      fireEvent.click(screen.getByRole("button", { name: "Scan image: Succeeded" }));
+      expect(new URLSearchParams(window.location.search).get("task")).toBe("scan");
+      expect(new URLSearchParams(window.location.search).get("attempt")).toBe("1");
+      expect(new URLSearchParams(window.location.search).get("keep")).toBe("yes");
+      expect(window.location.hash).toBe("#run-graph-title");
+      expect(screen.getByRole("button", { name: "Build image: Succeeded" })).toBe(build);
+
+      await act(async () => {
+        window.history.replaceState(null, "", initial);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+
+      expect(build).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByLabelText(/^Attempt:/)).toHaveTextContent("Attempt 1");
+      expect(loadConsole).toHaveBeenCalledOnce();
+      expect(loadRun).toHaveBeenCalledOnce();
+    } finally {
+      create.mockRestore();
+    }
   });
 });
