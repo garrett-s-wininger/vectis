@@ -1,5 +1,18 @@
+import { useConsoleAccess } from "../domain/access";
 import { useState } from "react";
-import { ChevronDown, Clock, Code2, FileText, Fingerprint, Hash, History, Server, User, Zap } from "lucide-react";
+import {
+  ArrowUpRight,
+  ChevronDown,
+  Clock,
+  Code2,
+  FileText,
+  Fingerprint,
+  Hash,
+  History,
+  Server,
+  User,
+  Zap
+} from "lucide-react";
 import { BreadcrumbTrail, CopyValue, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
 import { SelectControl } from "../components/primitives/SelectControl";
 import type { RunInvestigationContext } from "../routing/runInvestigation";
@@ -112,6 +125,8 @@ function RunDetailContent({
   investigation?: RunInvestigationContext;
   onInvestigationChange?: (context: RunInvestigationContext) => void;
 }) {
+  const { can } = useConsoleAccess();
+  const canOperate = can("run:operator", run.namespacePath ?? "/");
   const [localInvestigation, setLocalInvestigation] = useState<RunInvestigationContext>({ attempt: "latest" });
   const context = investigation ?? localInvestigation;
   const updateInvestigation = onInvestigationChange ?? setLocalInvestigation;
@@ -144,7 +159,7 @@ function RunDetailContent({
     <>
       <PageHeader
         actions={
-          (!historical && active && onCancel) || (!active && onReplay) ? (
+          canOperate && ((!historical && active && onCancel) || (!active && onReplay)) ? (
             <RunControls run={run} onCancel={historical ? undefined : onCancel} onReplay={onReplay} />
           ) : undefined
         }
@@ -195,10 +210,11 @@ function RunDetailContent({
         </dl>
         <dl className={styles.metadata}>
           <OperationalFact
+            layout="detail"
             icon={Fingerprint}
             label="Run ID"
             value={
-              <CopyValue label="Run ID" value={run.id}>
+              <CopyValue appearance="field" label="Run ID" value={run.id}>
                 <code>{run.id}</code>
               </CopyValue>
             }
@@ -206,10 +222,11 @@ function RunDetailContent({
           />
           {run.jobID ? (
             <OperationalFact
+              layout="detail"
               icon={Hash}
               label="Job ID"
               value={
-                <CopyValue label="Job ID" value={run.jobID}>
+                <CopyValue appearance="field" label="Job ID" value={run.jobID}>
                   <code>{run.jobID}</code>
                 </CopyValue>
               }
@@ -218,11 +235,13 @@ function RunDetailContent({
           ) : null}
           {run.replayOfRunID ? (
             <OperationalFact
+              layout="detail"
               icon={History}
               label="Re-run of"
               wrap
               value={
                 <a
+                  className={styles.runReference}
                   href={`/runs/${encodeURIComponent(run.replayOfRunID)}`}
                   aria-busy={openingOriginal || undefined}
                   onClick={(event) => {
@@ -246,7 +265,10 @@ function RunDetailContent({
                   }}
                   aria-label={`View original run${originalRun ? ` ${runDisplayName(originalRun)} #${originalRun.runNumber}` : ""}`}
                 >
-                  {originalRun ? `${runDisplayName(originalRun)} #${originalRun.runNumber}` : "Original run"}
+                  <span>
+                    {originalRun ? `${runDisplayName(originalRun)} #${originalRun.runNumber}` : "Original run"}
+                  </span>
+                  <ArrowUpRight aria-hidden="true" />
                 </a>
               }
             />

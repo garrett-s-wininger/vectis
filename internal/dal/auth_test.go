@@ -636,6 +636,12 @@ func TestAuthRepository_DisableLocalUserAndRevokeTokens(t *testing.T) {
 		t.Fatalf("insert session: %v", err)
 	}
 
+	bindings := NewSQLRoleBindingsRepository(db)
+	before, err := bindings.ListByUser(ctx, uid)
+	if err != nil || len(before) != 1 {
+		t.Fatalf("initial role binding: %+v %v", before, err)
+	}
+
 	if err := repo.DisableLocalUserAndRevokeTokens(ctx, uid); err != nil {
 		t.Fatalf("DisableLocalUserAndRevokeTokens: %v", err)
 	}
@@ -663,8 +669,18 @@ func TestAuthRepository_DisableLocalUserAndRevokeTokens(t *testing.T) {
 		}
 	}
 
+	after, err := bindings.ListByUser(ctx, uid)
+	if err != nil || len(after) != 1 || after[0].ID != before[0].ID || after[0].Role != before[0].Role {
+		t.Fatalf("disable changed role bindings: before=%+v after=%+v err=%v", before, after, err)
+	}
+
 	if err := repo.UpdateLocalUserEnabled(ctx, uid, true); err != nil {
 		t.Fatalf("re-enable user: %v", err)
+	}
+
+	isAdmin, err := repo.IsUserRootAdmin(ctx, uid)
+	if err != nil || !isAdmin {
+		t.Fatalf("re-enabling did not restore role access: %v %v", isAdmin, err)
 	}
 
 	if _, _, _, err := repo.ResolveAPIToken(ctx, tokenHash); !IsNotFound(err) {
@@ -755,5 +771,94 @@ func TestAuthRepository_RootAdminQueries(t *testing.T) {
 	}
 	if isTeamRootAdmin {
 		t.Fatal("namespace admin should not be considered root admin")
+	}
+}
+
+func TestCreateLocalUserWithBindingRollsBackInvalidGrant(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+	for _, test := range []struct {
+		name        string
+		namespaceID int64
+		role        string
+	}{
+		{"missing-namespace", 999999, "operator"}, {"invalid-role", RootNamespaceID, "invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := repo.CreateLocalUserWithBinding(context.Background(), test.name, "hash", test.namespaceID, test.role); err == nil {
+				t.Fatal("expected constraint failure")
+			}
+			var count int
+			if err := db.QueryRow("SELECT COUNT(*) FROM local_users WHERE username = ?", test.name).Scan(&count); err != nil || count != 0 {
+				t.Fatalf("partial account persisted: %d %v", count, err)
+			}
+		})
+	}
+}
+
+func TestDeleteLocalUserPreservesAuditAndRemovesAccess(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	auth := NewSQLAuthRepository(db)
+	id, err := auth.CreateLocalUserWithBinding(ctx, "retired", "hash", RootNamespaceID, "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := auth.CreateAPIToken(ctx, id, "old-token", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO api_sessions (session_hash, csrf_token_hash, local_user_id, expires_at_unix_nano, last_used_unix_nano) VALUES (?, ?, ?, ?, ?)`, "old-session", "csrf", id, time.Now().Add(time.Hour).UnixNano(), time.Now().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+
+	provider, err := auth.EnsureAuthProvider(ctx, "test-ldap", "ldap")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := auth.LinkExternalIdentity(ctx, id, provider.ProviderID, "retired-subject", "retired", "Retired User"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO audit_log (event_type, actor_id) VALUES (?, ?)`, "test.retirement", id); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := auth.DeleteLocalUser(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := auth.GetLocalUser(ctx, id); !IsNotFound(err) {
+		t.Fatalf("deleted user lookup: %v", err)
+	}
+
+	if _, _, _, _, err := auth.GetLocalUserByUsername(ctx, "retired"); !IsNotFound(err) {
+		t.Fatalf("deleted user login lookup: %v", err)
+	}
+
+	if users, err := auth.ListLocalUsers(ctx); err != nil || len(users) != 0 {
+		t.Fatalf("deleted account listed: %+v %v", users, err)
+	}
+
+	if err := auth.UpdateLocalUserEnabled(ctx, id, true); !IsNotFound(err) {
+		t.Fatalf("deleted account re-enabled: %v", err)
+	}
+
+	if exists, err := auth.UserExists(ctx, id); err != nil || exists {
+		t.Fatalf("deleted account accepts new grants: %v %v", exists, err)
+	}
+
+	for _, table := range []string{"api_tokens", "api_sessions", "role_bindings", "external_identities"} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM "+table+" WHERE local_user_id = ?", id).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("%s access remains: %d %v", table, count, err)
+		}
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log a JOIN local_users u ON u.id = a.actor_id WHERE a.actor_id = ? AND u.username = ? AND u.deleted_at IS NOT NULL AND NOT u.enabled AND NOT u.password_auth_enabled AND u.password_hash = ''`, id, "retired").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("audit identity not preserved securely: %d %v", count, err)
 	}
 }

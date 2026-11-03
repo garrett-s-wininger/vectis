@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import styles from "./OperationalFact.module.css";
 
 type OperationalFactProps = {
+  className?: string;
+  layout?: "metric" | "detail";
   emphasis?: boolean;
   icon: LucideIcon;
   label: string;
@@ -10,9 +12,27 @@ type OperationalFactProps = {
   wrap?: boolean;
 };
 
-export function OperationalFact({ emphasis, icon: Icon, label, value, wrap }: OperationalFactProps) {
+export function OperationalFact({
+  className,
+  layout = "metric",
+  emphasis,
+  icon: Icon,
+  label,
+  value,
+  wrap
+}: OperationalFactProps) {
   return (
-    <div className={[styles.root, emphasis ? styles.emphasis : "", wrap ? styles.wrap : ""].filter(Boolean).join(" ")}>
+    <div
+      className={[
+        styles.root,
+        className,
+        layout === "detail" ? styles.detail : "",
+        emphasis ? styles.emphasis : "",
+        wrap ? styles.wrap : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <dt className={styles.label}>
         <span className={styles.icon} aria-hidden="true">
           <Icon />

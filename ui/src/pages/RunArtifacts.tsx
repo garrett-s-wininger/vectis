@@ -64,7 +64,7 @@ export function RunArtifacts({
             <li key={artifact.name} className={styles.item}>
               <div className={styles.identity}>
                 <strong>{artifact.name}</strong>
-                <CopyValue label={`path for ${artifact.name}`} value={artifact.path} />
+                <CopyValue appearance="field" label={`path for ${artifact.name}`} value={artifact.path} />
               </div>
               <dl className={styles.facts}>
                 <OperationalFact icon={HardDrive} label="Size" value={artifactSizeLabel(artifact.sizeBytes)} />

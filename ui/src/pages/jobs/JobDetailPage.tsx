@@ -1,3 +1,4 @@
+import { useConsoleAccess } from "../../domain/access";
 import {
   BreadcrumbTrail,
   Button,
@@ -44,6 +45,7 @@ export function JobDetailPage({
   onOpenRuns,
   onTrigger
 }: JobDetailPageProps) {
+  const { can } = useConsoleAccess();
   const runHealth = getRunHealthSummary(runs);
 
   return (
@@ -71,9 +73,10 @@ export function JobDetailPage({
               <OperationalFact
                 icon={Fingerprint}
                 label="Job ID"
+                layout="detail"
                 wrap
                 value={
-                  <CopyValue label="Job ID" value={job.id}>
+                  <CopyValue appearance="field" label="Job ID" value={job.id}>
                     <code>{job.id}</code>
                   </CopyValue>
                 }
@@ -81,20 +84,22 @@ export function JobDetailPage({
             </dl>
             <div className={styles.healthSummary}>
               <StatusBadge status={runHealth.tone} />
-              <Button aria-label={`View all runs for ${job.name}`} onClick={onOpenRuns}>
-                All Runs
-              </Button>
-            </div>
-            {lastRun ? (
-              <div className={styles.latestRun}>
-                <span>
+              {lastRun ? (
+                <span className={styles.latestRunSummary}>
                   Latest #{lastRun.runNumber} · {lastRun.duration}
                 </span>
+              ) : null}
+            </div>
+            <div className={styles.executionActions}>
+              <Button aria-label={`View all runs for ${job.name}`} onClick={onOpenRuns} variant="quiet">
+                All Runs
+              </Button>
+              {lastRun ? (
                 <Button aria-label={`View latest run for ${job.name}`} onClick={onOpenLastRun} variant="quiet">
                   Latest Run
                 </Button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         </section>
 
@@ -108,8 +113,8 @@ export function JobDetailPage({
           </div>
           <div className={styles.commandStack}>
             <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>
-            {canTriggerRun(job) ? (
-              <Button aria-label={`Run ${job.name}`} onClick={onTrigger} variant="quiet">
+            {can("run:trigger", job.namespacePath) && canTriggerRun(job) ? (
+              <Button aria-label={`Run ${job.name}`} onClick={onTrigger}>
                 Run Now
               </Button>
             ) : null}
@@ -134,9 +139,11 @@ export function JobDetailPage({
             <h3 id="job-definition-title">Definition</h3>
             <p>{getJobPathDetail(job)}</p>
           </div>
-          <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onConfigure} variant="quiet">
-            {jobConfigurationActionLabel}
-          </Button>
+          {can("job:write", job.namespacePath) ? (
+            <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onConfigure} variant="quiet">
+              {jobConfigurationActionLabel}
+            </Button>
+          ) : null}
         </div>
         <pre className="definition-preview">{formatDefinition(job.definition)}</pre>
       </section>

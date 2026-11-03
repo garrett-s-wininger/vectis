@@ -120,8 +120,8 @@ func TestListNamespaces(t *testing.T) {
 		t.Fatalf("parse response: %v", err)
 	}
 
-	if len(resp) != 4 { // root + ephemeral + team-a + team-b
-		t.Fatalf("expected 4 namespaces, got %d", len(resp))
+	if len(resp) != 3 { // root + team-a + team-b
+		t.Fatalf("expected 3 namespaces, got %d", len(resp))
 	}
 }
 
@@ -275,12 +275,12 @@ func TestDeleteNamespace_Root(t *testing.T) {
 	assertAPIError(t, rec, http.StatusForbidden, "root_namespace_delete_forbidden")
 }
 
-func TestDeleteNamespace_Ephemeral(t *testing.T) {
+func TestDeleteNamespace_EphemeralIsOrdinaryNamespace(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
 
-	ns, err := repos.Namespaces().GetByPath(ctx, dal.EphemeralNamespacePath)
+	ns, err := repos.Namespaces().Create(ctx, "ephemeral", nil)
 	if err != nil {
 		t.Fatalf("get ephemeral namespace: %v", err)
 	}
@@ -291,7 +291,9 @@ func TestDeleteNamespace_Ephemeral(t *testing.T) {
 
 	server.DeleteNamespace(rec, req)
 
-	assertAPIError(t, rec, http.StatusForbidden, "system_namespace_delete_forbidden")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete ordinary ephemeral namespace: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestDeleteNamespace_HasJobs(t *testing.T) {

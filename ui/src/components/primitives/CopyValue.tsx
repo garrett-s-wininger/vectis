@@ -2,7 +2,17 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, Check, Copy } from "lucide-react";
 import styles from "./CopyValue.module.css";
 
-export function CopyValue({ value, label, children }: { value: string; label: string; children?: ReactNode }) {
+export function CopyValue({
+  value,
+  label,
+  children,
+  appearance = "inline"
+}: {
+  value: string;
+  label: string;
+  children?: ReactNode;
+  appearance?: "inline" | "field";
+}) {
   const [feedback, setFeedback] = useState({ value: "", message: "", copied: false });
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const busy = useRef(false);
@@ -31,7 +41,7 @@ export function CopyValue({ value, label, children }: { value: string; label: st
   }
 
   return (
-    <span className={styles.root}>
+    <span className={`${styles.root} ${appearance === "field" ? styles.field : ""}`}>
       <span className={styles.value}>{children ?? value}</span>
       <button
         className={styles.button}

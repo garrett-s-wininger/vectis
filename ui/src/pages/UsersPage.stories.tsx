@@ -88,3 +88,15 @@ export const DetailNoBindings: Story = {
     );
   }
 };
+
+export const InitialPassword: Story = {
+  render: (args) => (
+    <UsersPage
+      {...args}
+      onCreateUser={(input) => ({
+        username: input.username,
+        password: "synthetic-long-initial-password-".repeat(5)
+      })}
+    />
+  )
+};

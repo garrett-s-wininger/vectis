@@ -73,7 +73,7 @@ func TestGetRunJobNamespacePathUsesPersistedEphemeralNamespace(t *testing.T) {
 		nil,
 		"",
 		dal.RunAuditMetadata{
-			NamespacePath: dal.EphemeralNamespacePath,
+			NamespacePath: "/project",
 		},
 	)
 
@@ -86,8 +86,8 @@ func TestGetRunJobNamespacePathUsesPersistedEphemeralNamespace(t *testing.T) {
 		t.Fatalf("getRunJobNamespacePath: %v", err)
 	}
 
-	if got != dal.EphemeralNamespacePath {
-		t.Fatalf("ephemeral run namespace: got %q, want %s", got, dal.EphemeralNamespacePath)
+	if got != "/project" {
+		t.Fatalf("ephemeral run namespace: got %q, want %s", got, "/project")
 	}
 }
 

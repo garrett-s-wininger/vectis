@@ -297,3 +297,97 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func validBindingRole(role string) bool {
+	switch role {
+	case authz.RoleViewer, authz.RoleTrigger, authz.RoleOperator, authz.RoleAdmin:
+		return true
+	}
+
+	return false
+}
+
+func (s *APIServer) UpdateBinding(w http.ResponseWriter, r *http.Request) {
+	nsID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || nsID <= 0 {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidNamespaceID)
+		return
+	}
+
+	userID, err := strconv.ParseInt(r.PathValue("user_id"), 10, 64)
+	if err != nil || userID <= 0 {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingLocalUserID)
+		return
+	}
+
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		PreviousRole string `json:"previous_role"`
+		Role         string `json:"role"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+
+	if !validBindingRole(req.PreviousRole) || !validBindingRole(req.Role) {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRole)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireRoleBindings(w) {
+		return
+	}
+
+	ns, err := s.namespaces.GetByID(ctx, nsID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
+		} else if !s.handleDBUnavailableError(w, err) {
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		}
+
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, ns.Path) {
+		return
+	}
+
+	if err := s.roleBindings.Update(ctx, userID, nsID, req.PreviousRole, req.Role); err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "binding_not_found", "binding no longer exists; refresh and try again", nil)
+		} else if dal.IsConflict(err) {
+			writeAPIErrorCode(w, http.StatusConflict, apiErrBindingAlreadyExists)
+		} else if !s.handleDBUnavailableError(w, err) {
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		}
+
+		return
+	}
+
+	s.markDBRecovered()
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	if !s.auditLogOrFail(w, ctx, audit.EventBindingUpdated, actorID, userID, map[string]any{"namespace_id": nsID, "previous_role": req.PreviousRole, "role": req.Role}) {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, bindingResponse{LocalUserID: userID, Role: req.Role})
+}

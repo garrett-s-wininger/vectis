@@ -1,7 +1,8 @@
+import { useConsoleAccess } from "../domain/access";
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 import { BreadcrumbTrail } from "../components";
-import { Button } from "../components";
+import { AppState, Button } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
 import { EmptyStatePanel } from "../components";
 import { FormField } from "../components";
@@ -15,6 +16,8 @@ import { EmptyStateRail, PageMissingState, ResourceTitle, RoleBindingPanel } fro
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {
+  unavailableBindings?: string[];
+  usersUnavailable?: boolean;
   canDeleteNamespace: (namespaceID: number) => boolean;
   editorMode: { kind: "edit"; namespaceID: number } | null;
   jobs: Job[];
@@ -23,7 +26,12 @@ type NamespacesPageProps = {
   onConfigureNamespace: (namespaceID: number) => void;
   onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
-  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
+  onGrantRoleBinding: (
+    userID: string,
+    namespaceID: number,
+    role: RoleBindingRole,
+    previousRole?: RoleBindingRole
+  ) => Promise<void> | void;
   onOpenJobs: (namespacePath: string) => void;
   onOpenNamespace: (namespaceID: number) => void;
   onOpenNamespaces: () => void;
@@ -35,6 +43,8 @@ type NamespacesPageProps = {
 };
 
 export function NamespacesPage({
+  unavailableBindings = [],
+  usersUnavailable = false,
   canDeleteNamespace,
   editorMode,
   jobs,
@@ -53,11 +63,12 @@ export function NamespacesPage({
   selectedNamespaceID,
   users
 }: NamespacesPageProps) {
+  const { can } = useConsoleAccess();
   const [isCreating, setIsCreating] = useState(false);
   const [values, setValues] = useState<NewNamespace>({
     description: "",
     name: "",
-    parentID: 1
+    parentID: namespaces.find((namespace) => can("admin:*", namespace.path))?.id ?? 1
   });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -66,7 +77,8 @@ export function NamespacesPage({
       return;
     }
 
-    await onCreateNamespace(values);
+    if (!selectedParentID) return;
+    await onCreateNamespace({ ...values, parentID: selectedParentID });
     setValues({ description: "", name: "", parentID: values.parentID });
     setIsCreating(false);
   }
@@ -75,10 +87,16 @@ export function NamespacesPage({
     ? namespaces.find((namespace) => namespace.id === selectedNamespaceID)
     : null;
 
-  const namespaceOptions = namespaces.map((namespace) => ({
-    label: namespace.path === "/" ? "Root" : namespace.path,
-    value: String(namespace.id)
-  }));
+  const namespaceOptions = namespaces
+    .filter((namespace) => can("admin:*", namespace.path))
+    .map((namespace) => ({
+      label: namespace.path === "/" ? "Root" : namespace.path,
+      value: String(namespace.id)
+    }));
+
+  const selectedParentID = namespaceOptions.some((option) => option.value === String(values.parentID))
+    ? values.parentID
+    : Number(namespaceOptions[0]?.value);
 
   if (selectedNamespaceMissing) {
     return <NamespaceNotFound onOpenNamespaces={onOpenNamespaces} />;
@@ -88,6 +106,15 @@ export function NamespacesPage({
     if (!selectedNamespace) {
       return <NamespaceNotFound onOpenNamespaces={onOpenNamespaces} />;
     }
+
+    if (editorMode?.kind === "edit" && !can("admin:*", selectedNamespace.path))
+      return (
+        <AppState
+          title="Namespace Administration Access Required"
+          description="Your account can inspect this namespace but cannot change its settings."
+          tone="error"
+        />
+      );
 
     if (editorMode?.kind === "edit") {
       return (
@@ -104,6 +131,7 @@ export function NamespacesPage({
 
     return (
       <NamespaceDetail
+        bindingsAvailable={!usersUnavailable && !unavailableBindings.includes(selectedNamespace.path)}
         canDeleteNamespace={canDeleteNamespace(selectedNamespace.id)}
         jobs={jobs}
         namespace={selectedNamespace}
@@ -134,7 +162,7 @@ export function NamespacesPage({
     },
     {
       header: "Access",
-      cell: (namespace) => <ResourceStatus tone={roleTone(namespace.role)}>{namespace.role}</ResourceStatus>,
+      cell: (namespace) => <NamespaceAccess namespace={namespace} />,
       width: "124px"
     },
     {
@@ -154,7 +182,7 @@ export function NamespacesPage({
       <PageHeader
         description="Namespace boundaries, inherited access, and where stored definitions are organized."
         actions={
-          !isCreating ? (
+          !isCreating && namespaceOptions.length > 0 ? (
             <Button onClick={() => setIsCreating(true)} type="button">
               Create
             </Button>
@@ -162,14 +190,14 @@ export function NamespacesPage({
         }
         navigation={
           <BreadcrumbTrail
-            items={[{ label: "Admin" }, { current: true, label: "Namespaces" }]}
+            items={[{ label: "Manage" }, { current: true, label: "Namespaces" }]}
             label="Namespaces location"
           />
         }
         title="Namespaces"
       />
       <div className={styles.workspace}>
-        {isCreating ? (
+        {isCreating && namespaceOptions.length > 0 ? (
           <section
             className={`${styles.createPanel} polished-panel polished-panel--accent-top polished-panel--overlay-safe`}
             aria-labelledby="create-namespace-title"
@@ -195,7 +223,7 @@ export function NamespacesPage({
                 name="parentNamespace"
                 onChange={(event) => setValues({ ...values, parentID: Number(event.target.value) })}
                 options={namespaceOptions}
-                value={String(values.parentID)}
+                value={String(selectedParentID)}
                 wide
               />
               <FormField
@@ -254,17 +282,27 @@ export function NamespacesPage({
           <EmptyStateRail>
             <EmptyStatePanel
               actions={
-                <Button
-                  onClick={() => {
-                    setValues({ description: "Definitions for a team or product area.", name: "team-a", parentID: 1 });
-                    setIsCreating(true);
-                  }}
-                  variant="quiet"
-                >
-                  Fill Example
-                </Button>
+                namespaceOptions.length > 0 ? (
+                  <Button
+                    onClick={() => {
+                      setValues({
+                        description: "Definitions for a team or product area.",
+                        name: "team-a",
+                        parentID: 1
+                      });
+                      setIsCreating(true);
+                    }}
+                    variant="quiet"
+                  >
+                    Fill Example
+                  </Button>
+                ) : undefined
               }
-              description="Create a namespace to give jobs and access policies a first boundary."
+              description={
+                namespaceOptions.length > 0
+                  ? "Create a namespace to give jobs and access policies a first boundary."
+                  : "Your account has no namespaces available. An administrator can grant access."
+              }
               eyebrow="No Namespaces"
               title="Start With a Boundary"
             />
@@ -280,7 +318,7 @@ function NamespaceNotFound({ onOpenNamespaces }: { onOpenNamespaces: () => void 
     <PageMissingState
       actionLabel="View Namespaces"
       breadcrumbs={[
-        { label: "Admin" },
+        { label: "Manage" },
         { label: "Namespaces", onClick: onOpenNamespaces },
         { current: true, label: "Missing" }
       ]}
@@ -296,6 +334,7 @@ function NamespaceNotFound({ onOpenNamespaces }: { onOpenNamespaces: () => void 
 }
 
 function NamespaceDetail({
+  bindingsAvailable,
   canDeleteNamespace,
   jobs,
   namespace,
@@ -309,19 +348,27 @@ function NamespaceDetail({
   onRevokeRoleBinding,
   users
 }: {
+  bindingsAvailable: boolean;
   canDeleteNamespace: boolean;
   jobs: Job[];
   namespace: Namespace;
   namespaces: Namespace[];
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
   onConfigureNamespace: (namespaceID: number) => void;
-  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
+  onGrantRoleBinding: (
+    userID: string,
+    namespaceID: number,
+    role: RoleBindingRole,
+    previousRole?: RoleBindingRole
+  ) => Promise<void> | void;
   onOpenJobs: (namespacePath: string) => void;
   onOpenNamespace: (namespaceID: number) => void;
   onOpenNamespaces: () => void;
   onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   users: User[];
 }) {
+  const { can } = useConsoleAccess();
+  const canManage = can("admin:*", namespace.path);
   const childNamespaces = namespaces.filter((candidate) => candidate.parentID === namespace.id);
   const namespaceJobs = jobs.filter((job) => job.namespacePath === namespace.path);
   const displayPath = namespace.path === "/" ? "Root" : namespace.path;
@@ -336,7 +383,7 @@ function NamespaceDetail({
   );
 
   const [bindingValues, setBindingValues] = useState(() => ({
-    role: "Viewer" as RoleBindingRole,
+    role: undefined as RoleBindingRole | undefined,
     userID: users[0]?.id ?? ""
   }));
 
@@ -350,15 +397,11 @@ function NamespaceDetail({
   );
 
   const selectedBinding = namespaceBindings.find((binding) => binding.userID === bindingValues.userID);
-  const roleOptions = selectedBinding
-    ? [{ label: selectedBinding.role, value: selectedBinding.role }]
-    : roleBindingRoleOptions;
-
-  const selectedRole = roleOptions.some((option) => option.value === bindingValues.role)
-    ? bindingValues.role
-    : (roleOptions[0]?.value ?? "Viewer");
-
-  const canGrantBinding = Boolean(bindingValues.userID) && Boolean(selectedRole) && !selectedBinding;
+  const roleOptions = roleBindingRoleOptions;
+  const selectedRole = bindingValues.role ?? selectedBinding?.role ?? "Viewer";
+  const canGrantBinding =
+    Boolean(bindingValues.userID) &&
+    !namespaceBindings.some((binding) => binding.userID === bindingValues.userID && binding.role === selectedRole);
 
   async function handleGrantBinding(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -366,7 +409,7 @@ function NamespaceDetail({
       return;
     }
 
-    await onGrantRoleBinding(bindingValues.userID, namespace.id, selectedRole);
+    await onGrantRoleBinding(bindingValues.userID, namespace.id, selectedRole, selectedBinding?.role);
   }
 
   const childColumns: DataTableColumn<Namespace>[] = [
@@ -382,7 +425,7 @@ function NamespaceDetail({
     {
       align: "end",
       header: "Access",
-      cell: (child) => <ResourceStatus tone={roleTone(child.role)}>{child.role}</ResourceStatus>,
+      cell: (child) => <NamespaceAccess namespace={child} />,
       width: "124px"
     }
   ];
@@ -406,25 +449,27 @@ function NamespaceDetail({
     <>
       <PageHeader
         actions={
-          <>
-            <Button
-              disabled={!canDeleteNamespace}
-              onClick={() => onDeleteNamespace(namespace.id)}
-              type="button"
-              variant="quiet"
-            >
-              Delete
-            </Button>
-            <Button onClick={() => onConfigureNamespace(namespace.id)} type="button">
-              Configure
-            </Button>
-          </>
+          canManage ? (
+            <>
+              <Button
+                disabled={!canDeleteNamespace}
+                onClick={() => onDeleteNamespace(namespace.id)}
+                type="button"
+                variant="quiet"
+              >
+                Delete
+              </Button>
+              <Button onClick={() => onConfigureNamespace(namespace.id)} type="button">
+                Configure
+              </Button>
+            </>
+          ) : undefined
         }
         description={description}
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: "Admin" },
+              { label: "Manage" },
               { label: "Namespaces", onClick: onOpenNamespaces },
               { current: true, label: displayPath }
             ]}
@@ -464,7 +509,7 @@ function NamespaceDetail({
             <MetricCard
               detail={namespace.breakInheritance ? "Local boundary" : "Inherited boundary"}
               label="Access"
-              value={namespace.role}
+              value={namespace.role === "Not reported" ? namespaceAccessLabel(can, namespace.path) : namespace.role}
               variant="plain"
             />
           </div>
@@ -480,28 +525,33 @@ function NamespaceDetail({
               <p>Users with direct role bindings on this namespace.</p>
             </div>
           </div>
-          <RoleBindingPanel
-            ariaLabel="Namespace role bindings"
-            canGrant={canGrantBinding}
-            emptyMessage="No direct role bindings."
-            onGrant={handleGrantBinding}
-            onPrimaryChange={(userID) => setBindingValues({ ...bindingValues, userID })}
-            onRoleChange={(role) => setBindingValues({ ...bindingValues, role })}
-            primaryLabel="User"
-            primaryName="namespaceBindingUser"
-            primaryOptions={userOptions}
-            primaryValue={bindingValues.userID}
-            roleOptions={roleOptions}
-            roleTone={roleTone}
-            roleValue={selectedRole}
-            rows={namespaceBindings.map((binding) => ({
-              caption: "User",
-              id: binding.id,
-              label: binding.username ?? binding.userID,
-              onRevoke: () => onRevokeRoleBinding(binding.userID, namespace.id, binding.role),
-              role: binding.role
-            }))}
-          />
+          {canManage && bindingsAvailable ? (
+            <RoleBindingPanel
+              ariaLabel="Namespace role bindings"
+              submitLabel={selectedBinding ? "Update Role" : "Grant"}
+              canGrant={canGrantBinding}
+              emptyMessage="No direct role bindings."
+              onGrant={handleGrantBinding}
+              onPrimaryChange={(userID) => setBindingValues({ userID, role: undefined })}
+              onRoleChange={(role) => setBindingValues({ ...bindingValues, role })}
+              primaryLabel="User"
+              primaryName="namespaceBindingUser"
+              primaryOptions={userOptions}
+              primaryValue={bindingValues.userID}
+              roleOptions={roleOptions}
+              roleTone={roleTone}
+              roleValue={selectedRole}
+              rows={namespaceBindings.map((binding) => ({
+                caption: "User",
+                id: binding.id,
+                label: binding.username ?? binding.userID,
+                onRevoke: () => onRevokeRoleBinding(binding.userID, namespace.id, binding.role),
+                role: binding.role
+              }))}
+            />
+          ) : (
+            <p>Your account cannot view the users or role bindings for this namespace.</p>
+          )}
         </section>
 
         <section className={`${styles.detailPanel} polished-panel`} aria-labelledby="namespace-jobs-title">
@@ -573,7 +623,7 @@ function NamespaceEditor({
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: "Admin" },
+              { label: "Manage" },
               { label: "Namespaces", onClick: onOpenNamespaces },
               { label: namespace.path === "/" ? "Root" : namespace.path, onClick: () => onOpenNamespace(namespace.id) },
               { current: true, label: "Configure" }
@@ -635,6 +685,29 @@ function parentPathFor(namespaces: Namespace[], namespace: Namespace) {
   const parent = namespaces.find((candidate) => candidate.id === namespace.parentID);
 
   return parent?.path === "/" || !parent?.path ? "Root" : parent.path;
+}
+
+function namespaceAccessLabel(can: ReturnType<typeof useConsoleAccess>["can"], path: string) {
+  if (can("admin:*", path)) return "Administer";
+  if (can("job:write", path)) return "Edit jobs";
+  if (can("run:operator", path)) return "Operate runs";
+  if (can("run:trigger", path)) return "Trigger runs";
+  return "Read only";
+}
+
+function NamespaceAccess({ namespace }: { namespace: Namespace }) {
+  const { can } = useConsoleAccess();
+  const label = namespace.role === "Not reported" ? namespaceAccessLabel(can, namespace.path) : namespace.role;
+  const tone =
+    namespace.role === "Not reported"
+      ? can("admin:*", namespace.path)
+        ? "active"
+        : can("run:operator", namespace.path)
+          ? "enabled"
+          : "disabled"
+      : roleTone(namespace.role);
+
+  return <ResourceStatus tone={tone}>{label}</ResourceStatus>;
 }
 
 function roleTone(role: Namespace["role"] | RoleBindingRole) {

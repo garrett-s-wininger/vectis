@@ -1,3 +1,4 @@
+import { ConsoleAccessProvider, type AccessAction } from "../domain/access";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { RunListItem } from "../components";
@@ -58,6 +59,39 @@ const run: RunListItem = {
 };
 
 describe("RunDetailPage", () => {
+  it.each([true, false])(
+    "shows run-management actions only with namespace operator access (operator=%s)",
+    (operator) => {
+      const actions: AccessAction[] = operator
+        ? ["job:read", "run:read", "run:trigger", "run:operator"]
+        : ["job:read", "run:read"];
+
+      const permissions = { actions, namespaces: { "/team-a": actions } };
+      const view = render(
+        <ConsoleAccessProvider access={permissions}>
+          <RunDetailPage run={run} runID={run.id} onBack={() => undefined} onReplay={async () => undefined} />
+        </ConsoleAccessProvider>
+      );
+
+      if (operator) expect(screen.getByRole("button", { name: "Run again" })).toBeInTheDocument();
+      else expect(screen.queryByRole("button", { name: "Run again" })).not.toBeInTheDocument();
+
+      view.rerender(
+        <ConsoleAccessProvider access={permissions}>
+          <RunDetailPage
+            run={{ ...run, status: "running" }}
+            runID={run.id}
+            onBack={() => undefined}
+            onCancel={async () => undefined}
+          />
+        </ConsoleAccessProvider>
+      );
+
+      if (operator) expect(screen.getByRole("button", { name: "Cancel run" })).toBeInTheDocument();
+      else expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    }
+  );
+
   it("keeps actions in the header and shows identifiers with replay context in the summary", () => {
     const jobID = "2a5ed99c-6d51-4c50-97e9-e31b23da7469";
     const original: RunListItem = {

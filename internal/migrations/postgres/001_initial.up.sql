@@ -11,7 +11,6 @@ CREATE TABLE namespaces (
 );
 
 INSERT INTO namespaces (id, global_id, name, description, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', 'Default namespace boundary.', '/', false, 'local');
-INSERT INTO namespaces (id, global_id, name, parent_id, path, break_inheritance, home_cell) VALUES (2, 'namespace-ephemeral', 'ephemeral', 1, '/ephemeral', false, 'local');
 SELECT setval(pg_get_serial_sequence('namespaces', 'id'), (SELECT MAX(id) FROM namespaces));
 
 CREATE TABLE stored_jobs (
@@ -623,6 +622,7 @@ CREATE TABLE local_users (
     password_hash TEXT NOT NULL,
     password_auth_enabled BOOLEAN NOT NULL DEFAULT true,
     enabled BOOLEAN NOT NULL DEFAULT true,
+    deleted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 

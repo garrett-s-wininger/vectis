@@ -59,3 +59,5 @@ export const Empty: Story = {
     onSelectCell: () => undefined
   }
 };
+
+export const Loading: Story = { args: { cells: [], loading: true } };

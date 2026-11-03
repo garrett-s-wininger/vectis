@@ -23,8 +23,12 @@ const (
 )
 
 type createUserRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
+	Username       string `json:"username"`
+	Password       string `json:"password,omitempty"`
+	InitialBinding *struct {
+		NamespaceID int64  `json:"namespace_id"`
+		Role        string `json:"role"`
+	} `json:"initial_binding,omitempty"`
 }
 
 type updateUserRequest struct {
@@ -182,7 +186,37 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := s.authRepo.CreateLocalUser(ctx, req.Username, string(passHash))
+	var id int64
+	if binding := req.InitialBinding; binding != nil {
+		if !validBindingRole(binding.Role) || binding.NamespaceID <= 0 {
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRole)
+			return
+		}
+
+		if !s.requireNamespaces(w) {
+			return
+		}
+
+		ns, nsErr := s.namespaces.GetByID(ctx, binding.NamespaceID)
+		if nsErr != nil {
+			if dal.IsNotFound(nsErr) {
+				writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
+			} else if !s.handleDBUnavailableError(w, nsErr) {
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			}
+
+			return
+		}
+
+		if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, ns.Path) {
+			return
+		}
+
+		id, err = s.authRepo.CreateLocalUserWithBinding(ctx, req.Username, string(passHash), binding.NamespaceID, binding.Role)
+	} else {
+		id, err = s.authRepo.CreateLocalUser(ctx, req.Username, string(passHash))
+	}
+
 	if err != nil {
 		if dal.IsConflict(err) {
 			writeAPIErrorCode(w, http.StatusConflict, apiErrUsernameAlreadyExists)
@@ -208,6 +242,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if !s.auditLogOrFail(w, ctx, audit.EventUserCreated, actorID, id, map[string]any{
 		"username":           req.Username,
 		"generated_password": generated,
+		"initial_binding":    req.InitialBinding,
 	}) {
 		return
 	}

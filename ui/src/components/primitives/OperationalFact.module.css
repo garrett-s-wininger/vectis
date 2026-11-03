@@ -80,3 +80,34 @@
   outline: var(--control-focus-ring);
   outline-offset: var(--control-focus-offset);
 }
+
+.detail {
+  align-content: start;
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: max-content minmax(0, 1fr);
+  row-gap: var(--space-sm);
+}
+
+.detail .label {
+  align-items: center;
+  display: flex;
+  gap: var(--space-sm);
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.detail .icon {
+  position: static;
+  width: var(--space-lg);
+}
+
+.detail .value {
+  display: flex;
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 42px;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

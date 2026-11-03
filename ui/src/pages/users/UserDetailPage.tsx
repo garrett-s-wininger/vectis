@@ -1,18 +1,24 @@
 import type { FormEvent, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { BreadcrumbTrail, Button, PageHeader, ResourceStatus } from "../../components";
 import type { Namespace, RoleBindingRole, User, UserStatus } from "../../domain/console";
 import { roleBindingRoleOptions } from "../../domain/consoleOptions";
 import { RoleBindingPanel } from "../shared";
 import styles from "../UsersPage.module.css";
+import { UserRemoveButton } from "./UserRemoveButton";
 import { roleTone } from "./UserPresentation";
 
 type UserDetailPageProps = {
   children?: ReactNode;
   namespaces: Namespace[];
   onBack: () => void;
-  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
-  onRemoveUser: (user: User) => void;
+  onGrantRoleBinding: (
+    userID: string,
+    namespaceID: number,
+    role: RoleBindingRole,
+    previousRole?: RoleBindingRole
+  ) => Promise<void> | void;
+  onRemoveUser: (user: User) => Promise<void> | void;
   onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onUpdateUserStatus: (userID: string, status: UserStatus) => Promise<void> | void;
   user: User;
@@ -28,11 +34,41 @@ export function UserDetailPage({
   onUpdateUserStatus,
   user
 }: UserDetailPageProps) {
+  const [statusAction, setStatusAction] = useState<UserStatus | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [bindingPending, setBindingPending] = useState(false);
+  const statusInFlight = useRef(false);
+
+  async function updateStatus() {
+    if (statusInFlight.current || removing || bindingPending) return;
+    statusInFlight.current = true;
+    setStatusAction(nextStatus);
+
+    try {
+      await onUpdateUserStatus(user.id, nextStatus);
+    } catch {
+      // NOTE(garrett): The app-level alert owns status-change failures.
+    } finally {
+      statusInFlight.current = false;
+      setStatusAction(null);
+    }
+  }
+
+  async function removeUser(target: User) {
+    setRemoving(true);
+
+    try {
+      await onRemoveUser(target);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   const nextStatus = user.status === "active" ? "disabled" : "active";
   const bindings = useMemo(() => user.roleBindings ?? [], [user.roleBindings]);
   const [bindingValues, setBindingValues] = useState(() => ({
     namespaceID: String(namespaces[0]?.id ?? ""),
-    role: "Viewer" as RoleBindingRole
+    role: undefined as RoleBindingRole | undefined
   }));
 
   const grantNamespaceOptions = useMemo(
@@ -49,15 +85,13 @@ export function UserDetailPage({
     : (grantNamespaceOptions[0]?.value ?? "");
 
   const selectedGrantBinding = bindings.find((binding) => binding.namespaceID === Number(selectedGrantNamespaceID));
-  const grantRoleOptions = selectedGrantBinding
-    ? [{ label: selectedGrantBinding.role, value: selectedGrantBinding.role }]
-    : roleBindingRoleOptions;
-
-  const selectedGrantRole = grantRoleOptions.some((option) => option.value === bindingValues.role)
-    ? bindingValues.role
-    : grantRoleOptions[0]?.value;
-
-  const canGrantBinding = Boolean(selectedGrantNamespaceID) && Boolean(selectedGrantRole) && !selectedGrantBinding;
+  const grantRoleOptions = roleBindingRoleOptions;
+  const selectedGrantRole = bindingValues.role ?? selectedGrantBinding?.role ?? "Viewer";
+  const canGrantBinding =
+    Boolean(selectedGrantNamespaceID) &&
+    !bindings.some(
+      (binding) => binding.namespaceID === Number(selectedGrantNamespaceID) && binding.role === selectedGrantRole
+    );
 
   async function handleGrantBinding(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,7 +99,7 @@ export function UserDetailPage({
       return;
     }
 
-    await onGrantRoleBinding(user.id, Number(selectedGrantNamespaceID), selectedGrantRole);
+    await onGrantRoleBinding(user.id, Number(selectedGrantNamespaceID), selectedGrantRole, selectedGrantBinding?.role);
   }
 
   return (
@@ -74,7 +108,7 @@ export function UserDetailPage({
         description="Review account state, access, and sign-in readiness."
         navigation={
           <BreadcrumbTrail
-            items={[{ label: "Admin" }, { label: "Users", onClick: onBack }, { current: true, label: user.username }]}
+            items={[{ label: "Manage" }, { label: "Users", onClick: onBack }, { current: true, label: user.username }]}
             label="User location"
           />
         }
@@ -114,10 +148,13 @@ export function UserDetailPage({
           </div>
           <RoleBindingPanel
             ariaLabel="Role bindings"
+            disabled={statusAction !== null || removing}
+            onPendingChange={setBindingPending}
+            submitLabel={selectedGrantBinding ? "Update Role" : "Grant"}
             canGrant={canGrantBinding}
             emptyMessage="No namespace role bindings."
             onGrant={handleGrantBinding}
-            onPrimaryChange={(namespaceID) => setBindingValues({ ...bindingValues, namespaceID })}
+            onPrimaryChange={(namespaceID) => setBindingValues({ namespaceID, role: undefined })}
             onRoleChange={(role) => setBindingValues({ ...bindingValues, role })}
             primaryLabel="Namespace"
             primaryName="roleBindingNamespace"
@@ -135,18 +172,27 @@ export function UserDetailPage({
             }))}
           />
           <div className={styles.detailActions}>
-            <Button onClick={() => onUpdateUserStatus(user.id, nextStatus)} type="button" variant="quiet">
-              {user.status === "active" ? "Disable" : "Activate"}
-            </Button>
             <Button
-              disabled={user.username === "admin"}
-              onClick={() => onRemoveUser(user)}
+              aria-describedby={`account-status-help-${user.id}`}
+              onClick={() => void updateStatus()}
+              disabled={removing || bindingPending}
+              pending={statusAction !== null}
+              pendingLabel={(statusAction ?? nextStatus) === "disabled" ? "Disabling…" : "Enabling…"}
               type="button"
-              variant="danger"
+              variant="quiet"
             >
-              Remove User
+              {user.status === "active" ? "Disable" : "Enable"}
             </Button>
+            <UserRemoveButton
+              key={user.id}
+              user={user}
+              onRemove={removeUser}
+              disabled={statusAction !== null || bindingPending}
+            />
           </div>
+          <p id={`account-status-help-${user.id}`}>
+            Disabling preserves namespace roles and revokes sessions and API tokens. Enabling restores role access.
+          </p>
         </section>
       </div>
       {children}

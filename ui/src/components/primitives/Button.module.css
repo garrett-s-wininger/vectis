@@ -126,3 +126,15 @@
   outline: var(--control-focus-ring);
   outline-offset: var(--control-focus-offset);
 }
+
+.labels {
+  display: inline-grid;
+}
+
+.labels > span {
+  grid-area: 1 / 1;
+}
+
+.hidden {
+  visibility: hidden;
+}

@@ -90,7 +90,12 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertSQLiteIndexColumns(t, db, "idx_reaction_subscriptions_global_name", []string{"name"})
 	assertSQLiteForeignKeyTargetsExist(t, db)
 	assertSQLiteSecurityConstraints(t, db)
-	assertNamespaceExists(t, db, "/ephemeral")
+	assertNamespaceExists(t, db, "/")
+
+	var ephemeralCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM namespaces WHERE path = ?", "/ephemeral").Scan(&ephemeralCount); err != nil || ephemeralCount != 0 {
+		t.Fatalf("unexpected reserved ephemeral namespace: count=%d err=%v", ephemeralCount, err)
+	}
 
 	if err := migrations.Down(db, "sqlite3"); err != nil {
 		t.Fatalf("run down migrations: %v", err)

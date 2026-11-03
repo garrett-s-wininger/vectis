@@ -64,7 +64,7 @@ Namespaces form a tree rooted at `/`.
 | Explicit descendant role | A role bound below a break still applies at that namespace and its descendants. |
 | Missing namespace or repository error | Authorization fails closed. |
 
-The namespace path is the authorization boundary. A stored job, run, log stream, artifact, and repair route resolves back to a namespace before the handler finishes the authorization decision. Direct inline runs created through `POST /api/v1/jobs/run` resolve to the system `/ephemeral` namespace.
+The namespace path is the authorization boundary. A stored job, run, log stream, artifact, and repair route resolves back to a namespace before the handler finishes the authorization decision. Direct inline runs created through `POST /api/v1/jobs/run` use the requested namespace, defaulting to `/` when omitted, and require `run:trigger` there. The console supplies its selected namespace. No system `/ephemeral` namespace is provisioned on new installations.
 
 ## Token Scopes
 
@@ -109,7 +109,7 @@ Example scoped token request:
 | `/health/live`, `/health/ready`, and `POST /api/v1/login` | Public |
 | `GET /api/v1/setup/status` | `setup:status` |
 | `POST /api/v1/setup/complete` | `setup:complete` |
-| Operational diagnostics and `/metrics` | `admin:*` |
+| Operational diagnostics and `/metrics` | `admin:*` in the root namespace (`/`) |
 | Job reads and namespace reads | `job:read` |
 | Stored job writes | `job:write` |
 | Ephemeral run and stored-job trigger routes | `run:trigger` |
@@ -133,3 +133,11 @@ Use [API Reference](../../using/api-reference.md#routes) for the exact method an
 | CLI commands for users, tokens, namespaces, and role bindings | [CLI Guide](../../using/cli-guide.md) |
 | Auth, token, session, and deployment security posture | [Security](../../concepts/security.md) |
 | Authorization tables and constraints | [Database Schema Reference](./database-schema.md#namespace-and-authorization-tables) |
+
+## Console permissions
+
+`GET /api/v1/access` reports the current caller's global actions and effective actions per namespace. It uses the same authorizer as protected operations, including inherited roles, inheritance breaks, and token scopes. Namespaces with no permitted actions are omitted. The console uses these decisions to hide unavailable navigation and mutation controls. API requests remain independently authorized.
+
+Operator is a run-management role: it can trigger, cancel, replay, and repair runs in its scope. It does not grant job authoring, namespace creation, or administrative Health access. Viewer sees jobs and runs without execution controls. Namespace Admins can create child namespaces only under parents they administer.
+
+Cluster Health, version/schema status, audit diagnostics, and metrics require an Admin binding in the root namespace (`/`). Administration of a child namespace grants namespace controls within that scope, without cluster-wide diagnostic access. The console hides Health for namespace-only administrators.

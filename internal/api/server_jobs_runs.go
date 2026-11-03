@@ -1745,20 +1745,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	namespacePath := strings.TrimSpace(req.Namespace)
 	if namespacePath == "" {
-		namespacePath = dal.EphemeralNamespacePath
-	}
-
-	if namespacePath != dal.EphemeralNamespacePath {
-		writeAPIError(
-			w,
-			http.StatusBadRequest,
-			"unsupported_namespace",
-			"direct job runs must use /ephemeral namespace",
-			map[string]any{
-				"namespace": namespacePath,
-			},
-		)
-		return
+		namespacePath = dal.RootNamespacePath
 	}
 
 	ns, err := s.namespaces.GetByPath(ctx, namespacePath)

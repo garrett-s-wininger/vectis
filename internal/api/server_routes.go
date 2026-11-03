@@ -48,7 +48,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		specs = append(specs, routeSpec{
 			Pattern: "GET /metrics",
 			Handler: s.MetricsHandler,
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 			Accept:  routeAcceptMetricsPolicy(),
 		})
 	}
@@ -69,29 +69,34 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Accept: routeAcceptAnyPolicy(),
 		},
 		{
+			Pattern: "GET /api/v1/access",
+			Handler: http.HandlerFunc(s.GetAccess),
+			Auth:    routeAuthPolicy{Action: authz.ActionAPI},
+		},
+		{
 			Pattern: "GET /api/v1/version",
 			Handler: http.HandlerFunc(s.GetVersion),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/schema/status",
 			Handler: http.HandlerFunc(s.GetSchemaStatus),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/reconciler/heartbeat",
 			Handler: http.HandlerFunc(s.GetReconcilerHeartbeat),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/audit/drops",
 			Handler: http.HandlerFunc(s.GetAuditDrops),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/audit/events",
 			Handler: http.HandlerFunc(s.ListAuditEvents),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 			Query: routeQueryParams(
 				"actor_id",
 				"correlation_id",
@@ -106,42 +111,42 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		{
 			Pattern: "GET /api/v1/db/pool-stats",
 			Handler: http.HandlerFunc(s.GetDBPoolStats),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/queue/backlog",
 			Handler: http.HandlerFunc(s.GetQueueBacklog),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/reconciler/stuck-runs",
 			Handler: http.HandlerFunc(s.GetStuckRuns),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/log/reachable",
 			Handler: http.HandlerFunc(s.GetLogReachable),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/audit/flush-failures",
 			Handler: http.HandlerFunc(s.GetAuditFlushFailures),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/cron/status",
 			Handler: http.HandlerFunc(s.GetCronStatus),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/catalog/status",
 			Handler: http.HandlerFunc(s.GetCatalogStatus),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern: "GET /api/v1/cells/status",
 			Handler: http.HandlerFunc(s.GetCellsStatus),
-			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"},
 		},
 		{
 			Pattern:   "POST /api/v1/cells/{cell_id}/catalog-events",
@@ -684,6 +689,13 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		{
 			Pattern:   "POST /api/v1/namespaces/{id}/bindings",
 			Handler:   http.HandlerFunc(s.CreateBinding),
+			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
+			Body:      jsonDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "PATCH /api/v1/namespaces/{id}/bindings/{user_id}",
+			Handler:   http.HandlerFunc(s.UpdateBinding),
 			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
 			Body:      jsonDocumentBody,
 			RateLimit: defaultLimits.General,

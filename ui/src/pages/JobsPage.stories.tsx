@@ -1,3 +1,4 @@
+import { ConsoleAccessProvider, type ConsoleAccess } from "../domain/access";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
@@ -116,3 +117,33 @@ function RowNavigationStory() {
     />
   );
 }
+
+const operatorAccess: ConsoleAccess = {
+  actions: ["job:read", "run:read", "run:trigger", "run:operator", "api:any"],
+  namespaces: { "/team-a": ["job:read", "run:read", "run:trigger", "run:operator"] }
+};
+
+export const Operator: Story = {
+  render: () => (
+    <ConsoleAccessProvider access={operatorAccess}>
+      <JobsPageHarness namespacePath="/team-a" />
+    </ConsoleAccessProvider>
+  )
+};
+
+export const Viewer: Story = {
+  render: () => (
+    <ConsoleAccessProvider
+      access={{ actions: ["job:read", "run:read", "api:any"], namespaces: { "/team-a": ["job:read", "run:read"] } }}
+    >
+      <JobsPageHarness namespacePath="/team-a" />
+    </ConsoleAccessProvider>
+  )
+};
+
+export const LongIdentifiers: Story = {
+  render: (args) => {
+    const job = { ...data.jobs[0], id: "release-source-validation-".repeat(5), name: "release-validation" };
+    return <JobsPage {...args} jobs={[job]} detailJobID={job.id} />;
+  }
+};

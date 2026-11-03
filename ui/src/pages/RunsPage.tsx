@@ -1,3 +1,4 @@
+import { useConsoleAccess } from "../domain/access";
 import type { ChangeEvent, FormEvent } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BreadcrumbTrail } from "../components";
@@ -52,6 +53,7 @@ export function RunsPage({
   onSubmitEphemeralRun,
   runs
 }: RunsPageProps) {
+  const { can } = useConsoleAccess();
   const [localFilters, setLocalFilters] = useState<RunListFilters>({ job: "", status: "all", source: "all" });
   const effectiveFilters = useMemo(
     () => filters ?? { ...localFilters, job: jobName ?? localFilters.job },
@@ -195,22 +197,24 @@ export function RunsPage({
         actions={
           <>
             <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
-            <Button
-              aria-disabled={submittingRun}
-              aria-expanded={showRunOnce}
-              onClick={() => {
-                if (submissionInFlight.current) return;
-                cancelFileRead();
-                setShowRunOnce((value) => !value);
-              }}
-            >
-              {showRunOnce ? "Close" : "Run Once"}
-            </Button>
+            {can("run:trigger", namespacePath) ? (
+              <Button
+                aria-disabled={submittingRun}
+                aria-expanded={showRunOnce}
+                onClick={() => {
+                  if (submissionInFlight.current) return;
+                  cancelFileRead();
+                  setShowRunOnce((value) => !value);
+                }}
+              >
+                {showRunOnce ? "Close" : "Run Once"}
+              </Button>
+            ) : null}
           </>
         }
         title="Runs"
       />
-      {showRunOnce ? (
+      {showRunOnce && can("run:trigger", namespacePath) ? (
         <section
           className={`${styles.runOncePanel} polished-panel polished-panel--accent-top`}
           aria-labelledby="run-once-title"

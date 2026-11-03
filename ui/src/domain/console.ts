@@ -58,7 +58,7 @@ export type NewJob = {
 
 export type UpdateJob = Omit<NewJob, "namespacePath">;
 
-export type NamespaceRole = "Admin" | "Operator" | "Viewer";
+export type NamespaceRole = "Admin" | "Operator" | "Viewer" | "Not reported";
 
 export type Namespace = {
   id: number;
@@ -95,6 +95,7 @@ export type User = {
 };
 
 export type NewUser = {
+  namespaceID?: number;
   username: string;
   role: AssignableUserRole;
 };
@@ -122,6 +123,7 @@ export type SourceRepository = {
 };
 
 export type ConsoleData = {
+  denied?: { users: boolean; bindings: string[] };
   repositories: SourceRepository[];
   cells: Cell[];
   jobs: Job[];

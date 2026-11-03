@@ -976,9 +976,8 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 		}
 
-		// Verify user is deleted
 		var count int
-		row := db.QueryRow("SELECT COUNT(*) FROM local_users WHERE id = ?", createdUserID)
+		row := db.QueryRow("SELECT COUNT(*) FROM local_users WHERE id = ? AND deleted_at IS NULL", createdUserID)
 		if err := row.Scan(&count); err != nil {
 			t.Fatalf("failed to check user count: %v", err)
 		}

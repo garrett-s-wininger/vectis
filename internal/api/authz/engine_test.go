@@ -427,3 +427,7 @@ func TestHierarchicalRBAC_TokenScopesBreakInheritanceOnAncestorAboveScope(t *tes
 		t.Fatal("propagating scope on team-a should allow access to project-1 despite break_inheritance on root")
 	}
 }
+
+func (m *mockRoleBindingsRepo) Update(context.Context, int64, int64, string, string) error {
+	return errors.New("not implemented")
+}

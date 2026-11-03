@@ -2646,8 +2646,8 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 		t.Fatalf("failed to query run namespace: %v", err)
 	}
 
-	if namespacePath != dal.EphemeralNamespacePath {
-		t.Fatalf("run namespace: got %q, want %s", namespacePath, dal.EphemeralNamespacePath)
+	if namespacePath != dal.RootNamespacePath {
+		t.Fatalf("run namespace: got %q, want %s", namespacePath, dal.RootNamespacePath)
 	}
 
 	dispatch, err := dal.NewSQLRepositories(db).Runs().GetPendingExecution(context.Background(), resp.RunID)
@@ -2655,8 +2655,8 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 		t.Fatalf("get pending execution: %v", err)
 	}
 
-	if dispatch.NamespacePath != dal.EphemeralNamespacePath {
-		t.Fatalf("dispatch namespace: got %q, want %s", dispatch.NamespacePath, dal.EphemeralNamespacePath)
+	if dispatch.NamespacePath != dal.RootNamespacePath {
+		t.Fatalf("dispatch namespace: got %q, want %s", dispatch.NamespacePath, dal.RootNamespacePath)
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
@@ -2688,8 +2688,11 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 	}
 }
 
-func TestAPIServer_RunJob_ExplicitEphemeralNamespace(t *testing.T) {
+func TestAPIServer_RunJob_ExplicitSelectedNamespace(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
+	if _, err := dal.NewSQLRepositories(db).Namespaces().Create(context.Background(), "team-a", nil); err != nil {
+		t.Fatal(err)
+	}
 
 	jobDef := map[string]any{
 		"root": map[string]any{
@@ -2700,9 +2703,10 @@ func TestAPIServer_RunJob_ExplicitEphemeralNamespace(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"namespace": dal.EphemeralNamespacePath,
+		"namespace": "/team-a",
 		"job":       jobDef,
 	})
+
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -2727,12 +2731,12 @@ func TestAPIServer_RunJob_ExplicitEphemeralNamespace(t *testing.T) {
 		t.Fatalf("failed to query run namespace: %v", err)
 	}
 
-	if namespacePath != dal.EphemeralNamespacePath {
-		t.Fatalf("run namespace: got %q, want %s", namespacePath, dal.EphemeralNamespacePath)
+	if namespacePath != "/team-a" {
+		t.Fatalf("run namespace: got %q, want %s", namespacePath, "/team-a")
 	}
 }
 
-func TestAPIServer_RunJob_RejectsNonEphemeralNamespace(t *testing.T) {
+func TestAPIServer_RunJob_RejectsMissingNamespace(t *testing.T) {
 	server, _, queueService, _ := setupTestServer(t)
 
 	jobDef := map[string]any{
@@ -2753,7 +2757,7 @@ func TestAPIServer_RunJob_RejectsNonEphemeralNamespace(t *testing.T) {
 
 	server.RunJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "unsupported_namespace")
+	assertAPIError(t, rec, http.StatusNotFound, "namespace_not_found")
 
 	if got := len(queueService.GetJobs()); got != 0 {
 		t.Fatalf("expected no enqueued jobs, got %d", got)
@@ -2904,8 +2908,8 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 		t.Fatal("expected job_id in run response")
 	}
 
-	if got.Namespace != "/ephemeral" {
-		t.Fatalf("namespace: want /ephemeral, got %q", got.Namespace)
+	if got.Namespace != "/" {
+		t.Fatalf("namespace: want /, got %q", got.Namespace)
 	}
 
 	if len(got.DispatchEvents) != 3 {
@@ -3339,8 +3343,8 @@ func TestAPIServer_ListRuns_IncludesEphemeralRuns(t *testing.T) {
 		t.Fatalf("job_id: want %q, got %q", runResp.ID, got.Data[0].JobID)
 	}
 
-	if got.Data[0].Namespace != "/ephemeral" {
-		t.Fatalf("namespace: want /ephemeral, got %q", got.Data[0].Namespace)
+	if got.Data[0].Namespace != "/" {
+		t.Fatalf("namespace: want /, got %q", got.Data[0].Namespace)
 	}
 
 	if got.Data[0].Status != "queued" {
@@ -3404,7 +3408,7 @@ func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
 func TestAPIServer_RunJob_IdempotencyCrashRecoveryReplaysGeneratedJob(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	key := "run-key-crash"
-	scope := "run:/ephemeral:anonymous"
+	scope := "run:/:anonymous"
 
 	jobDef := map[string]any{
 		"root": map[string]any{

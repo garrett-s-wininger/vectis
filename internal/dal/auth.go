@@ -146,6 +146,7 @@ type AuthRepository interface {
 	GetAPITokenOwner(ctx context.Context, id int64) (localUserID int64, err error)
 	GetTokenScopes(ctx context.Context, tokenID int64) ([]*TokenScopeRecord, error)
 	CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error)
+	CreateLocalUserWithBinding(ctx context.Context, username, passwordHash string, namespaceID int64, role string) (int64, error)
 	CreateLocalUserWithPasswordAuth(
 		ctx context.Context,
 		username, passwordHash string,
@@ -335,6 +336,7 @@ FROM api_tokens t
 JOIN local_users u ON u.id = t.local_user_id
 WHERE t.token_hash = ?
   AND u.enabled
+  AND u.deleted_at IS NULL
   AND (t.expires_at IS NULL OR t.expires_at > ?)
 `), tokenHash, now)
 
@@ -364,7 +366,7 @@ func (r *SQLAuthRepository) TouchAPITokenUsed(ctx context.Context, tokenHash str
 func (r *SQLAuthRepository) UserExists(ctx context.Context, localUserID int64) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`SELECT EXISTS(SELECT 1 FROM local_users WHERE id = ?)`),
+		rebindQueryForPgx(`SELECT EXISTS(SELECT 1 FROM local_users WHERE id = ? AND deleted_at IS NULL)`),
 		localUserID,
 	).Scan(&exists)
 
@@ -378,7 +380,7 @@ func (r *SQLAuthRepository) UserExists(ctx context.Context, localUserID int64) (
 func (r *SQLAuthRepository) UserEnabled(ctx context.Context, localUserID int64) (bool, error) {
 	var enabled bool
 	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`SELECT EXISTS(SELECT 1 FROM local_users WHERE id = ? AND enabled)`),
+		rebindQueryForPgx(`SELECT EXISTS(SELECT 1 FROM local_users WHERE id = ? AND enabled AND deleted_at IS NULL)`),
 		localUserID,
 	).Scan(&enabled)
 
@@ -396,7 +398,7 @@ func (r *SQLAuthRepository) GetLocalUserByUsername(
 	err = r.db.QueryRowContext(
 		ctx,
 		rebindQueryForPgx(
-			`SELECT id, password_hash, enabled, password_auth_enabled FROM local_users WHERE username = ?`,
+			`SELECT id, password_hash, enabled, password_auth_enabled FROM local_users WHERE username = ? AND deleted_at IS NULL`,
 		),
 		username,
 	).Scan(&id, &passwordHash, &enabled, &passwordAuthEnabled)
@@ -416,7 +418,7 @@ func (r *SQLAuthRepository) GetUserPasswordHash(ctx context.Context, localUserID
 	var hash string
 	var passwordAuthEnabled bool
 	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx(`SELECT password_hash, password_auth_enabled FROM local_users WHERE id = ?`),
+		rebindQueryForPgx(`SELECT password_hash, password_auth_enabled FROM local_users WHERE id = ? AND deleted_at IS NULL`),
 		localUserID,
 	).Scan(&hash, &passwordAuthEnabled)
 
@@ -437,7 +439,7 @@ func (r *SQLAuthRepository) GetUserPasswordHash(ctx context.Context, localUserID
 
 func (r *SQLAuthRepository) UpdateUserPassword(ctx context.Context, localUserID int64, passwordHash string) error {
 	res, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE local_users SET password_hash = ?, password_auth_enabled = ? WHERE id = ?`),
+		rebindQueryForPgx(`UPDATE local_users SET password_hash = ?, password_auth_enabled = ? WHERE id = ? AND deleted_at IS NULL`),
 		passwordHash, true, localUserID,
 	)
 
@@ -478,7 +480,7 @@ func (r *SQLAuthRepository) ChangePasswordAndRevokeTokens(
 	defer func() { _ = tx.Rollback() }()
 
 	res, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE local_users SET password_hash = ?, password_auth_enabled = ? WHERE id = ?`),
+		rebindQueryForPgx(`UPDATE local_users SET password_hash = ?, password_auth_enabled = ? WHERE id = ? AND deleted_at IS NULL`),
 		passwordHash, true, localUserID,
 	)
 
@@ -898,7 +900,7 @@ func (r *SQLAuthRepository) ListLocalUsers(ctx context.Context) ([]*LocalUserRec
 	rows, err := r.db.QueryContext(
 		ctx,
 		rebindQueryForPgx(
-			`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users ORDER BY created_at DESC`,
+			`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users WHERE deleted_at IS NULL ORDER BY created_at DESC`,
 		),
 	)
 
@@ -936,7 +938,7 @@ func (r *SQLAuthRepository) GetLocalUser(ctx context.Context, id int64) (*LocalU
 	err := r.db.QueryRowContext(
 		ctx,
 		rebindQueryForPgx(
-			`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users WHERE id = ?`,
+			`SELECT id, COALESCE(global_id, ''), username, password_auth_enabled, enabled, created_at FROM local_users WHERE id = ? AND deleted_at IS NULL`,
 		),
 		id,
 	).Scan(&u.ID, &u.GlobalID, &u.Username, &u.PasswordAuthEnabled, &u.Enabled, &u.CreatedAt)
@@ -954,7 +956,7 @@ func (r *SQLAuthRepository) GetLocalUser(ctx context.Context, id int64) (*LocalU
 
 func (r *SQLAuthRepository) UpdateLocalUserEnabled(ctx context.Context, id int64, enabled bool) error {
 	res, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE local_users SET enabled = ? WHERE id = ?`),
+		rebindQueryForPgx(`UPDATE local_users SET enabled = ? WHERE id = ? AND deleted_at IS NULL`),
 		enabled, id,
 	)
 
@@ -982,7 +984,7 @@ func (r *SQLAuthRepository) DisableLocalUserAndRevokeTokens(ctx context.Context,
 	defer func() { _ = tx.Rollback() }()
 
 	res, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE local_users SET enabled = ? WHERE id = ?`),
+		rebindQueryForPgx(`UPDATE local_users SET enabled = ? WHERE id = ? AND deleted_at IS NULL`),
 		false, localUserID,
 	)
 
@@ -1020,26 +1022,40 @@ func (r *SQLAuthRepository) DisableLocalUserAndRevokeTokens(ctx context.Context,
 	return tx.Commit()
 }
 
+.
 func (r *SQLAuthRepository) DeleteLocalUser(ctx context.Context, id int64) error {
-	res, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx(`DELETE FROM local_users WHERE id = ?`),
-		id,
-	)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
 
+	result, err := tx.ExecContext(ctx, rebindQueryForPgx(`UPDATE local_users SET deleted_at = CURRENT_TIMESTAMP, enabled = ?, password_auth_enabled = ?, password_hash = '' WHERE id = ? AND deleted_at IS NULL`), false, false, id)
 	if err != nil {
 		return normalizeSQLError(err)
 	}
 
-	rowsAffected, err := res.RowsAffected()
+	count, err := result.RowsAffected()
 	if err != nil {
 		return normalizeSQLError(err)
 	}
 
-	if rowsAffected == 0 {
+	if count == 0 {
 		return ErrNotFound
 	}
 
-	return nil
+	for _, query := range []string{
+		`DELETE FROM api_tokens WHERE local_user_id = ?`,
+		`DELETE FROM api_sessions WHERE local_user_id = ?`,
+		`DELETE FROM role_bindings WHERE local_user_id = ?`,
+		`DELETE FROM external_identities WHERE local_user_id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(query), id); err != nil {
+			return normalizeSQLError(err)
+		}
+	}
+
+	return normalizeSQLError(tx.Commit())
 }
 
 func (r *SQLAuthRepository) CountEnabledAdmins(ctx context.Context) (int, error) {
@@ -1342,3 +1358,28 @@ func (r *SQLAuthRepository) ListAuditEvents(
 }
 
 var ErrSetupAlreadyComplete = errors.New("setup already complete")
+
+func (r *SQLAuthRepository) CreateLocalUserWithBinding(ctx context.Context, username, passwordHash string, namespaceID int64, role string) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var id int64
+	err = tx.QueryRowContext(ctx, rebindQueryForPgx(`INSERT INTO local_users (global_id, username, password_hash, password_auth_enabled) VALUES (?, ?, ?, ?) RETURNING id`), newGlobalID(), username, passwordHash, true).Scan(&id)
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	_, err = tx.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO role_bindings (global_id, local_user_id, namespace_id, role) VALUES (?, ?, ?, ?)`), newGlobalID(), id, namespaceID, role)
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return id, nil
+}

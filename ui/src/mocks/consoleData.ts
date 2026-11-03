@@ -492,9 +492,9 @@ export function createMockUser(data: MockConsoleData, input: NewMockUser): MockC
     roleBindings: [
       ...data.roleBindings,
       {
-        id: `1:${user.id}:${input.role}`,
-        namespaceID: 1,
-        namespacePath: "/",
+        id: `${input.namespaceID ?? 1}:${user.id}:${input.role}`,
+        namespaceID: input.namespaceID ?? 1,
+        namespacePath: data.namespaces.find((namespace) => namespace.id === (input.namespaceID ?? 1))?.path ?? "/",
         role: input.role,
         userID: user.id,
         username

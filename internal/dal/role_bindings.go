@@ -18,6 +18,7 @@ type RoleBindingRecord struct {
 type RoleBindingsRepository interface {
 	Create(ctx context.Context, localUserID, namespaceID int64, role string) (*RoleBindingRecord, error)
 	Delete(ctx context.Context, localUserID, namespaceID int64, role string) error
+	Update(ctx context.Context, localUserID, namespaceID int64, previousRole, role string) error
 	ListByNamespace(ctx context.Context, namespaceID int64) ([]RoleBindingRecord, error)
 	ListByUser(ctx context.Context, localUserID int64) ([]RoleBindingRecord, error)
 	GetUserRolesInNamespace(ctx context.Context, localUserID, namespaceID int64) ([]string, error)
@@ -197,4 +198,23 @@ func (r *SQLRoleBindingsRepository) GetUserRolesInNamespace(
 	}
 
 	return out, nil
+}
+
+// Update changes exactly one grant without a revoke/regrant interval.
+func (r *SQLRoleBindingsRepository) Update(ctx context.Context, localUserID, namespaceID int64, previousRole, role string) error {
+	result, err := r.db.ExecContext(ctx, rebindQueryForPgx(`UPDATE role_bindings SET role = ? WHERE local_user_id = ? AND namespace_id = ? AND role = ?`), role, localUserID, namespaceID, previousRole)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if count == 0 {
+		return fmt.Errorf("%w: binding not found", ErrNotFound)
+	}
+
+	return nil
 }

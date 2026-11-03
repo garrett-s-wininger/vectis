@@ -1,4 +1,4 @@
-import { Briefcase, FolderTree, HeartPulse, Play, Shield, Users } from "lucide-react";
+import { Briefcase, FolderTree, HeartPulse, Play, Settings2, Users } from "lucide-react";
 import { runListFiltersFromSearch, type RunListFilters } from "./runListFilters";
 export { navigateTo } from "./navigation";
 import { runInvestigationFromSearch, type RunInvestigationContext } from "./runInvestigation";
@@ -38,10 +38,10 @@ export const primaryNavItems: NavEntry[] = [
   { href: "/runs", label: "Runs", icon: Play }
 ];
 
-export const adminNavItems: NavEntry[] = [
+export const managementNavItems: NavEntry[] = [
   {
-    label: "Admin",
-    icon: Shield,
+    label: "Manage",
+    icon: Settings2,
     items: [
       { href: "/health", label: "Health", icon: HeartPulse },
       { href: "/users", label: "Users", icon: Users },
@@ -59,7 +59,9 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
     return { kind: "login", activeHref: "", pathname };
   }
 
-  if (pathname === "/" || pathname === "" || pathname === "/health") {
+  if (pathname === "/" || pathname === "") return { kind: "jobs", activeHref: "/jobs", pathname };
+
+  if (pathname === "/health") {
     return { kind: "health", activeHref: "/health", pathname };
   }
 

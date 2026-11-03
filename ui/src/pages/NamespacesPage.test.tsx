@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { ConsoleAccessProvider } from "../domain/access";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Namespace } from "../domain/console";
 import type { Job } from "../domain/console";
@@ -93,7 +94,7 @@ describe("NamespacesPage", () => {
       />
     );
 
-    expect(screen.getByLabelText("Namespaces location")).toHaveTextContent("AdminNamespaces");
+    expect(screen.getByLabelText("Namespaces location")).toHaveTextContent("ManageNamespaces");
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "sandbox" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Temporary test jobs." } });
@@ -105,6 +106,45 @@ describe("NamespacesPage", () => {
       name: "sandbox",
       parentID: 2
     });
+  });
+
+  it("only offers namespace creation under a parent the account administers", () => {
+    const create = vi.fn();
+
+    render(
+      <ConsoleAccessProvider
+        access={{
+          actions: ["admin:*", "job:read"],
+          namespaces: { "/": ["job:read"], "/team-a": ["admin:*", "job:read"] }
+        }}
+      >
+        <NamespacesPage
+          canDeleteNamespace={() => false}
+          editorMode={null}
+          jobs={jobs}
+          namespaces={namespaces}
+          onCloseEditor={() => undefined}
+          onConfigureNamespace={() => undefined}
+          onCreateNamespace={create}
+          onDeleteNamespace={() => undefined}
+          onGrantRoleBinding={() => undefined}
+          onOpenJobs={() => undefined}
+          onOpenNamespace={() => undefined}
+          onOpenNamespaces={() => undefined}
+          onRevokeRoleBinding={() => undefined}
+          onUpdateNamespace={() => undefined}
+          users={users}
+        />
+      </ConsoleAccessProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(screen.getByLabelText("Parent")).toHaveValue("2");
+    expect(screen.queryByRole("option", { name: "Root" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "child" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Namespace" }));
+    expect(create).toHaveBeenCalledWith({ name: "child", description: "", parentID: 2 });
   });
 
   it("keeps destructive actions out of the namespace list", () => {
@@ -213,14 +253,14 @@ describe("NamespacesPage", () => {
       />
     );
 
-    expect(screen.getByLabelText("Namespace location")).toHaveTextContent("AdminNamespaces/team-a");
+    expect(screen.getByLabelText("Namespace location")).toHaveTextContent("ManageNamespaces/team-a");
     expect(screen.getByRole("heading", { name: "/team-a" })).toBeInTheDocument();
     expect(screen.getByText("deploy-api")).toBeInTheDocument();
     expect(screen.getByText("/team-a/edge")).toBeInTheDocument();
     expect(screen.getByText("Inherited Access")).toBeInTheDocument();
   });
 
-  it("manages direct role bindings from namespace detail", () => {
+  it("manages direct role bindings from namespace detail", async () => {
     const onGrantRoleBinding = vi.fn();
     const onRevokeRoleBinding = vi.fn();
 
@@ -250,10 +290,10 @@ describe("NamespacesPage", () => {
 
     fireEvent.change(screen.getByLabelText("User"), { target: { value: "13" } });
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Viewer" } });
-    fireEvent.click(screen.getByRole("button", { name: "Grant" }));
-    expect(onGrantRoleBinding).toHaveBeenCalledWith("13", 2, "Viewer");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Grant" })));
+    expect(onGrantRoleBinding).toHaveBeenCalledWith("13", 2, "Viewer", undefined);
 
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Revoke" })));
     expect(onRevokeRoleBinding).toHaveBeenCalledWith("12", 2, "Operator");
   });
 
@@ -282,7 +322,7 @@ describe("NamespacesPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Namespace Not Found" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Namespace location")).toHaveTextContent("AdminNamespacesMissing");
+    expect(screen.getByLabelText("Namespace location")).toHaveTextContent("ManageNamespacesMissing");
     expect(screen.getByRole("region", { name: "No Namespace Found" })).toBeInTheDocument();
     expect(screen.queryByText("Create One Today")).not.toBeInTheDocument();
 
@@ -314,7 +354,7 @@ describe("NamespacesPage", () => {
       />
     );
 
-    expect(screen.getByLabelText("Namespace configure location")).toHaveTextContent("AdminNamespaces/team-aConfigure");
+    expect(screen.getByLabelText("Namespace configure location")).toHaveTextContent("ManageNamespaces/team-aConfigure");
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Updated namespace detail." } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 

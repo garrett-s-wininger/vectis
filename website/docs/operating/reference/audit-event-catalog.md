@@ -85,13 +85,14 @@ Known `auth.failure` reasons include `invalid_session`, `invalid_token`, `token_
 | `token.created` | `fail_closed` | An API token is created. | `target_id` is the token row. Metadata includes `label`, `expires_in`, `target_user`, and `scoped`. The raw token value is not stored. |
 | `token.deleted` | `fail_closed` | An API token is deleted. | `target_id` is the token row. Metadata includes `owner_id`. |
 | `password.changed` | `fail_closed` | A user password is changed by the user or an admin. | `target_id` is the affected user. Metadata includes `admin_override`. Password values are not stored. |
-| `user.created` | `fail_closed` | A local user is created. | `target_id` is the new user. Metadata includes `username` and `generated_password`. |
+| `user.created` | `fail_closed` | A local user is created. | `target_id` is the new user. Metadata includes `username`, `generated_password`, and optional `initial_binding`. |
 | `user.updated` | `fail_closed` | A local user's enabled state changes. | `target_id` is the affected user. Metadata includes `enabled`. |
-| `user.deleted` | `fail_closed` | A local user is deleted. | `target_id` is the deleted user. No metadata is emitted. |
+| `user.deleted` | `fail_closed` | A local user is soft-deleted and its access is revoked. | `target_id` is the deleted user. No metadata is emitted. |
 | `namespace.created` | `durable_best_effort` | A namespace is created. | `target_id` is the namespace row. Metadata includes `name`, `parent_id`, and `path`. |
 | `namespace.updated` | `durable_best_effort` | A namespace description changes. | `target_id` is the namespace row. Metadata includes `name`, `path`, and `description`. |
 | `namespace.deleted` | `durable_best_effort` | A namespace is deleted. | `target_id` is the namespace row. Metadata includes `name` and `path`. |
 | `binding.created` | `fail_closed` | A namespace role binding is created. | `target_id` is the local user receiving the role. Metadata includes `namespace_id` and `role`. |
+| `binding.updated` | `fail_closed` | A namespace role binding changes in place. | `target_id` is the local user. Metadata includes `namespace_id`, `previous_role`, and `role`. |
 | `binding.deleted` | `fail_closed` | A namespace role binding is deleted. | `target_id` is the local user losing the role. Metadata includes `namespace_id` and `role`. |
 
 ## Job And Run Events

@@ -40,6 +40,7 @@ const (
 	EventNamespaceUpdated              = "namespace.updated"
 	EventNamespaceDeleted              = "namespace.deleted"
 	EventBindingCreated                = "binding.created"
+	EventBindingUpdated                = "binding.updated"
 	EventBindingDeleted                = "binding.deleted"
 	EventJobCreated                    = "job.created"
 	EventJobDeleted                    = "job.deleted"

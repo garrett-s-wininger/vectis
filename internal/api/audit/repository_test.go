@@ -247,3 +247,7 @@ func TestDALRepository_InsertAuditEvents_multipleEvents(t *testing.T) {
 		t.Fatalf("expected 2 events, got %d", len(repo.events))
 	}
 }
+
+func (m *mockAuthRepo) CreateLocalUserWithBinding(context.Context, string, string, int64, string) (int64, error) {
+	return 0, errors.New("not implemented")
+}

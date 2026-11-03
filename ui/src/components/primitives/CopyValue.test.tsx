@@ -6,21 +6,24 @@ afterEach(() => {
   delete (document as unknown as { execCommand?: unknown }).execCommand;
 });
 
-it("copies the full value rather than its shortened display and reports success", async () => {
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  vi.stubGlobal("navigator", { clipboard: { writeText } });
+it.each(["inline", "field"] as const)(
+  "copies the full value rather than its shortened display and reports success (%s)",
+  async (appearance) => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
 
-  render(
-    <CopyValue label="Execution ID" value="full-execution-id">
-      short-id
-    </CopyValue>
-  );
+    render(
+      <CopyValue appearance={appearance} label="Execution ID" value="full-execution-id">
+        short-id
+      </CopyValue>
+    );
 
-  fireEvent.click(screen.getByRole("button", { name: "Copy Execution ID" }));
-  await waitFor(() => expect(screen.getByText("Execution ID copied.")).toBeInTheDocument());
-  expect(writeText).toHaveBeenCalledWith("full-execution-id");
-  expect(screen.getByText("short-id")).toBeVisible();
-});
+    fireEvent.click(screen.getByRole("button", { name: "Copy Execution ID" }));
+    await waitFor(() => expect(screen.getByText("Execution ID copied.")).toBeInTheDocument());
+    expect(writeText).toHaveBeenCalledWith("full-execution-id");
+    expect(screen.getByText("short-id")).toBeVisible();
+  }
+);
 
 it("supports HTTP demo copying and restores keyboard focus", async () => {
   vi.stubGlobal("navigator", {});

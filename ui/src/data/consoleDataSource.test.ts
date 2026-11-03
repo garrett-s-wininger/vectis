@@ -13,6 +13,68 @@ describe("console data source", () => {
     vi.unstubAllGlobals();
   });
 
+  function restrictedConsole({ usersStatus = 403, bindingsStatus = 403, rootStatus = 403 } = {}) {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/v1/namespaces")
+        return jsonResponse([{ id: 2, name: "team", path: "/team", break_inheritance: false }]);
+
+      if (path === "/api/v1/users")
+        return jsonResponse(usersStatus === 200 ? [] : { message: "Users unavailable" }, { status: usersStatus });
+
+      if (path === "/api/v1/source-repositories")
+        return jsonResponse(rootStatus === 200 ? [] : { message: "Root unavailable" }, { status: rootStatus });
+
+      if (path === "/api/v1/source-repositories?namespace=%2Fteam")
+        return jsonResponse([{ repository_id: "team-repo", namespace: "/team", enabled: true }]);
+
+      if (path.startsWith("/api/v1/jobs?"))
+        return jsonResponse({ jobs: [{ job_id: "build", path: ".vectis/build.json" }] });
+
+      if (path === "/api/v1/namespaces/2/bindings")
+        return jsonResponse(bindingsStatus === 200 ? [] : { message: "Bindings unavailable" }, {
+          status: bindingsStatus
+        });
+
+      if (path === "/api/v1/runs?limit=200") return jsonResponse({ data: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+  }
+
+  it("loads scoped jobs when root repositories, users, and bindings are forbidden", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    restrictedConsole();
+    const data = await createConsoleDataSource().loadConsole();
+
+    expect(data.jobs).toEqual([expect.objectContaining({ id: "build", namespacePath: "/team" })]);
+    expect(data.repositories).toEqual([expect.objectContaining({ id: "team-repo" })]);
+    expect(data.denied).toEqual({ users: true, bindings: ["/team"] });
+    expect(data.namespaces[0].role).toBe("Not reported");
+    expect(data.users).toEqual([]);
+  });
+
+  it("loads repositories from child namespaces even when root is accessible", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    restrictedConsole({ usersStatus: 200, bindingsStatus: 200, rootStatus: 200 });
+    const data = await createConsoleDataSource().loadConsole();
+
+    expect(data.jobs).toHaveLength(1);
+    expect(data.denied).toEqual({ users: false, bindings: [] });
+  });
+
+  it.each([
+    [{ usersStatus: 500 }, "Users unavailable"],
+    [{ usersStatus: 401 }, "Users unavailable"],
+    [{ bindingsStatus: 500 }, "Bindings unavailable"],
+    [{ rootStatus: 500 }, "Root unavailable"]
+  ])(
+    "surfaces server and authentication failures rather than treating them as denied access (%j)",
+    async (statuses, message) => {
+      vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+      restrictedConsole(statuses);
+      await expect(createConsoleDataSource().loadConsole()).rejects.toThrow(message);
+    }
+  );
+
   it("requests cancellation and creates a replay with an idempotency key", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     fetchMock
@@ -112,7 +174,7 @@ describe("console data source", () => {
         path: "/",
         description: "Default namespace boundary.",
         breakInheritance: false,
-        role: "Admin"
+        role: "Not reported"
       }
     ]);
 
@@ -355,6 +417,7 @@ describe("console data source", () => {
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().createNamespace({
@@ -448,6 +511,7 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
@@ -592,7 +656,7 @@ describe("console data source", () => {
       "/api/v1/jobs/run",
       expect.objectContaining({
         method: "POST",
-        body: definition
+        body: JSON.stringify({ namespace: "/platform", job: JSON.parse(definition) })
       })
     );
 
@@ -639,6 +703,31 @@ describe("console data source", () => {
     });
   });
 
+  it("preserves wrapped Run Once options while applying the selected namespace", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    const job = { root: { id: "root", uses: "builtins/script" } };
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: "ephemeral-job", run_id: "run-1" }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockRejectedValueOnce(new Error("Catalog catching up"))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await createConsoleDataSource().submitEphemeralRun({
+      namespacePath: "/team",
+      definition: JSON.stringify({ job, namespace: "/other", cell_id: "worker-cell" })
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/jobs/run",
+      expect.objectContaining({ body: JSON.stringify({ job, namespace: "/team", cell_id: "worker-cell" }) })
+    );
+  });
+
   it("uses the accepted run fallback when detail reads are temporarily unavailable", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     const definition = JSON.stringify({
@@ -674,46 +763,58 @@ describe("console data source", () => {
     expect(data.runs[0].tasks).toBeUndefined();
   });
 
-  it("creates users through the API source", async () => {
+  it("creates users with the selected namespace role through the API source", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    fetchMock.mockImplementation(async (path: string, options: RequestInit) => {
+      if (path === "/api/v1/users" && options.method === "POST")
+        return jsonResponse({ id: 12, username: "taylor", enabled: true, initial_password: "generated-secret" });
 
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse({
-          id: 12,
-          username: "taylor",
-          enabled: true,
-          initial_password: "generated-secret"
-        })
-      )
-      .mockResolvedValueOnce(jsonResponse([{ id: 12, username: "taylor", enabled: true }]));
+      if (path === "/api/v1/namespaces") return jsonResponse([{ id: 2, name: "team", path: "/team" }]);
+      if (path === "/api/v1/users") return jsonResponse([{ id: 12, username: "taylor", enabled: true }]);
+      if (path.startsWith("/api/v1/source-repositories")) return jsonResponse([]);
+      if (path === "/api/v1/namespaces/2/bindings") return jsonResponse([{ local_user_id: 12, role: "operator" }]);
+      if (path === "/api/v1/runs?limit=200") return jsonResponse({ data: [] });
 
-    const result = await createConsoleDataSource().createUser({
-      username: "taylor",
-      role: "Viewer"
+      throw new Error(`Unexpected request: ${path}`);
     });
 
+    const result = await createConsoleDataSource().createUser({ username: "taylor", namespaceID: 2, role: "Operator" });
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/v1/users",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
-          username: "taylor"
-        })
+        body: JSON.stringify({ username: "taylor", initial_binding: { namespace_id: 2, role: "operator" } })
       })
     );
 
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/users", expect.any(Object));
-    expect(result.credential).toEqual({
-      password: "generated-secret",
-      username: "taylor"
-    });
+    expect(result.credential).toEqual({ password: "generated-secret", username: "taylor" });
     expect(result.users[0]).toMatchObject({
       id: "12",
       username: "taylor",
-      status: "active"
+      status: "active",
+      role: "Operator",
+      roleBindings: [expect.objectContaining({ namespaceID: 2, role: "Operator" })]
     });
+  });
+
+  it("updates a binding in place rather than revoking it first", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ local_user_id: 12, role: "viewer" }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await createConsoleDataSource().grantRoleBinding("12", 2, "Viewer", "Operator");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/namespaces/2/bindings/12",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ previous_role: "operator", role: "viewer" }) })
+    );
+
+    expect(fetchMock.mock.calls.some(([, options]) => options.method === "DELETE")).toBe(false);
   });
 
   it("updates user status through the API source", async () => {
@@ -807,7 +908,7 @@ describe("console data source", () => {
     );
   });
 
-  it("loads an inline run by id through the API source", async () => {
+  it.each([200, 403])("loads an inline run when root repository discovery returns %i", async (status) => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 
     fetchMock
@@ -827,7 +928,7 @@ describe("console data source", () => {
           owning_cell: "local"
         })
       )
-      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse(status === 200 ? [] : { message: "Root unavailable" }, { status }))
       .mockResolvedValueOnce(
         jsonResponse({
           data: [

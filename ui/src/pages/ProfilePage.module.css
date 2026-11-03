@@ -1,0 +1,37 @@
+.layout {
+  display: grid;
+  gap: var(--space-xl);
+  width: min(var(--layout-narrow-max), 100%);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-xl);
+  min-width: 0;
+  padding: var(--space-2xl);
+}
+
+.panel h2 {
+  font-size: var(--font-size-xl);
+  margin: 0 0 var(--space-sm);
+}
+
+.panel p {
+  color: var(--text-subtle);
+  margin: 0;
+}
+
+.form {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.submit {
+  justify-self: start;
+}
+
+@media (max-width: 640px) {
+  .panel {
+    padding: var(--space-xl);
+  }
+}

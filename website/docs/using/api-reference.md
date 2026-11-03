@@ -173,7 +173,7 @@ JSON routes expect `Content-Type: application/json`. Source-backed job create an
 }
 ```
 
-Ephemeral direct runs on `POST /api/v1/jobs/run` do not require a top-level job `id`. They always run in the system `/ephemeral` namespace; clients may omit `namespace` or set it to `/ephemeral`, but other namespace paths are rejected. Reusable source-backed jobs require an `id` unless the client supplies a job ID separately. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
+Ephemeral direct runs on `POST /api/v1/jobs/run` do not require a top-level job `id`. They run in the requested `namespace`, defaulting to `/` when omitted. The console uses its selected namespace; callers require `run:trigger` there. Reusable source-backed jobs require an `id` unless the client supplies a job ID separately. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
 
 Node inputs can also be bound from earlier node outputs in the same local execution scope with `inputs.<field>.from.node` and `inputs.<field>.from.output`; static `with.<field>` and bound `inputs.<field>` are mutually exclusive.
 
@@ -407,7 +407,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/jobs/{id}` | Resolve one source repository job; requires `repository_id` | `job:read` | general | `200` JSON definition |
 | PUT | `/api/v1/jobs/{id}` | Commit a source job definition update; body or query requires `repository_id` | `job:write` | general | `200` JSON source definition |
 | DELETE | `/api/v1/jobs/{id}` | Commit a source definition deletion; requires `repository_id` | `job:write` | general | `200` JSON source deletion |
-| POST | `/api/v1/jobs/run` | Start an ephemeral `/ephemeral` run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
+| POST | `/api/v1/jobs/run` | Start a one-off run in the requested namespace (default `/`) from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
 | POST | `/api/v1/jobs/trigger/{id}` | Trigger a source repository job; body requires `repository_id` | `run:trigger` | general | `202` JSON run |
 | GET | `/api/v1/jobs/{id}/runs` | List global catalog runs for one source-backed job; requires `repository_id` | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one source-backed job; requires `repository_id` | `run:read` | general | `200` `text/event-stream` |
@@ -434,6 +434,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | POST | `/api/v1/setup/complete` | Create the first admin account, optionally linked to an external identity | `setup:complete` | auth | `200` JSON token |
 | POST | `/api/v1/login` | Exchange username/password for a session | Public | auth | `200` JSON session and cookies |
 | POST | `/api/v1/logout` | Invalidate the current login session | `api:any` | auth | `204` empty |
+| GET | `/api/v1/access` | Read the caller’s effective global and namespace actions | `api:any` | general | `200` JSON access |
 | GET | `/api/v1/tokens` | List API tokens visible to the caller | `api:any` | token | `200` JSON list |
 | POST | `/api/v1/tokens` | Create an API token | `api:any` | token | `201` JSON token metadata and plaintext token |
 | DELETE | `/api/v1/tokens/{id}` | Delete an API token | `api:any` | token | `204` empty |
@@ -452,6 +453,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | DELETE | `/api/v1/namespaces/{id}` | Delete an empty namespace | `admin:*` | general | `204` empty |
 | GET | `/api/v1/namespaces/{id}/bindings` | List namespace role bindings | `admin:*` | general | `200` JSON list |
 | POST | `/api/v1/namespaces/{id}/bindings` | Create a namespace role binding | `admin:*` | general | `201` JSON binding |
+| PATCH | `/api/v1/namespaces/{id}/bindings/{user_id}` | Update a namespace role binding in place | `admin:*` | general | `200` JSON binding |
 | DELETE | `/api/v1/namespaces/{id}/bindings/{user_id}` | Delete a namespace role binding | `admin:*` | general | `204` empty |
 
 ### Run controls in the UI
@@ -463,3 +465,19 @@ Completed runs offer **Run again**, which calls the replay endpoint and creates 
 Run investigation URLs preserve the selected task key and attempt, for example `/runs/<run-id>?task=build&attempt=1`. Task keys are unique within a run; the run ID does not need to be repeated in the query. Select a task or attempt, then copy the browser address to share that context. The selection applies to the graph, logs, and artifacts, survives refresh, and follows browser Back and Forward navigation. Omitting `attempt` keeps **Latest** tracking the newest attempt; a numbered attempt stays pinned. Clearing the task selection shows all tasks for the selected attempt.
 
 The Runs page keeps its Job, Status, and Source filters in the URL, so filtered lists can be shared or refreshed. Opening a run preserves the list position; browser Back/Forward, the run page's **Runs** breadcrumb, and the **Runs** navigation link restore the filtered list. Job-search edits update the current history entry instead of adding an entry for each character. Job, Status, and Source filters are shared through the address bar; namespace scope and scroll position stay with your browsing history.
+
+### Initial access and role changes
+
+The console's user creation form grants the selected initial role in the selected namespace. `POST /api/v1/users` accepts an optional `initial_binding` object with `namespace_id` and `role`; the account and binding are saved atomically. Omitting the binding creates an account without namespace access. Roles are namespace grants, rather than global account attributes.
+
+`PATCH /api/v1/namespaces/{id}/bindings/{user_id}` accepts `previous_role` and `role` to change a grant in place. It requires `admin:*` in that namespace and returns `404` if the previous binding no longer exists, or `409` if the target role is already granted. Other grants are preserved. The Users and Namespaces pages expose this through **Update Role**.
+
+The console opens Jobs by default. Health is an administrative view; Operator access does not grant cluster administration.
+
+Deleting a user permanently disables the account and removes its tokens, sessions, external identities, and role bindings. The identity remains as a tombstone for audit attribution, and is excluded from account lists and login. Deleted usernames remain reserved; accounts cannot be restored through the enable action.
+
+The console uses `GET /api/v1/access` to show controls that match effective permissions, including namespace inheritance and token restrictions. Operators can trigger existing jobs, submit Run Once, cancel, and replay runs. Creating or editing jobs and administering namespaces requires Admin access in the target namespace; Health requires administrative diagnostics access. Restricted direct URLs display an access explanation. Permission discovery is a UI snapshot: every API operation still checks current authorization.
+
+Cluster diagnostic endpoints require root-namespace administration, including the Health cell status API. The access response advertises global `admin:*` only for root administrators; namespace-specific administration remains in the `namespaces` map.
+
+In the console, local users can change their password on Profile by entering their current password and confirming the new password. A successful change revokes existing sessions and API tokens, then returns the user to sign-in.

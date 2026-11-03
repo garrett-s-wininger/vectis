@@ -20,6 +20,7 @@ func TestAPIRouteInventory(t *testing.T) {
 	}{
 		{"GET /health/live", "public"},
 		{"GET /health/ready", "public"},
+		{"GET /api/v1/access", string(authz.ActionAPI)},
 		{"GET /api/v1/version", string(authz.ActionAdmin)},
 		{"GET /api/v1/schema/status", string(authz.ActionAdmin)},
 		{"GET /api/v1/reconciler/heartbeat", string(authz.ActionAdmin)},
@@ -109,6 +110,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"DELETE /api/v1/namespaces/{id}", string(authz.ActionAdmin)},
 		{"GET /api/v1/namespaces/{id}/bindings", string(authz.ActionAdmin)},
 		{"POST /api/v1/namespaces/{id}/bindings", string(authz.ActionAdmin)},
+		{"PATCH /api/v1/namespaces/{id}/bindings/{user_id}", string(authz.ActionAdmin)},
 		{"DELETE /api/v1/namespaces/{id}/bindings/{user_id}", string(authz.ActionAdmin)},
 	}
 
@@ -134,6 +136,17 @@ func TestAPIRouteInventory(t *testing.T) {
 
 		if auth := authLabel(spec.Auth); auth != want[i].auth {
 			t.Fatalf("route[%d] %q auth = %q, want %q", i, spec.Pattern, auth, want[i].auth)
+		}
+
+		if spec.Auth.normalized().Action == authz.ActionAdmin {
+			wantNamespace := "/"
+			if strings.Contains(spec.Pattern, "/namespaces") {
+				wantNamespace = ""
+			}
+
+			if spec.Auth.NamespacePath != wantNamespace {
+				t.Errorf("%s auth namespace = %q, want %q", spec.Pattern, spec.Auth.NamespacePath, wantNamespace)
+			}
 		}
 
 		if err := spec.Auth.validate(); err != nil {
@@ -211,6 +224,7 @@ func TestAPIRouteInventory_mutationAuditCoverage(t *testing.T) {
 		"PUT /api/v1/namespaces/{id}":                                 {audit.EventNamespaceUpdated},
 		"DELETE /api/v1/namespaces/{id}":                              {audit.EventNamespaceDeleted},
 		"POST /api/v1/namespaces/{id}/bindings":                       {audit.EventBindingCreated},
+		"PATCH /api/v1/namespaces/{id}/bindings/{user_id}":            {audit.EventBindingUpdated},
 		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}":           {audit.EventBindingDeleted},
 	}
 
@@ -288,28 +302,29 @@ func TestAPIRouteInventory_bodyPolicies(t *testing.T) {
 		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger": routeBodyOptionalJSONPolicy(
 			maxJobDefinitionBodyBytes,
 		),
-		"POST /api/v1/cells/{cell_id}/catalog-events":  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/jobs":                            routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
-		"POST /api/v1/jobs/run":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
-		"PUT /api/v1/jobs/{id}":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
-		"POST /api/v1/jobs/trigger/{id}":               routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
-		"POST /api/v1/runs/{id}/replay":                routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
-		"POST /api/v1/runs/{id}/repair/mark-succeeded": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/runs/{id}/repair/mark-failed":    routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/runs/{id}/repair/mark-cancelled": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/runs/{id}/repair/mark-abandoned": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/runs/{id}/repair/mark-queued":    routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/runs/{id}/force-fail":            routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/setup/complete":                  routeBodyJSONPolicy(maxSetupCompleteBodyBytes),
-		"POST /api/v1/login":                           routeBodyJSONPolicy(maxLoginBodyBytes),
-		"POST /api/v1/tokens":                          routeBodyJSONPolicy(maxTokenBodyBytes),
-		"POST /api/v1/users/change-password":           routeBodyJSONPolicy(maxChangePasswordBodyBytes),
-		"POST /api/v1/users":                           routeBodyJSONPolicy(maxUserBodyBytes),
-		"PUT /api/v1/users/{id}":                       routeBodyJSONPolicy(maxUserBodyBytes),
-		"POST /api/v1/users/{id}/external-identities":  routeBodyJSONPolicy(maxUserBodyBytes),
-		"POST /api/v1/namespaces":                      routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
-		"PUT /api/v1/namespaces/{id}":                  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
-		"POST /api/v1/namespaces/{id}/bindings":        routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/cells/{cell_id}/catalog-events":      routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/jobs":                                routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/jobs/run":                            routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"PUT /api/v1/jobs/{id}":                            routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/jobs/trigger/{id}":                   routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/runs/{id}/replay":                    routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-succeeded":     routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-failed":        routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-cancelled":     routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-abandoned":     routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-queued":        routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/force-fail":                routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/setup/complete":                      routeBodyJSONPolicy(maxSetupCompleteBodyBytes),
+		"POST /api/v1/login":                               routeBodyJSONPolicy(maxLoginBodyBytes),
+		"POST /api/v1/tokens":                              routeBodyJSONPolicy(maxTokenBodyBytes),
+		"POST /api/v1/users/change-password":               routeBodyJSONPolicy(maxChangePasswordBodyBytes),
+		"POST /api/v1/users":                               routeBodyJSONPolicy(maxUserBodyBytes),
+		"PUT /api/v1/users/{id}":                           routeBodyJSONPolicy(maxUserBodyBytes),
+		"POST /api/v1/users/{id}/external-identities":      routeBodyJSONPolicy(maxUserBodyBytes),
+		"POST /api/v1/namespaces":                          routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/namespaces/{id}":                      routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/namespaces/{id}/bindings":            routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PATCH /api/v1/namespaces/{id}/bindings/{user_id}": routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 	}
 
 	seen := make(map[string]bool, len(want))

@@ -1,3 +1,4 @@
+import { unrestrictedAccess, type ConsoleAccess } from "../domain/access";
 import { sourceDefinition } from "../domain/sourceDefinition";
 import type { RunListItem, RunStatus, RunTaskAttemptItem, RunTaskItem, RunTaskStatus } from "../components";
 import type {
@@ -16,7 +17,7 @@ import type {
   UserStatus
 } from "../domain/console";
 import { summarizeRoleBindings } from "../domain/roleBindings";
-import { requestJSON, requestNoContent } from "../api/client";
+import { VectisAPIError, requestJSON, requestNoContent } from "../api/client";
 import { loadRunArtifactPage, type LoadRunArtifacts } from "./runArtifacts";
 import {
   createMockConsoleDataSnapshot,
@@ -159,6 +160,9 @@ export type CreateUserResult = {
 };
 
 export type ConsoleDataSource = {
+  changePassword(currentPassword: string, newPassword: string): Promise<void>;
+  initialAccess?: ConsoleAccess;
+  loadAccess(): Promise<ConsoleAccess>;
   loadRunArtifacts: LoadRunArtifacts;
   cancelRun(runID: string): Promise<void>;
   replayRun(runID: string, idempotencyKey: string): Promise<string>;
@@ -167,7 +171,12 @@ export type ConsoleDataSource = {
   createUser(input: NewUser): Promise<CreateUserResult>;
   deleteNamespace(namespaceID: number): Promise<ConsoleData>;
   deleteUser(userID: string): Promise<User[]>;
-  grantRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
+  grantRoleBinding(
+    userID: string,
+    namespaceID: number,
+    role: RoleBindingRole,
+    previousRole?: RoleBindingRole
+  ): Promise<ConsoleData>;
   loadCells(): Promise<Cell[]>;
   loadConsole(): Promise<ConsoleData>;
   loadRun(runID: string, knownJobs?: Job[]): Promise<RunListItem>;
@@ -203,6 +212,11 @@ function createMockConsoleDataSource(): ConsoleDataSource {
   const replays = new Map<string, string>();
 
   return {
+    async changePassword() {},
+    initialAccess: unrestrictedAccess,
+    async loadAccess() {
+      return unrestrictedAccess;
+    },
     async loadRunArtifacts() {
       return { data: [] };
     },
@@ -292,8 +306,14 @@ function createMockConsoleDataSource(): ConsoleDataSource {
       data = deleteMockUser(data, userID);
       return cloneConsoleData(data).users;
     },
-    async grantRoleBinding(userID, namespaceID, role) {
-      data = grantMockRoleBinding(data, userID, namespaceID, role);
+    async grantRoleBinding(userID, namespaceID, role, previousRole) {
+      data = grantMockRoleBinding(
+        previousRole ? revokeMockRoleBinding(data, userID, namespaceID, previousRole) : data,
+        userID,
+        namespaceID,
+        role
+      );
+
       return cloneConsoleData(data);
     },
     async loadCells() {
@@ -345,6 +365,12 @@ function createMockConsoleDataSource(): ConsoleDataSource {
 
 function createAPIConsoleDataSource(): ConsoleDataSource {
   return {
+    changePassword: (currentPassword, newPassword) =>
+      requestNoContent("/api/v1/users/change-password", {
+        method: "POST",
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+      }),
+    loadAccess: () => requestJSON<ConsoleAccess>("/api/v1/access"),
     loadRunArtifacts: loadRunArtifactPage,
     async cancelRun(runID) {
       await requestNoContent(`/api/v1/runs/${encodeURIComponent(runID)}/cancel`, { method: "POST" });
@@ -390,7 +416,8 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       const createdUser = await requestJSON<APIUser>("/api/v1/users", {
         method: "POST",
         body: JSON.stringify({
-          username: input.username
+          username: input.username,
+          initial_binding: { namespace_id: input.namespaceID ?? 1, role: apiRoleBindingRole(input.role) }
         })
       });
 
@@ -401,7 +428,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
               username: createdUser.username
             }
           : undefined,
-        users: await loadAPIUsers()
+        users: (await loadAPIConsoleData()).users
       };
     },
     async deleteNamespace(namespaceID) {
@@ -418,14 +445,17 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
       return loadAPIUsers();
     },
-    async grantRoleBinding(userID, namespaceID, role) {
-      await requestJSON<APIRoleBinding>(`/api/v1/namespaces/${namespaceID}/bindings`, {
-        method: "POST",
-        body: JSON.stringify({
-          local_user_id: Number(userID),
-          role: apiRoleBindingRole(role)
-        })
-      });
+    async grantRoleBinding(userID, namespaceID, role, previousRole) {
+      await requestJSON<APIRoleBinding>(
+        `/api/v1/namespaces/${namespaceID}/bindings${previousRole ? `/${encodeURIComponent(userID)}` : ""}`,
+        {
+          method: previousRole ? "PATCH" : "POST",
+          body: JSON.stringify({
+            ...(previousRole ? { previous_role: apiRoleBindingRole(previousRole) } : { local_user_id: Number(userID) }),
+            role: apiRoleBindingRole(role)
+          })
+        }
+      );
 
       return loadAPIConsoleData();
     },
@@ -444,7 +474,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     async loadRun(runID, knownJobs) {
       const [run, jobs, tasks] = await Promise.all([
         loadAPIRun(runID),
-        knownJobs ?? loadAPIJobs().then((page) => page.data),
+        knownJobs ?? loadAPIJobs("/", true).then((page) => page.data),
         loadAPIRunTasks(runID)
       ]);
 
@@ -455,10 +485,16 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       };
     },
     async submitEphemeralRun(input) {
-      const definition = parseJobDefinition(input.definition);
+      const submitted = JSON.parse(input.definition);
+      const wrapped = submitted && typeof submitted === "object" && Object.hasOwn(submitted, "job");
+      const definition = normalizeJobDefinition(wrapped ? submitted.job : submitted, "");
       const response = await requestJSON<APIEphemeralRunResponse>("/api/v1/jobs/run", {
         method: "POST",
-        body: input.definition
+        body: JSON.stringify(
+          wrapped
+            ? { ...submitted, namespace: input.namespacePath }
+            : { namespace: input.namespacePath, job: submitted }
+        )
       });
 
       const data = await loadAPIConsoleData();
@@ -548,11 +584,24 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
 async function loadAPIConsoleData(): Promise<ConsoleData> {
   const mockBase = createMockConsoleDataSnapshot();
-  const [namespaces, jobsPage, users] = await Promise.all([loadAPINamespaces(), loadAPIJobs(), loadAPIUsers()]);
-  const roleBindings = await loadAPIRoleBindings(namespaces, users);
-  const jobs = jobsPage.data;
+  const [namespaces, jobsPage, users] = await Promise.all([
+    loadAPINamespaces(),
+    loadAPIJobs("/", true),
+    loadAPIUsers().catch((error: unknown) => {
+      if (isForbidden(error)) return null;
+      throw error;
+    })
+  ]);
+
+  const additionalPages = await Promise.all(
+    namespaces.filter((namespace) => namespace.path !== "/").map((namespace) => loadAPIJobs(namespace.path))
+  );
+
+  const deniedBindings: string[] = [];
+  const roleBindings = await loadAPIRoleBindings(namespaces, users ?? [], deniedBindings);
+  const jobs = [jobsPage, ...additionalPages].flatMap((page) => page.data);
   const runs = await loadAPIRuns(jobs);
-  const usersWithRoleBindings = users.map((user) => {
+  const usersWithRoleBindings = (users ?? []).map((user) => {
     const bindings = roleBindings.filter((binding) => binding.userID === user.id);
     return {
       ...user,
@@ -564,7 +613,8 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
   return {
     ...mockBase,
     cells: [],
-    repositories: jobsPage.repositories,
+    repositories: [jobsPage, ...additionalPages].flatMap((page) => page.repositories),
+    denied: { users: users === null, bindings: deniedBindings },
     jobs: jobs.map((job) => ({
       ...job,
       lastRunStatus: runs.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)?.status
@@ -582,8 +632,21 @@ async function loadAPINamespaces() {
   return namespaces.map(apiNamespaceToConsoleNamespace);
 }
 
-async function loadAPIJobs() {
-  const payload = await requestJSON<APISourceRepository[] | unknown>("/api/v1/source-repositories");
+function isForbidden(error: unknown) {
+  return error instanceof VectisAPIError && error.status === 403;
+}
+
+async function loadAPIJobs(namespacePath = "/", allowForbidden = false) {
+  const path =
+    namespacePath === "/"
+      ? "/api/v1/source-repositories"
+      : `/api/v1/source-repositories?${new URLSearchParams({ namespace: namespacePath })}`;
+
+  const payload = await requestJSON<APISourceRepository[] | unknown>(path).catch((error: unknown) => {
+    if (allowForbidden && isForbidden(error)) return [];
+    throw error;
+  });
+
   const repositories = Array.isArray(payload) ? payload : [];
   const enabled = repositories.filter((repository) => repository.enabled !== false && repository.repository_id);
   const pages = await Promise.all(enabled.map((repository) => loadAPISourceJobs(repository)));
@@ -636,12 +699,20 @@ async function loadAPIUsers() {
   return users.map(apiUserToConsoleUser);
 }
 
-async function loadAPIRoleBindings(namespaces: Namespace[], users: User[]) {
+async function loadAPIRoleBindings(namespaces: Namespace[], users: User[], denied: string[] = []) {
   const usersByID = new Map(users.map((user) => [user.id, user]));
   const bindingsByNamespace = await Promise.all(
     namespaces.map(async (namespace) => ({
       namespace,
-      bindings: await requestJSON<APIRoleBinding[]>(`/api/v1/namespaces/${namespace.id}/bindings`)
+      bindings: await requestJSON<APIRoleBinding[]>(`/api/v1/namespaces/${namespace.id}/bindings`).catch(
+        (error: unknown) => {
+          if (isForbidden(error)) {
+            denied.push(namespace.path);
+            return [];
+          }
+          throw error;
+        }
+      )
     }))
   );
 
@@ -677,7 +748,6 @@ function apiUserToConsoleUser(user: APIUser): User {
     id: String(user.id),
     username: user.username,
     role: "Unassigned",
-    roleBindings: [],
     status: user.enabled ? "active" : "disabled",
     lastSeen: user.created_at ? `Created ${formatDate(user.created_at)}` : "Created date unavailable",
     tokens: 0
@@ -899,7 +969,7 @@ function apiNamespaceToConsoleNamespace(namespace: APINamespace): Namespace {
     parentID: namespace.parent_id,
     path: namespace.path,
     breakInheritance: namespace.break_inheritance,
-    role: "Admin"
+    role: "Not reported"
   };
 }
 
@@ -1105,10 +1175,6 @@ function formatDate(value: string) {
     month: "short",
     year: "numeric"
   });
-}
-
-function parseJobDefinition(definitionJSON: string) {
-  return normalizeJobDefinition(JSON.parse(definitionJSON), "");
 }
 
 function normalizeJobDefinition(definition: unknown, fallbackID: string) {

@@ -11,7 +11,6 @@ CREATE TABLE namespaces (
 );
 
 INSERT INTO namespaces (id, global_id, name, description, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', 'Default namespace boundary.', '/', 0, 'local');
-INSERT INTO namespaces (id, global_id, name, parent_id, path, break_inheritance, home_cell) VALUES (2, 'namespace-ephemeral', 'ephemeral', 1, '/ephemeral', 0, 'local');
 
 CREATE TABLE stored_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -622,6 +621,7 @@ CREATE TABLE local_users (
     password_hash TEXT NOT NULL,
     password_auth_enabled INTEGER NOT NULL DEFAULT 1 CHECK (password_auth_enabled IN (0, 1)),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -1,3 +1,4 @@
+import { unrestrictedAccess, type ConsoleAccess } from "./domain/access";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 import * as dataSource from "./data/consoleDataSource";
@@ -14,6 +15,272 @@ describe("App", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  const operatorAccess: ConsoleAccess = {
+    actions: ["job:read", "run:read", "run:trigger", "run:operator", "api:any"],
+    namespaces: { "/team": ["job:read", "run:read", "run:trigger", "run:operator"] }
+  };
+
+  function scopedAPI(permissions: ConsoleAccess = operatorAccess) {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    fetchMock.mockImplementation(async (path: string) => {
+      const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+      if (path === "/ui/api/context")
+        return json({ auth_enabled: true, principal: { kind: "local_user", username: "viewer" } });
+
+      if (path === "/api/v1/access") return json(permissions);
+      if (path === "/api/v1/namespaces")
+        return json([{ id: 2, name: "team", path: "/team", break_inheritance: false }]);
+
+      if (path === "/api/v1/source-repositories?namespace=%2Fteam")
+        return json([{ repository_id: "team-repo", namespace: "/team", enabled: true }]);
+
+      if (path.startsWith("/api/v1/jobs?"))
+        return json({ jobs: [{ job_id: "team-build", path: ".vectis/build.json" }] });
+
+      if (path === "/api/v1/runs?limit=200") return json({ data: [] });
+      return json({ message: "Permission denied" }, 403);
+    });
+  }
+
+  it("opens scoped jobs despite forbidden administration APIs and selects an accessible namespace", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/jobs");
+    render(<App />);
+
+    expect(await screen.findByText("team-build")).toBeInTheDocument();
+    expect(screen.queryByText("Unable to Load Console")).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/users"]')).toBeNull();
+    expect(screen.getByLabelText("Namespace")).toHaveTextContent("/team");
+  });
+
+  it("lets operators open Run Once while hiding job creation and administrative navigation", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/jobs");
+    render(<App />);
+
+    await screen.findByText("team-build");
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/health"]')).toBeNull();
+    expect(document.querySelector('a[href="/users"]')).toBeNull();
+    act(() => {
+      window.history.pushState(null, "", "/runs");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Run Once" }));
+    expect(screen.getByLabelText("Choose definition JSON file")).toBeInTheDocument();
+  });
+
+  it("waits for permissions before offering interactive controls", async () => {
+    scopedAPI();
+    const scopedFetch = fetchMock.getMockImplementation()!;
+
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+
+    fetchMock.mockImplementation((path: string, options: RequestInit) =>
+      path === "/api/v1/access" ? pending : scopedFetch(path, options)
+    );
+
+    window.history.replaceState(null, "", "/jobs");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Loading Permissions" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      finish(new Response(JSON.stringify(operatorAccess), { status: 200 }));
+    });
+
+    expect(await screen.findByText("team-build")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+  });
+
+  it("keeps controls unavailable and reports failure when permissions cannot be loaded", async () => {
+    scopedAPI();
+    const scopedFetch = fetchMock.getMockImplementation()!;
+
+    fetchMock.mockImplementation((path: string, options: RequestInit) =>
+      path === "/api/v1/access"
+        ? Promise.resolve(
+            new Response(JSON.stringify({ message: "Permissions temporarily unavailable" }), { status: 503 })
+          )
+        : scopedFetch(path, options)
+    );
+
+    window.history.replaceState(null, "", "/jobs");
+    render(<App />);
+
+    await screen.findByText("team-build");
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Unable to load permissions");
+  });
+
+  it("refreshes access after creating a namespace without reloading on each route", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const initial: ConsoleAccess = {
+      actions: unrestrictedAccess.actions,
+      namespaces: { "/": unrestrictedAccess.actions }
+    };
+
+    source.initialAccess = initial;
+    source.loadAccess = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce({
+        ...initial,
+        namespaces: { ...initial.namespaces, "/new-team": unrestrictedAccess.actions }
+      });
+
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+
+    try {
+      window.history.replaceState(null, "", "/namespaces");
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Create" }));
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "new-team" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create Namespace" }));
+      fireEvent.click(await screen.findByText("/new-team"));
+      expect(await screen.findByRole("button", { name: "Configure" })).toBeInTheDocument();
+      expect(source.loadAccess).toHaveBeenCalledTimes(2);
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  it("keeps namespace creation and editing unavailable to operators", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/namespaces");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Namespaces" });
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState(null, "", "/namespaces/2");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(screen.queryByRole("button", { name: "Configure" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("explains an operator's direct Health link without requesting administrative diagnostics", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/health");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Administrative Access Required" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([path]) => path === "/api/v1/cells/status")).toBe(false);
+  });
+
+  it("blocks an operator's direct job-create URL", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/jobs/create");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Job Editing Access Required" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create Job" })).not.toBeInTheDocument();
+  });
+
+  it("does not restore a remembered root scope when the account can only see a team namespace", async () => {
+    scopedAPI();
+    window.history.replaceState({ vectisNavigation: { key: "restricted-run-list", namespace: "/" } }, "", "/runs");
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByLabelText("Namespace")).toHaveTextContent("/team"));
+  });
+
+  it("shows an access message for a forbidden Users deep link", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/users/12");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Access Required" })).toBeInTheDocument();
+    expect(screen.queryByText("User Not Found")).not.toBeInTheDocument();
+  });
+
+  it("does not present forbidden namespace bindings as an empty access list", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/namespaces/2");
+    render(<App />);
+
+    expect(
+      await screen.findByText("Your account cannot view the users or role bindings for this namespace.")
+    ).toBeInTheDocument();
+
+    expect(screen.queryByText("No direct role bindings.")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Namespace role bindings")).not.toBeInTheDocument();
+  });
+
+  it("shows a health request failure instead of reporting an empty cluster", async () => {
+    scopedAPI(unrestrictedAccess);
+    window.history.replaceState(null, "", "/health");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Unable to Load Cell Status" })).toBeInTheDocument();
+    expect(screen.getByText("Permission denied")).toBeInTheDocument();
+  });
+
+  it("clears health data when signing out before a restricted account signs in", async () => {
+    scopedAPI();
+    const restrictedFetch = fetchMock.getMockImplementation()!;
+    let healthReads = 0;
+    let signedOut = false;
+
+    fetchMock.mockImplementation((path: string, options: RequestInit) => {
+      if (path === "/api/v1/cells/status" && healthReads++ === 0)
+        return Promise.resolve(new Response(JSON.stringify({ cells: [] }), { status: 200 }));
+
+      if (path === "/api/v1/access" && !signedOut)
+        return Promise.resolve(new Response(JSON.stringify(unrestrictedAccess), { status: 200 }));
+
+      if (path === "/ui/api/logout") {
+        signedOut = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      if (path === "/ui/api/login")
+        return Promise.resolve(new Response(JSON.stringify({ user_id: 2, username: "operator" }), { status: 200 }));
+
+      return restrictedFetch(path, options);
+    });
+
+    window.history.replaceState(null, "", "/health");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Health" });
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+    await screen.findByRole("heading", { name: "Sign in" });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "operator" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "operator-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await screen.findByText("team-build");
+    expect(window.location.pathname).toBe("/jobs");
+
+    act(() => {
+      window.history.pushState(null, "", "/health");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(await screen.findByRole("heading", { name: "Administrative Access Required" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Health" })).not.toBeInTheDocument();
+  });
+
+  it("opens profile without loading console resources", async () => {
+    scopedAPI();
+    window.history.replaceState(null, "", "/profile");
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "Profile" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/ui/api/context", expect.any(Object)));
+    expect(fetchMock.mock.calls.every(([path]) => path === "/ui/api/context" || path === "/api/v1/access")).toBe(true);
   });
 
   it("renders the setup route selected by the BFF", () => {
@@ -97,7 +364,8 @@ describe("App", () => {
     fetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       let body: unknown;
 
-      if (path === "/ui/api/context") body = { auth_enabled: false, principal: { username: "local" } };
+      if (path === "/api/v1/access") body = unrestrictedAccess;
+      else if (path === "/ui/api/context") body = { auth_enabled: false, principal: { username: "local" } };
       else if (path === "/api/v1/namespaces") body = [{ id: 1, name: "/", path: "/", break_inheritance: false }];
       else if (path === "/api/v1/source-repositories")
         body = [
@@ -176,7 +444,8 @@ describe("App", () => {
 
     fetchMock.mockImplementation(async (path: string) => {
       let body: unknown;
-      if (path === "/ui/api/context") body = { auth_enabled: true, principal: { username: "admin" } };
+      if (path === "/api/v1/access") body = unrestrictedAccess;
+      else if (path === "/ui/api/context") body = { auth_enabled: true, principal: { username: "admin" } };
       else if (path === "/api/v1/source-repositories")
         body = [{ repository_id: "demo", namespace: "/", default_ref: "main", authoring: { write_definitions: true } }];
       else if (path.startsWith("/api/v1/jobs?"))
@@ -227,6 +496,7 @@ describe("App", () => {
           status: 200
         })
       )
+      .mockResolvedValueOnce(new Response(JSON.stringify(unrestrictedAccess), { status: 200 }))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -334,9 +604,8 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Health" })).toBeInTheDocument();
-
-    expect(window.location.pathname).toBe("/");
+    expect(await screen.findByRole("heading", { name: "Jobs" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/jobs");
   });
 
   it("renders app routes directly after BFF authorization", async () => {
@@ -366,7 +635,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Health" })).toBeInTheDocument();
 
     expect(screen.queryByLabelText("Namespace")).not.toBeInTheDocument();
-    expect(screen.getByText("prod-west")).toBeInTheDocument();
+    expect(await screen.findByText("prod-west")).toBeInTheDocument();
     expect(screen.getByText("Offline")).toBeInTheDocument();
   });
 
@@ -375,6 +644,7 @@ describe("App", () => {
     window.history.replaceState(null, "", "/health");
 
     fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(unrestrictedAccess), { status: 200 }))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -409,11 +679,78 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Health" })).toBeInTheDocument();
+    expect(await screen.findByText("local")).toBeInTheDocument();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/ui/api/context", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/cells/status", expect.any(Object));
+  });
+
+  it("keeps Health mounted from permission discovery through loading and background refresh", async () => {
+    scopedAPI(unrestrictedAccess);
+    const original = fetchMock.getMockImplementation()!;
+    let grant!: (response: Response) => void;
+    let finish!: (response: Response) => void;
+
+    fetchMock.mockImplementation((path: string, options: RequestInit) => {
+      if (path === "/api/v1/access")
+        return new Promise<Response>((resolve) => {
+          grant = resolve;
+        });
+
+      if (path === "/api/v1/cells/status")
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+
+      return original(path, options);
+    });
+
+    window.history.replaceState(null, "", "/health");
+    render(<App />);
+
+    const heading = screen.getByRole("heading", { name: "Health" });
+    const panel = screen.getByLabelText("Cluster health");
+    expect(panel).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText("No cells registered.")).not.toBeInTheDocument();
+
+    await act(async () => grant(new Response(JSON.stringify(unrestrictedAccess), { status: 200 })));
+    expect(screen.getByRole("heading", { name: "Health" })).toBe(heading);
+    expect(screen.getByLabelText("Cluster health")).toBe(panel);
+
+    const response = () =>
+      new Response(JSON.stringify({ cells: [{ cell_id: "local", status: "local", queued: 0, stuck: 0 }] }), {
+        status: 200
+      });
+
+    await act(async () => finish(response()));
+    expect(screen.getByRole("heading", { name: "Health" })).toBe(heading);
+    expect(panel).toHaveAttribute("aria-busy", "false");
     expect(screen.getByText("local")).toBeInTheDocument();
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/ui/api/context", expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/cells/status", expect.any(Object));
+    const visit = (path: string) =>
+      act(() => {
+        window.history.pushState(null, "", path);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+
+    visit("/profile");
+    visit("/health");
+
+    const cachedHeading = screen.getByRole("heading", { name: "Health" });
+    const cell = screen.getByRole("button", { name: "Inspect local" });
+    expect(screen.getByLabelText("Cluster health")).toHaveAttribute("aria-busy", "false");
+
+    await act(async () =>
+      finish(new Response(JSON.stringify({ message: "Temporarily unavailable" }), { status: 503 }))
+    );
+
+    expect(screen.getByRole("heading", { name: "Health" })).toBe(cachedHeading);
+    expect(screen.getByRole("button", { name: "Inspect local" })).toBe(cell);
+    expect(screen.getByRole("alert")).toHaveTextContent("Temporarily unavailable");
+
+    visit("/profile");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("drills into individual cell health", async () => {
@@ -421,13 +758,104 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Health" });
-
-    fireEvent.click(screen.getByRole("button", { name: "Inspect edge" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect edge" }));
 
     expect(screen.getByRole("heading", { name: "edge" })).toBeInTheDocument();
     expect(screen.getByText("Lag 2m 14s")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/health/cell-edge");
+  });
+
+  it("keeps actual API role bindings visible through disable, activate, and deletion", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    window.history.replaceState(null, "", "/users/2");
+
+    let enabled = true;
+    let deleted = false;
+
+    fetchMock.mockImplementation(async (path: string, options: RequestInit) => {
+      const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+      if (path === "/api/v1/access") return json(unrestrictedAccess);
+      if (path === "/ui/api/context")
+        return json({ auth_enabled: true, principal: { kind: "local_user", username: "admin" } });
+
+      if (path === "/api/v1/namespaces") return json([{ id: 1, name: "/", path: "/", break_inheritance: false }]);
+      if (path === "/api/v1/source-repositories") return json([]);
+      if (path === "/api/v1/runs?limit=200") return json({ data: [] });
+      if (path === "/api/v1/users")
+        return json([
+          { id: 1, username: "admin", enabled: true },
+          ...(deleted ? [] : [{ id: 2, username: "mira", enabled }])
+        ]);
+
+      if (path === "/api/v1/namespaces/1/bindings")
+        return json([
+          { local_user_id: 1, role: "admin" },
+          { local_user_id: 2, role: "operator" }
+        ]);
+
+      if (path === "/api/v1/users/2" && options.method === "PUT") {
+        enabled = JSON.parse(String(options.body)).enabled;
+        return new Response(null, { status: 204 });
+      }
+
+      if (path === "/api/v1/users/2" && options.method === "DELETE") {
+        deleted = true;
+        return new Response(null, { status: 204 });
+      }
+
+      throw new Error(`Unexpected request: ${options.method ?? "GET"} ${path}`);
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Disable" }));
+    await screen.findByRole("button", { name: "Enable" });
+    expect(screen.getByRole("group", { name: "Role bindings" })).toHaveTextContent("Operator");
+    expect(screen.getByRole("button", { name: "Update Role" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+    await screen.findByRole("button", { name: "Disable" });
+    expect(screen.getByRole("group", { name: "Role bindings" })).toHaveTextContent("Operator");
+    expect(screen.getByRole("button", { name: "Update Role" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
+    expect(await screen.findByRole("button", { name: "View admin" })).toHaveTextContent("Admin");
+    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/v1/namespaces/1/bindings")).toHaveLength(1);
+  });
+
+  it("preserves namespace roles when status and deletion return account-only rows", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const original = await source.loadConsole();
+    const accountRows = original.users.map((user) => ({
+      ...user,
+      role: "Unassigned" as const,
+      roleBindings: undefined
+    }));
+
+    source.updateUserStatus = async (id, status) =>
+      accountRows.map((user) => (user.id === id ? { ...user, status } : user));
+
+    source.deleteUser = async (id) => accountRows.filter((user) => user.id !== id);
+    const create = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+
+    try {
+      window.history.replaceState(null, "", "/users/user-mira");
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Disable" }));
+      await screen.findByRole("button", { name: "Enable" });
+      expect(screen.getByLabelText("Role bindings")).toHaveTextContent("Operator");
+      expect(screen.getByLabelText("Role bindings")).toHaveTextContent("Trigger");
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
+      expect(await screen.findByRole("button", { name: "View admin" })).toHaveTextContent("Admin");
+      expect(screen.queryByRole("button", { name: "View mira" })).not.toBeInTheDocument();
+    } finally {
+      create.mockRestore();
+    }
   });
 
   it("creates, disables, and removes a user in the mock", async () => {
@@ -458,20 +886,17 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Disable" }));
-    expect(await screen.findByRole("button", { name: "Activate" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Enable" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
-    const deleteDialog = screen.getByRole("dialog", { name: "Remove User" });
-    expect(deleteDialog).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog", { name: "Remove User" })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Confirm removal" }), { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Remove User" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
-    fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Remove User" })).getByRole("button", { name: "Remove User" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
 
     await waitFor(() => {
       expect(screen.queryByText("taylor")).not.toBeInTheDocument();
@@ -920,7 +1345,6 @@ describe("App", () => {
         "",
         "/runs/run-1241"
       );
-
     } finally {
       create.mockRestore();
       navigate.mockRestore();
@@ -1055,6 +1479,47 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Namespace Not Found" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View Namespaces" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Go to Jobs" })).not.toBeInTheDocument();
+  });
+
+  it("changes a password through the real API source and returns to sign-in", async () => {
+    scopedAPI();
+    const original = fetchMock.getMockImplementation()!;
+
+    fetchMock.mockImplementation((path: string, options: RequestInit) => {
+      if (path === "/api/v1/users/change-password" || path === "/ui/api/logout")
+        return Promise.resolve(new Response(null, { status: 204 }));
+      return original(path, options);
+    });
+
+    window.history.replaceState(null, "", "/profile");
+    render(<App />);
+
+    await screen.findByLabelText("Current password");
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "current-password" } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "new-password" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "new-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect(await screen.findByText("Password changed. Sign in with your new password.")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/login");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/users/change-password",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ current_password: "current-password", new_password: "new-password" })
+      })
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith("/ui/api/logout", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("hides Health for an admin of a child namespace", async () => {
+    scopedAPI({ ...operatorAccess, namespaces: { "/team": [...operatorAccess.namespaces["/team"], "admin:*"] } });
+    window.history.replaceState(null, "", "/health");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Administrative Access Required" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([path]) => path === "/api/v1/cells/status")).toBe(false);
   });
 
   it("logs out and returns to login", async () => {

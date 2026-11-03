@@ -177,3 +177,31 @@ func TestRoleBindingsRepository_GetUserRolesInNamespace_empty(t *testing.T) {
 		t.Fatalf("expected 0 roles, got %d", len(roles))
 	}
 }
+
+func TestRoleBindingsUpdateConflictPreservesExistingGrants(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	auth := NewSQLAuthRepository(db)
+	uid, err := auth.CreateLocalUserWithBinding(ctx, "multi-role", "hash", RootNamespaceID, "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewSQLRoleBindingsRepository(db)
+	if _, err := repo.Create(ctx, uid, RootNamespaceID, "viewer"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.Update(ctx, uid, RootNamespaceID, "operator", "viewer"); !IsConflict(err) {
+		t.Fatalf("expected duplicate grant conflict, got %v", err)
+	}
+
+	roles, err := repo.GetUserRolesInNamespace(ctx, uid, RootNamespaceID)
+	if err != nil || len(roles) != 2 {
+		t.Fatalf("conflict changed existing grants: %v %v", roles, err)
+	}
+
+	if err := repo.Update(ctx, uid, RootNamespaceID, "admin", "trigger"); !IsNotFound(err) {
+		t.Fatalf("stale previous role: %v", err)
+	}
+}

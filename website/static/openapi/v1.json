@@ -68,7 +68,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/health/live": {
@@ -137,7 +138,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/schema/status": {
@@ -167,7 +169,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/reconciler/heartbeat": {
@@ -190,7 +193,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/audit/drops": {
@@ -213,7 +217,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/audit/events": {
@@ -304,7 +309,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/db/pool-stats": {
@@ -327,7 +333,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/queue/backlog": {
@@ -350,7 +357,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/reconciler/stuck-runs": {
@@ -373,7 +381,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/log/reachable": {
@@ -396,7 +405,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/audit/flush-failures": {
@@ -419,7 +429,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/cron/status": {
@@ -442,7 +453,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/catalog/status": {
@@ -465,7 +477,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/source/status": {
@@ -1229,7 +1242,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Requires an Admin binding in the root namespace (`/`); namespace-only administrators cannot access cluster diagnostics."
       }
     },
     "/api/v1/cells/{cell_id}/catalog-events": {
@@ -3008,6 +3022,82 @@
             "$ref": "#/components/responses/Error"
           }
         }
+      },
+      "patch": {
+        "operationId": "updateNamespaceBinding",
+        "summary": "Update a namespace role binding in place",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          },
+          {
+            "$ref": "#/components/parameters/UserID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBindingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "$ref": "#/components/responses/Error"
+          },
+          "200": {
+            "description": "Role binding updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/access": {
+      "get": {
+        "operationId": "getCurrentAccess",
+        "summary": "Read the current caller\u2019s effective access",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "api:any",
+        "responses": {
+          "200": {
+            "description": "Current presentation capabilities; operations are independently authorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
       }
     }
   },
@@ -3563,7 +3653,7 @@
             "properties": {
               "namespace": {
                 "type": "string",
-                "description": "Namespace path for source-backed job create/update routes. Direct /api/v1/jobs/run requests may omit this field or set it to /ephemeral."
+                "description": "Namespace path. Direct /api/v1/jobs/run requests default to / and require run:trigger in the selected namespace."
               },
               "job": {
                 "$ref": "#/components/schemas/JobDefinition"
@@ -3872,6 +3962,31 @@
             "type": "string",
             "format": "password",
             "minLength": 8
+          },
+          "initial_binding": {
+            "type": "object",
+            "description": "Optional initial namespace role, committed atomically with the account. Requires administration of the target namespace.",
+            "required": [
+              "namespace_id",
+              "role"
+            ],
+            "properties": {
+              "namespace_id": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 1
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "viewer",
+                  "trigger",
+                  "operator",
+                  "admin"
+                ]
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -4062,6 +4177,80 @@
           }
         },
         "additionalProperties": true
+      },
+      "UpdateBindingRequest": {
+        "type": "object",
+        "required": [
+          "previous_role",
+          "role"
+        ],
+        "properties": {
+          "previous_role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "trigger",
+              "operator",
+              "admin"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "trigger",
+              "operator",
+              "admin"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessResponse": {
+        "type": "object",
+        "required": [
+          "actions",
+          "namespaces"
+        ],
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "job:read",
+                "job:write",
+                "run:read",
+                "run:trigger",
+                "run:operator",
+                "admin:*",
+                "user:admin",
+                "api:any"
+              ]
+            }
+          },
+          "namespaces": {
+            "type": "object",
+            "description": "Effective namespace actions after inheritance and token-scope restrictions. Namespaces without permitted actions are omitted.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "job:read",
+                  "job:write",
+                  "run:read",
+                  "run:trigger",
+                  "run:operator",
+                  "admin:*",
+                  "user:admin",
+                  "api:any"
+                ]
+              }
+            }
+          }
+        },
+        "additionalProperties": false
       }
     }
   }

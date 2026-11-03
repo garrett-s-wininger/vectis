@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { BreadcrumbTrail } from "../components";
 import { Button } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
@@ -14,7 +14,7 @@ import type { AssignableUserRole, Namespace, NewUser, RoleBindingRole, User, Use
 import { userRoleOptions } from "../domain/consoleOptions";
 import { EmptyStateRail, PageMissingState, ResourceTitle } from "./shared";
 import { UserDetailPage } from "./users/UserDetailPage";
-import { UserModals } from "./users/UserModals";
+import { InitialPasswordDialog } from "./users/InitialPasswordDialog";
 import { roleTone } from "./users/UserPresentation";
 import styles from "./UsersPage.module.css";
 
@@ -22,7 +22,12 @@ type UsersPageProps = {
   namespaces: Namespace[];
   onCreateUser: (input: NewUser) => Promise<CreatedUserCredential | undefined> | CreatedUserCredential | undefined;
   onDeleteUser: (userID: string) => Promise<void> | void;
-  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
+  onGrantRoleBinding: (
+    userID: string,
+    namespaceID: number,
+    role: RoleBindingRole,
+    previousRole?: RoleBindingRole
+  ) => Promise<void> | void;
   onOpenUser: (userID: string) => void;
   onOpenUsers: () => void;
   onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
@@ -43,12 +48,12 @@ export function UsersPage({
   selectedUserID,
   users
 }: UsersPageProps) {
+  const createButtonRef = useRef<HTMLButtonElement>(null);
   const [credential, setCredential] = useState<CreatedUserCredential | null>(null);
-  const [credentialCopyState, setCredentialCopyState] = useState<"copied" | "idle">("idle");
   const [isCreating, setIsCreating] = useState(false);
-  const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null);
   const [values, setValues] = useState<NewUser>({
     username: "",
+    namespaceID: namespaces[0]?.id,
     role: "Viewer"
   });
 
@@ -60,41 +65,19 @@ export function UsersPage({
 
     try {
       const createdCredential = await onCreateUser(values);
-      setCredentialCopyState("idle");
       setCredential(createdCredential ?? null);
-      setValues({ username: "", role: "Viewer" });
+      setValues({ username: "", namespaceID: namespaces[0]?.id, role: "Viewer" });
       setIsCreating(false);
     } catch {
       // The app-level action alert owns the visible error; keep the form open for correction or retry.
     }
   }
 
-  async function handleCopyCredential() {
-    if (!credential || !canCopyCredential) {
-      return;
-    }
-
-    await navigator.clipboard.writeText(credential.password);
-    setCredentialCopyState("copied");
+  async function handleRemoveUser(user: User) {
+    await onDeleteUser(user.id);
+    if (user.id === selectedUserID) onOpenUsers();
   }
 
-  async function handleConfirmDeleteUser() {
-    if (!pendingDeleteUser) {
-      return;
-    }
-
-    try {
-      await onDeleteUser(pendingDeleteUser.id);
-      setPendingDeleteUser(null);
-      if (pendingDeleteUser.id === selectedUserID) {
-        onOpenUsers();
-      }
-    } catch {
-      // The app-level action alert owns the visible error; keep the dialog open for retry or cancel.
-    }
-  }
-
-  const canCopyCredential = hasSecureClipboard();
   const userStats = summarizeUsers(users);
   const selectedUser = selectedUserID ? users.find((user) => user.id === selectedUserID) : null;
 
@@ -142,23 +125,19 @@ export function UsersPage({
   if (selectedUser) {
     return (
       <UserDetailPage
+        key={selectedUser.id}
         onBack={onOpenUsers}
         namespaces={namespaces}
         onGrantRoleBinding={onGrantRoleBinding}
-        onRemoveUser={setPendingDeleteUser}
+        onRemoveUser={handleRemoveUser}
         onRevokeRoleBinding={onRevokeRoleBinding}
         onUpdateUserStatus={onUpdateUserStatus}
         user={selectedUser}
       >
-        <UserModals
-          canCopyCredential={canCopyCredential}
+        <InitialPasswordDialog
+          returnFocusRef={createButtonRef}
           credential={credential}
-          credentialCopyState={credentialCopyState}
-          onConfirmDeleteUser={handleConfirmDeleteUser}
-          onCopyCredential={handleCopyCredential}
           onDismissCredential={() => setCredential(null)}
-          onDismissDeleteUser={() => setPendingDeleteUser(null)}
-          pendingDeleteUser={pendingDeleteUser}
         />
       </UserDetailPage>
     );
@@ -169,14 +148,14 @@ export function UsersPage({
       <PageHeader
         actions={
           !isCreating ? (
-            <Button onClick={() => setIsCreating(true)} type="button">
+            <Button ref={createButtonRef} onClick={() => setIsCreating(true)} type="button">
               Create
             </Button>
           ) : null
         }
         description="Local accounts that can sign in to the console."
         navigation={
-          <BreadcrumbTrail items={[{ label: "Admin" }, { current: true, label: "Users" }]} label="Users location" />
+          <BreadcrumbTrail items={[{ label: "Manage" }, { current: true, label: "Users" }]} label="Users location" />
         }
         title="Users"
       />
@@ -189,7 +168,14 @@ export function UsersPage({
             <div className={styles.createCopy}>
               <p className="eyebrow">Create</p>
               <h2 id="create-user-title">New User</h2>
-              <p>Add a local account. The API will generate the initial password until password entry is added here.</p>
+              <p>Create an account with a one-time password and an initial namespace role.</p>
+              <p id="initial-role-description">
+                {values.role === "Operator"
+                  ? "Operators can trigger, cancel, and replay runs. Editing jobs and managing namespaces requires Admin access."
+                  : values.role === "Viewer"
+                    ? "Viewers can inspect jobs, runs, logs, and artifacts without starting or changing work."
+                    : "Admins can edit jobs and manage access within their namespace. Root admins can also manage users."}
+              </p>
             </div>
             <form className={styles.form} onSubmit={handleSubmit}>
               <FormField
@@ -202,8 +188,20 @@ export function UsersPage({
                 wide
               />
               <SelectField
+                label="Initial Namespace"
+                name="newUserNamespace"
+                options={namespaces.map((namespace) => ({
+                  label: namespace.path === "/" ? "Root" : namespace.path,
+                  value: String(namespace.id)
+                }))}
+                value={String(values.namespaceID ?? namespaces[0]?.id ?? "")}
+                onChange={(event) => setValues({ ...values, namespaceID: Number(event.target.value) })}
+                wide
+              />
+              <SelectField
                 label="Role"
                 name="newUserRole"
+                aria-describedby="initial-role-description"
                 onChange={(event) =>
                   setValues({
                     ...values,
@@ -218,7 +216,9 @@ export function UsersPage({
                 <Button onClick={() => setIsCreating(false)} type="button" variant="quiet">
                   Cancel
                 </Button>
-                <Button type="submit">Add User</Button>
+                <Button disabled={!namespaces.length} type="submit">
+                  Add User
+                </Button>
               </div>
             </form>
           </section>
@@ -260,26 +260,17 @@ export function UsersPage({
           </EmptyStateRail>
         )}
       </div>
-      <UserModals
-        canCopyCredential={canCopyCredential}
+      <InitialPasswordDialog
+        returnFocusRef={createButtonRef}
         credential={credential}
-        credentialCopyState={credentialCopyState}
-        onConfirmDeleteUser={handleConfirmDeleteUser}
-        onCopyCredential={handleCopyCredential}
         onDismissCredential={() => setCredential(null)}
-        onDismissDeleteUser={() => setPendingDeleteUser(null)}
-        pendingDeleteUser={pendingDeleteUser}
       />
     </>
   );
 }
 
 function userMissingBreadcrumbItems() {
-  return [{ label: "Admin" }, { label: "Users" }, { current: true, label: "Missing" }];
-}
-
-function hasSecureClipboard() {
-  return Boolean(window.isSecureContext && navigator.clipboard?.writeText);
+  return [{ label: "Manage" }, { label: "Users" }, { current: true, label: "Missing" }];
 }
 
 function summarizeUsers(users: User[]) {

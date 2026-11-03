@@ -14,6 +14,33 @@
   padding-top: var(--space-lg);
 }
 
+.metadata .runReference {
+  align-items: center;
+  background: var(--surface-subtle);
+  border: 1px solid var(--color-border-metal);
+  border-radius: var(--control-radius);
+  box-sizing: border-box;
+  display: flex;
+  font-size: var(--font-size-sm);
+  gap: var(--space-sm);
+  justify-content: space-between;
+  min-height: 42px;
+  padding: var(--space-sm) var(--space-md);
+  text-decoration: none;
+}
+
+.runReference svg {
+  flex: 0 0 var(--space-lg);
+  height: var(--space-lg);
+  width: var(--space-lg);
+}
+
+.metadata .runReference:hover {
+  background: var(--dropdown-menu-item-bg);
+  border-color: var(--color-primary-hover);
+  color: var(--color-primary-hover);
+}
+
 .overallStatus {
   display: flex;
   flex-wrap: wrap;
@@ -121,6 +148,10 @@
   gap: var(--space-md);
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   margin: 0;
+}
+
+.executionContext {
+  grid-column: 1 / -1;
 }
 
 .timelinePanel {

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { primaryNavItems, adminNavItems } from "../../routing/routes";
+import { primaryNavItems, managementNavItems } from "../../routing/routes";
 import { AppShell } from "./AppShell";
 import { Button } from "../primitives/Button";
 import { MetricCard } from "../data/MetricCard";
@@ -12,7 +12,7 @@ const meta = {
     brand: "Vectis",
     activeHref: "/runs",
     navItems: primaryNavItems,
-    utilityNavItems: adminNavItems,
+    utilityNavItems: managementNavItems,
     accountName: "admin",
     actions: <Button>Refresh</Button>,
     children: (

@@ -5,10 +5,11 @@ import styles from "./HealthPage.module.css";
 
 type HealthPageProps = {
   cells: Cell[];
+  loading?: boolean;
   onSelectCell: (cellID: string) => void;
 };
 
-export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
+export function HealthPage({ cells, loading = false, onSelectCell }: HealthPageProps) {
   const metrics = clusterHealthMetricsFor(cells);
 
   return (
@@ -20,24 +21,24 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
         }
         title="Health"
       />
-      <div className={styles.healthLayout}>
-        <CellStatusDistribution cells={cells} />
+      <div className={styles.healthLayout} aria-busy={loading} aria-label="Cluster health" role="region">
+        <CellStatusDistribution cells={cells} loading={loading} />
         <div className={styles.secondaryMetrics}>
           {metrics.map((metric) => (
             <MetricCard
-              detail={metric.detail}
+              detail={loading ? "Awaiting cell status" : metric.detail}
               key={metric.id}
               label={metric.label}
-              tone={metric.tone}
-              value={metric.value}
+              tone={loading ? "neutral" : metric.tone}
+              value={loading ? "—" : metric.value}
             />
           ))}
         </div>
         <div className={styles.cellList}>
           <ExecutionTopology
             cells={topologyCellsFor(cells)}
-            countLabel={cellCountLabel(cells.length)}
-            emptyMessage="No cells registered."
+            countLabel={loading ? "Loading…" : cellCountLabel(cells.length)}
+            emptyMessage={loading ? "Loading cell status…" : "No cells registered."}
             onSelectCell={onSelectCell}
           />
         </div>
@@ -46,7 +47,7 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
   );
 }
 
-function CellStatusDistribution({ cells }: { cells: Cell[] }) {
+function CellStatusDistribution({ cells, loading }: { cells: Cell[]; loading: boolean }) {
   const counts = cellStatusCounts(cells);
   const total = cells.length;
   const summary = cellStatusSummary(counts);
@@ -54,8 +55,12 @@ function CellStatusDistribution({ cells }: { cells: Cell[] }) {
   return (
     <article className={`${styles.statusMetric} polished-panel polished-panel--accent-top`}>
       <span className={styles.statusLabel}>Cell Status</span>
-      <strong className={styles.statusValue}>{total}</strong>
-      <div aria-label={`Cell status distribution: ${summary}`} className={styles.statusBar} role="img">
+      <strong className={styles.statusValue}>{loading ? "—" : total}</strong>
+      <div
+        aria-label={loading ? "Cell status distribution loading" : `Cell status distribution: ${summary}`}
+        className={styles.statusBar}
+        role="img"
+      >
         {statusSegments.map((segment) => {
           const count = counts[segment.status];
           const width = total > 0 ? `${(count / total) * 100}%` : "0%";
@@ -73,7 +78,7 @@ function CellStatusDistribution({ cells }: { cells: Cell[] }) {
         {statusSegments.map((segment) => (
           <span className={styles.legendItem} key={segment.status}>
             <span className={`${styles.legendMarker} ${styles[segment.className]}`} />
-            {counts[segment.status]} {segment.label}
+            {loading ? "—" : counts[segment.status]} {segment.label}
           </span>
         ))}
       </div>

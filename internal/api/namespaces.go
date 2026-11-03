@@ -363,11 +363,6 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rec.Path == dal.EphemeralNamespacePath {
-		writeAPIErrorCode(w, http.StatusForbidden, apiErrSystemNamespaceDeleteForbidden)
-		return
-	}
-
 	if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, rec.Path) {
 		return
 	}

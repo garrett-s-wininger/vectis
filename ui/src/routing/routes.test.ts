@@ -2,7 +2,7 @@ import { routeFromPath, safeNextPath, safeReturnPath } from "./routes";
 
 describe("routes", () => {
   it.each([
-    ["/", "health", "/health"],
+    ["/", "jobs", "/jobs"],
     ["/health", "health", "/health"],
     ["/runs", "runs", "/runs"],
     ["/runs/123", "runs", "/runs"],

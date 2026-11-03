@@ -1,3 +1,4 @@
+import { useConsoleAccess } from "../domain/access";
 import type { SourceRepository } from "../domain/console";
 import { Button } from "../components";
 import { BreadcrumbTrail } from "../components";
@@ -57,6 +58,8 @@ export function JobsPage({
   onUpdateJob,
   runs
 }: JobsPageProps) {
+  const { can } = useConsoleAccess();
+  const canWrite = can("job:write", namespacePath);
   const routableJobs = allJobs ?? jobs;
   const detailJob = detailJobID ? routableJobs.find((job) => job.id === detailJobID) : null;
   const editorJob =
@@ -143,12 +146,14 @@ export function JobsPage({
           )
         }
         actions={
-          !editorMode && jobs.length > 0 ? (
+          !editorMode ? (
             <>
               <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
-              <Button aria-expanded={false} onClick={onOpenCreate}>
-                Create
-              </Button>
+              {canWrite && jobs.length > 0 ? (
+                <Button aria-expanded={false} onClick={onOpenCreate}>
+                  Create
+                </Button>
+              ) : null}
             </>
           ) : null
         }
@@ -169,10 +174,14 @@ export function JobsPage({
       {!editorMode && jobs.length === 0 ? (
         <EmptyStateRail>
           <EmptyStatePanel
-            actions={<Button onClick={onOpenCreate}>Create</Button>}
-            description="Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later."
+            actions={canWrite ? <Button onClick={onOpenCreate}>Create</Button> : undefined}
+            description={
+              canWrite
+                ? "Create a source-backed job to make a reusable definition available here."
+                : "No jobs are available in this namespace. An administrator can add a source-backed job; operators can submit a Run Once from Runs."
+            }
             eyebrow="No Stored Jobs"
-            title="Create One Today"
+            title={canWrite ? "Create One Today" : "No Jobs in This Namespace"}
             titleID="jobs-empty-title"
           />
         </EmptyStateRail>

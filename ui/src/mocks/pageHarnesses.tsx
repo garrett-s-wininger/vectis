@@ -89,8 +89,15 @@ export function NamespacesPageHarness() {
       }}
       onCreateNamespace={(input) => setData((current) => createMockNamespace(current, input))}
       onDeleteNamespace={(namespaceID) => setData((current) => deleteMockNamespace(current, namespaceID))}
-      onGrantRoleBinding={(userID, namespaceID, role) =>
-        setData((current) => grantMockRoleBinding(current, userID, namespaceID, role))
+      onGrantRoleBinding={(userID, namespaceID, role, previousRole) =>
+        setData((current) =>
+          grantMockRoleBinding(
+            previousRole ? revokeMockRoleBinding(current, userID, namespaceID, previousRole) : current,
+            userID,
+            namespaceID,
+            role
+          )
+        )
       }
       onOpenJobs={() => undefined}
       onOpenNamespace={(namespaceID) => {
@@ -184,8 +191,15 @@ export function UsersPageHarness() {
         };
       }}
       onDeleteUser={(userID) => setData((current) => deleteMockUser(current, userID))}
-      onGrantRoleBinding={(userID, namespaceID, role) =>
-        setData((current) => grantMockRoleBinding(current, userID, namespaceID, role))
+      onGrantRoleBinding={(userID, namespaceID, role, previousRole) =>
+        setData((current) =>
+          grantMockRoleBinding(
+            previousRole ? revokeMockRoleBinding(current, userID, namespaceID, previousRole) : current,
+            userID,
+            namespaceID,
+            role
+          )
+        )
       }
       onOpenUser={() => undefined}
       onOpenUsers={() => undefined}

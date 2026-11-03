@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { primaryNavItems, adminNavItems } from "../../routing/routes";
+import { primaryNavItems, managementNavItems } from "../../routing/routes";
 import { AppShell, type NavEntry } from "./AppShell";
 import { Button } from "../primitives/Button";
 import { NamespacePicker } from "../navigation/NamespacePicker";
@@ -12,7 +12,7 @@ const navItems: NavEntry[] = [
 
 const utilityNavItems: NavEntry[] = [
   {
-    label: "Admin",
+    label: "Manage",
     items: [
       { href: "/health", label: "Health" },
       { href: "/users", label: "Users" }
@@ -69,7 +69,7 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Utility" })).toBeInTheDocument();
-    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByText("Manage")).toBeInTheDocument();
     expect(screen.getByText("admin")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("admin"));
@@ -107,9 +107,8 @@ describe("AppShell", () => {
       </AppShell>
     );
 
-    fireEvent.click(screen.getByText("Admin"));
-    const adminMenu = screen.getByText("Admin").closest("details");
-
+    fireEvent.click(screen.getByText("Manage"));
+    const adminMenu = screen.getByText("Manage").closest("details");
     expect(adminMenu).toHaveAttribute("open");
 
     fireEvent.click(screen.getByRole("link", { name: "Health" }));
@@ -184,9 +183,8 @@ describe("AppShell", () => {
       </AppShell>
     );
 
-    fireEvent.click(screen.getByText("Admin"));
-    const adminMenu = screen.getByText("Admin").closest("details");
-
+    fireEvent.click(screen.getByText("Manage"));
+    const adminMenu = screen.getByText("Manage").closest("details");
     expect(adminMenu).toHaveAttribute("open");
 
     fireEvent.click(screen.getByText("admin"));
@@ -214,14 +212,12 @@ describe("AppShell", () => {
 
     expect(namespaceMenu).toHaveAttribute("open");
 
-    fireEvent.click(screen.getByText("Admin"));
-    const adminMenu = screen.getByText("Admin").closest("details");
-
+    fireEvent.click(screen.getByText("Manage"));
+    const adminMenu = screen.getByText("Manage").closest("details");
     expect(adminMenu).toHaveAttribute("open");
     expect(namespaceMenu).not.toHaveAttribute("open");
 
     fireEvent.click(screen.getByLabelText("Namespace"));
-
     expect(namespaceMenu).toHaveAttribute("open");
     expect(adminMenu).not.toHaveAttribute("open");
   });
@@ -281,7 +277,7 @@ it("keeps Help links outside SPA routing and separate from account actions", () 
 
 it("shows decorative icons beside the primary and admin navigation labels", () => {
   render(
-    <AppShell brand="Vectis" activeHref="/runs" navItems={primaryNavItems} utilityNavItems={adminNavItems}>
+    <AppShell brand="Vectis" activeHref="/runs" navItems={primaryNavItems} utilityNavItems={managementNavItems}>
       Content
     </AppShell>
   );
@@ -291,7 +287,7 @@ it("shows decorative icons beside the primary and admin navigation labels", () =
     expect(link.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   }
 
-  fireEvent.click(screen.getByText("Admin", { exact: true }));
+  fireEvent.click(screen.getByText("Manage", { exact: true }));
   for (const name of ["Health", "Users", "Namespaces"]) {
     const link = screen.getByRole("link", { name });
     expect(link.querySelector('svg[aria-hidden="true"]')).not.toBeNull();

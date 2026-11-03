@@ -43,6 +43,7 @@ var EventDefinitions = []EventDefinition{
 	{Type: EventUserUpdated, DefaultDurability: DurabilityFailClosed},
 	{Type: EventUserDeleted, DefaultDurability: DurabilityFailClosed},
 	{Type: EventBindingCreated, DefaultDurability: DurabilityFailClosed},
+	{Type: EventBindingUpdated, DefaultDurability: DurabilityFailClosed},
 	{Type: EventBindingDeleted, DefaultDurability: DurabilityFailClosed},
 	{Type: EventSetupCompleted, DefaultDurability: DurabilityFailClosed},
 	{Type: EventSetupBootstrapFailed, DefaultDurability: DurabilityDurableBestEffort},

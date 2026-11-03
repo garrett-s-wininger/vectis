@@ -1,3 +1,4 @@
+import { ConsoleAccessProvider, hasAccess, useConsoleAccess, type ConsoleAccess } from "./domain/access";
 import type { FormEvent, MouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./index.css";
@@ -14,7 +15,7 @@ import { createConsoleDataSource, type CreatedUserCredential } from "./data/cons
 import { watchRun } from "./data/watchRun";
 import type { LoadRunArtifacts } from "./data/runArtifacts";
 import type { Cell, NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
-import type { NewUser, RoleBindingRole, UserStatus } from "./domain/console";
+import type { NewUser, RoleBindingRole, User, UserStatus } from "./domain/console";
 import { canDeleteMockNamespace, nextMockRunID, scopeMockConsoleData, type MockConsoleData } from "./mocks/consoleData";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HealthPage } from "./pages/HealthPage";
@@ -31,7 +32,7 @@ import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { ActionAlertRail, PageMissingState, PageStateRail } from "./pages/shared";
 import {
-  adminNavItems,
+  managementNavItems,
   navigateTo,
   primaryNavItems,
   routeFromPath,
@@ -70,7 +71,10 @@ export function App() {
   const [docsURL, setDocsURL] = useState<string | undefined>(undefined);
   const [accountName, setAccountName] = useState("admin");
   const [authEnabled, setAuthEnabled] = useState(true);
-  const consoleDataSourceRef = useRef(createConsoleDataSource());
+  const [consoleDataSource] = useState(createConsoleDataSource);
+  const consoleDataSourceRef = useRef(consoleDataSource);
+  const [access, setAccess] = useState<ConsoleAccess | null>(() => consoleDataSource.initialAccess ?? null);
+  const [accessError, setAccessError] = useState("");
   const loadArtifacts = useCallback<LoadRunArtifacts>(
     (runID, query) => consoleDataSourceRef.current.loadRunArtifacts(runID, query),
     []
@@ -80,6 +84,7 @@ export function App() {
   const [consoleError, setConsoleError] = useState("");
   const [actionError, setActionError] = useState("");
   const [healthCells, setHealthCells] = useState<Cell[] | null>(null);
+  const [healthError, setHealthError] = useState("");
   const [missingRunID, setMissingRunID] = useState<string | null>(null);
   const [jobDefinitionError, setJobDefinitionError] = useState<{ id: string; message: string } | null>(null);
   const definitionJobID =
@@ -96,7 +101,8 @@ export function App() {
   }, [consoleData?.runs]);
 
   const shellActive = route.kind !== "login" && route.kind !== "setup";
-  const consoleActive = route.kind !== "login" && route.kind !== "setup" && route.kind !== "health";
+  const consoleActive =
+    route.kind !== "login" && route.kind !== "setup" && route.kind !== "health" && route.kind !== "profile";
 
   useEffect(() => {
     const onPopState = () => {
@@ -117,6 +123,28 @@ export function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [consoleData]);
+
+  useEffect(() => {
+    if (!shellActive) return;
+    let ignore = false;
+    consoleDataSourceRef.current
+      .loadAccess()
+      .then((permissions) => {
+        if (!ignore) {
+          setAccess(permissions);
+          setAccessError("");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setAccess(null);
+          setAccessError(errorMessage(error, "Unable to load permissions."));
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [shellActive]);
 
   useEffect(() => {
     if (!shellActive) return;
@@ -158,9 +186,13 @@ export function App() {
           const currentRoute = routeFromPath(window.location.pathname, window.location.search);
           const routeNamespacePath = namespacePathForRoute(data, currentRoute);
 
-          if (routeNamespacePath) {
-            setSelectedNamespacePath(routeNamespacePath);
-          }
+          setSelectedNamespacePath(
+            (current) =>
+              routeNamespacePath ??
+              (data.namespaces.some((namespace) => namespace.path === current)
+                ? current
+                : (data.namespaces[0]?.path ?? "/"))
+          );
 
           setConsoleError("");
           setActionError("");
@@ -178,7 +210,7 @@ export function App() {
   }, [consoleActive]);
 
   useEffect(() => {
-    if (route.kind !== "health") {
+    if (route.kind !== "health" || !hasAccess(access, "admin:*")) {
       return;
     }
 
@@ -189,19 +221,19 @@ export function App() {
       .then((cells) => {
         if (!ignore) {
           setHealthCells(cells);
-          setActionError("");
+          setHealthError("");
         }
       })
       .catch((error: unknown) => {
         if (!ignore) {
-          setActionError(errorMessage(error, "Unable to load cell status."));
+          setHealthError(errorMessage(error, "Unable to load cell status."));
         }
       });
 
     return () => {
       ignore = true;
     };
-  }, [route.kind]);
+  }, [route.kind, access]);
 
   useEffect(() => {
     if (!definitionJob || definitionJob.definition !== undefined) return;
@@ -331,7 +363,7 @@ export function App() {
   async function handleUpdateUserStatus(userID: string, status: UserStatus) {
     try {
       const users = await consoleDataSourceRef.current.updateUserStatus(userID, status);
-      setConsoleData((data) => (data ? { ...data, users } : data));
+      setConsoleData((data) => withUpdatedUsers(data, users));
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -342,7 +374,7 @@ export function App() {
   async function handleDeleteUser(userID: string) {
     try {
       const users = await consoleDataSourceRef.current.deleteUser(userID);
-      setConsoleData((data) => (data ? { ...data, users } : data));
+      setConsoleData((data) => withUpdatedUsers(data, users));
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -351,13 +383,31 @@ export function App() {
     }
   }
 
-  async function handleGrantRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole) {
+  async function refreshAccess() {
     try {
-      setConsoleData(await consoleDataSourceRef.current.grantRoleBinding(userID, namespaceID, role));
+      setAccess(await consoleDataSourceRef.current.loadAccess());
+      setAccessError("");
+    } catch (error) {
+      setAccess(null);
+      setAccessError(errorMessage(error, "Unable to refresh permissions."));
+    }
+  }
+
+  async function handleGrantRoleBinding(
+    userID: string,
+    namespaceID: number,
+    role: RoleBindingRole,
+    previousRole?: RoleBindingRole
+  ) {
+    try {
+      setConsoleData(await consoleDataSourceRef.current.grantRoleBinding(userID, namespaceID, role, previousRole));
+      await refreshAccess();
       setConsoleError("");
       setActionError("");
     } catch (error) {
-      setActionError(errorMessage(error, "Unable to grant role binding."));
+      setActionError(
+        errorMessage(error, previousRole ? "Unable to update role binding." : "Unable to grant role binding.")
+      );
       throw error;
     }
   }
@@ -365,6 +415,7 @@ export function App() {
   async function handleRevokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole) {
     try {
       setConsoleData(await consoleDataSourceRef.current.revokeRoleBinding(userID, namespaceID, role));
+      await refreshAccess();
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -376,6 +427,7 @@ export function App() {
   async function handleCreateNamespace(input: NewNamespace) {
     try {
       setConsoleData(await consoleDataSourceRef.current.createNamespace(input));
+      await refreshAccess();
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -416,6 +468,7 @@ export function App() {
 
     try {
       setConsoleData(await consoleDataSourceRef.current.deleteNamespace(namespaceID));
+      await refreshAccess();
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -556,13 +609,39 @@ export function App() {
     else navigateTo(href);
   }
 
+  function clearAccountState() {
+    setConsoleData(null);
+    setHealthCells(null);
+    setHealthError("");
+    setAccess(null);
+    setAccessError("");
+    setConsoleError("");
+    setActionError("");
+    setMissingRunID(null);
+    setJobDefinitionError(null);
+    setSelectedNamespacePath("/");
+    setLoginValues({ username: "", password: "" });
+    runCacheRef.current = [];
+  }
+
   async function signOut() {
     try {
       await logout();
     } finally {
-      setConsoleData(null);
+      clearAccountState();
       navigateTo("/login");
     }
+  }
+
+  async function handleChangePassword(currentPassword: string, newPassword: string) {
+    await consoleDataSourceRef.current.changePassword(currentPassword, newPassword);
+    try {
+      await logout();
+    } catch {
+      /* The API has already revoked this session and its tokens. */
+    }
+    clearAccountState();
+    navigateTo("/login?password_changed=1");
   }
 
   if (route.kind === "setup") {
@@ -590,48 +669,67 @@ export function App() {
   }
 
   return (
-    <AppShell
-      activeHref={route.activeHref}
-      accountDetail={authEnabled ? undefined : "Auth disabled"}
-      accountName={accountName}
-      brand="Vectis"
-      docsURL={docsURL}
-      navItems={primaryNavItems}
-      onNavigate={handleShellNavigate}
-      onSignOut={authEnabled ? signOut : undefined}
-      utilityNavItems={adminNavItems}
-    >
-      <RouteContent
-        loadArtifacts={loadArtifacts}
-        actionError={actionError}
-        consoleData={consoleData}
-        consoleError={consoleError}
-        jobDefinitionError={
-          jobDefinitionError && jobDefinitionError.id === definitionJobID ? jobDefinitionError.message : ""
-        }
-        healthCells={healthCells}
-        loadingHealthCells={route.kind === "health" && healthCells === null && !actionError}
-        missingRunID={missingRunID}
-        namespacePath={selectedNamespacePath}
-        onCreateJob={handleCreateJob}
-        onCreateNamespace={handleCreateNamespace}
-        onCreateUser={handleCreateUser}
-        onDeleteNamespace={handleDeleteNamespace}
-        onDeleteUser={handleDeleteUser}
-        onGrantRoleBinding={handleGrantRoleBinding}
-        onRevokeRoleBinding={handleRevokeRoleBinding}
-        onSubmitEphemeralRun={handleSubmitEphemeralRun}
-        onTriggerRun={handleTriggerRun}
-        onCancelRun={handleCancelRun}
-        onReplayRun={handleReplayRun}
-        onOpenRun={handleOpenRun}
-        onUpdateJob={handleUpdateJob}
-        onUpdateNamespace={handleUpdateNamespace}
-        onUpdateUserStatus={handleUpdateUserStatus}
-        onSelectNamespace={setSelectedNamespacePath}
-        route={route}
-      />
-    </AppShell>
+    <ConsoleAccessProvider access={access} error={accessError}>
+      <AppShell
+        activeHref={route.activeHref}
+        accountDetail={authEnabled ? undefined : "Auth disabled"}
+        accountName={accountName}
+        brand="Vectis"
+        docsURL={docsURL}
+        navItems={primaryNavItems}
+        onNavigate={handleShellNavigate}
+        onSignOut={authEnabled ? signOut : undefined}
+        utilityNavItems={managementNavItems
+          .map((group) =>
+            "items" in group
+              ? {
+                  ...group,
+                  items: group.items.filter((item) =>
+                    item.href === "/health"
+                      ? hasAccess(access, "admin:*")
+                      : item.href === "/users"
+                        ? hasAccess(access, "user:admin")
+                        : hasAccess(access, "job:read")
+                  )
+                }
+              : group
+          )
+          .filter((group) => !("items" in group) || group.items.length > 0)}
+      >
+        <RouteContent
+          loadArtifacts={loadArtifacts}
+          actionError={actionError}
+          consoleData={consoleData}
+          consoleError={consoleError}
+          jobDefinitionError={
+            jobDefinitionError && jobDefinitionError.id === definitionJobID ? jobDefinitionError.message : ""
+          }
+          healthCells={healthCells}
+          healthError={healthError}
+          loadingHealthCells={route.kind === "health" && healthCells === null && !healthError}
+          missingRunID={missingRunID}
+          namespacePath={selectedNamespacePath}
+          onChangePassword={authEnabled ? handleChangePassword : undefined}
+          onCreateJob={handleCreateJob}
+          onCreateNamespace={handleCreateNamespace}
+          onCreateUser={handleCreateUser}
+          onDeleteNamespace={handleDeleteNamespace}
+          onDeleteUser={handleDeleteUser}
+          onGrantRoleBinding={handleGrantRoleBinding}
+          onRevokeRoleBinding={handleRevokeRoleBinding}
+          onSubmitEphemeralRun={handleSubmitEphemeralRun}
+          onTriggerRun={handleTriggerRun}
+          onCancelRun={handleCancelRun}
+          onReplayRun={handleReplayRun}
+          onOpenRun={handleOpenRun}
+          onUpdateJob={handleUpdateJob}
+          onUpdateNamespace={handleUpdateNamespace}
+          onUpdateUserStatus={handleUpdateUserStatus}
+          onSelectNamespace={setSelectedNamespacePath}
+          route={route}
+        />
+      </AppShell>
+    </ConsoleAccessProvider>
   );
 }
 
@@ -710,6 +808,9 @@ function LoginPage({
     <main className="app-frame app-frame--centered">
       <section className="auth-panel" aria-labelledby="login-title">
         <AuthHeader subtitle="Vectis Console" title="Sign in" titleID="login-title" />
+        {new URLSearchParams(window.location.search).get("password_changed") === "1" ? (
+          <p role="status">Password changed. Sign in with your new password.</p>
+        ) : null}
         <form className="auth-form" onSubmit={onSubmit}>
           <FormField
             autoComplete="username"
@@ -756,12 +857,14 @@ function AuthHeader({ subtitle, title, titleID }: { subtitle: string; title: str
 }
 
 function RouteContent({
+  onChangePassword,
   loadArtifacts,
   actionError,
   jobDefinitionError,
   consoleData,
   consoleError,
   healthCells,
+  healthError,
   loadingHealthCells,
   missingRunID,
   namespacePath,
@@ -783,12 +886,14 @@ function RouteContent({
   onSelectNamespace,
   route
 }: {
+  onChangePassword?: (currentPassword: string, newPassword: string) => Promise<void>;
   loadArtifacts: LoadRunArtifacts;
   actionError: string;
   jobDefinitionError: string;
   consoleData: MockConsoleData | null;
   consoleError: string;
   healthCells: Cell[] | null;
+  healthError: string;
   loadingHealthCells: boolean;
   missingRunID: string | null;
   namespacePath: string;
@@ -797,7 +902,12 @@ function RouteContent({
   onCreateUser: (input: NewUser) => Promise<CreatedUserCredential | undefined> | CreatedUserCredential | undefined;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
   onDeleteUser: (userID: string) => Promise<void> | void;
-  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
+  onGrantRoleBinding: (
+    userID: string,
+    namespaceID: number,
+    role: RoleBindingRole,
+    previousRole?: RoleBindingRole
+  ) => Promise<void> | void;
   onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
   onTriggerRun: (jobID: string) => void;
@@ -810,6 +920,7 @@ function RouteContent({
   onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;
 }) {
+  const { can, ready: accessReady, error: accessError } = useConsoleAccess();
   const pendingRun =
     route.kind === "runs" &&
     route.runID &&
@@ -817,26 +928,56 @@ function RouteContent({
     missingRunID !== route.runID;
 
   const scrollReady =
-    route.kind === "health"
-      ? !loadingHealthCells
-      : Boolean(consoleData || consoleError) && (!pendingRun || Boolean(consoleError));
+    route.kind === "profile"
+      ? true
+      : (accessReady || Boolean(accessError)) &&
+        (route.kind === "health"
+          ? !can("admin:*") || !loadingHealthCells
+          : Boolean(consoleData || consoleError) && (!pendingRun || Boolean(consoleError)));
 
   useNavigationScroll(route, scrollReady);
 
   const withActionAlert = (children: ReactNode) => (
     <>
-      <ActionAlertRail message={actionError} />
+      <ActionAlertRail
+        message={
+          actionError ||
+          (route.kind === "health" ? healthError : "") ||
+          (accessError ? `Unable to load permissions: ${accessError}. Reload to retry.` : "")
+        }
+      />
       {children}
     </>
   );
 
   if (route.kind === "health") {
+    if (accessError)
+      return (
+        <PageStateRail>
+          <AppState title="Unable to Load Permissions" description={accessError} tone="error" />
+        </PageStateRail>
+      );
+    if (!accessReady) return withActionAlert(<HealthPage cells={[]} loading onSelectCell={() => undefined} />);
+    if (!can("admin:*"))
+      return (
+        <PageStateRail>
+          <AppState
+            title="Administrative Access Required"
+            description="Health contains administrative diagnostics. You can operate jobs and runs within your namespace access."
+            tone="error"
+          />
+        </PageStateRail>
+      );
     const cells = healthCells ?? [];
 
     if (loadingHealthCells && cells.length === 0) {
+      return withActionAlert(<HealthPage cells={[]} loading onSelectCell={() => undefined} />);
+    }
+
+    if (healthError && !healthCells) {
       return (
         <PageStateRail>
-          <AppState title="Loading Cell Status" tone="loading" />
+          <AppState title="Unable to Load Cell Status" description={healthError} tone="error" />
         </PageStateRail>
       );
     }
@@ -871,6 +1012,8 @@ function RouteContent({
     );
   }
 
+  if (route.kind === "profile") return <ProfilePage onChangePassword={onChangePassword} />;
+
   if (consoleError && !consoleData) {
     return (
       <PageStateRail>
@@ -883,6 +1026,25 @@ function RouteContent({
     return (
       <PageStateRail>
         <AppState title="Loading Console" tone="loading" />
+      </PageStateRail>
+    );
+  }
+
+  if (!accessReady && !accessError)
+    return (
+      <PageStateRail>
+        <AppState title="Loading Permissions" tone="loading" />
+      </PageStateRail>
+    );
+
+  if (route.kind === "users" && (!can("user:admin") || consoleData.denied?.users)) {
+    return (
+      <PageStateRail>
+        <AppState
+          title="Access Required"
+          description="Your account cannot manage users. Jobs and runs remain available within your namespace access."
+          tone="error"
+        />
       </PageStateRail>
     );
   }
@@ -949,6 +1111,17 @@ function RouteContent({
     case "jobs": {
       const targetID = route.jobID ?? (route.jobEditor?.kind === "edit" ? route.jobEditor.jobID : undefined);
       const targetJob = consoleData.jobs.find((job) => job.id === targetID);
+      if (route.jobEditor && !can("job:write", targetJob?.namespacePath ?? namespacePath)) {
+        return (
+          <PageStateRail>
+            <AppState
+              title="Job Editing Access Required"
+              description="Your account can inspect or operate jobs but cannot change definitions in this namespace."
+              tone="error"
+            />
+          </PageStateRail>
+        );
+      }
       if (targetJob && targetJob.definition === undefined) {
         return (
           <PageStateRail>
@@ -963,7 +1136,7 @@ function RouteContent({
       return withActionAlert(
         <JobsPage
           detailJobID={route.jobID}
-          repositories={consoleData.repositories}
+          repositories={consoleData.repositories.filter((repository) => can("job:write", repository.namespacePath))}
           editorMode={route.jobEditor ?? null}
           allJobs={consoleData.jobs}
           jobs={scopedConsoleData.jobs}
@@ -1001,6 +1174,8 @@ function RouteContent({
     case "namespaces":
       return withActionAlert(
         <NamespacesPage
+          unavailableBindings={consoleData.denied?.bindings}
+          usersUnavailable={consoleData.denied?.users}
           canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(consoleData, namespaceID)}
           jobs={consoleData.jobs}
           namespaces={consoleData.namespaces}
@@ -1023,8 +1198,6 @@ function RouteContent({
           users={consoleData.users}
         />
       );
-    case "profile":
-      return withActionAlert(<ProfilePage />);
     default:
       return (
         <PageStateRail>
@@ -1034,8 +1207,24 @@ function RouteContent({
   }
 }
 
+function withUpdatedUsers(data: MockConsoleData | null, users: User[]) {
+  if (!data) return data;
+  const remainingIDs = new Set(users.map((user) => user.id));
+  return {
+    ...data,
+    users: users.map((user) => {
+      const previous = data.users.find((candidate) => candidate.id === user.id);
+      // Status and deletion responses contain account rows, without namespace grants.
+      return previous && user.roleBindings === undefined
+        ? { ...user, role: previous.role, roleBindings: previous.roleBindings }
+        : user;
+    }),
+    roleBindings: data.roleBindings.filter((binding) => remainingIDs.has(binding.userID))
+  };
+}
+
 function navigateAfterAuth() {
-  navigateTo(safeNextPath() ?? "/");
+  navigateTo(safeNextPath() ?? "/jobs");
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -1056,7 +1245,7 @@ function jobPathForRunJob(consoleData: MockConsoleData, jobName: string) {
 function namespacePathForRoute(consoleData: MockConsoleData, route: AppRoute) {
   if (route.kind === "runs" && !route.runID) {
     const saved = runListNamespace();
-    if (saved === "/" || consoleData.namespaces.some((namespace) => namespace.path === saved)) return saved ?? null;
+    if (consoleData.namespaces.some((namespace) => namespace.path === saved)) return saved ?? null;
   }
 
   if (route.kind === "runs" && route.runJobName) {

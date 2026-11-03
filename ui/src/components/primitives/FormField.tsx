@@ -3,6 +3,7 @@ import { useId } from "react";
 import styles from "./Field.module.css";
 
 type FormFieldProps = InputHTMLAttributes<HTMLInputElement> & {
+  ref?: import("react").Ref<HTMLInputElement>;
   error?: string;
   label: string;
   reserveErrorSpace?: boolean;

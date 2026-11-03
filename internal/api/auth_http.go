@@ -53,8 +53,9 @@ const (
 )
 
 type routeAuthPolicy struct {
-	mode   routeAuthMode
-	Action authz.Action
+	mode          routeAuthMode
+	Action        authz.Action
+	NamespacePath string
 }
 
 func (p routeAuthPolicy) normalized() routeAuthPolicy {
@@ -72,11 +73,16 @@ func (p routeAuthPolicy) isPublic() bool {
 func (p routeAuthPolicy) validate() error {
 	switch p.mode {
 	case routeAuthProtected:
+		if p.NamespacePath != "" && !authz.ActionSupportsNamespace(p.normalized().Action) {
+			return fmt.Errorf("auth namespace requires a namespaced action")
+		}
+
 		return nil
 	case routeAuthPublic:
-		if p.Action != "" {
+		if p.Action != "" || p.NamespacePath != "" {
 			return fmt.Errorf("public routes must not set an auth action")
 		}
+
 		return nil
 	default:
 		return fmt.Errorf("unknown route auth mode %d", p.mode)
@@ -239,9 +245,10 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 
 		z := s.effectiveAuthorizer(complete)
 		action := policy.Action
+		resource := authz.Resource{NamespacePath: policy.NamespacePath}
 
 		if !complete {
-			if z.Allow(dbCtx, nil, action, authz.Resource{}) {
+			if z.Allow(dbCtx, nil, action, resource) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -251,7 +258,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		}
 
 		if action == authz.ActionSetupStatus || action == authz.ActionSetupComplete {
-			if !z.Allow(dbCtx, nil, action, authz.Resource{}) {
+			if !z.Allow(dbCtx, nil, action, resource) {
 				writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 				return
 			}
@@ -320,7 +327,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					Kind:        authn.KindLocalUser,
 				}
 
-				if !z.Allow(dbCtx, p, action, authz.Resource{}) {
+				if !z.Allow(dbCtx, p, action, resource) {
 					writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 					return
 				}
@@ -424,7 +431,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			}
 		}
 
-		if !z.Allow(dbCtx, p, action, authz.Resource{}) {
+		if !z.Allow(dbCtx, p, action, resource) {
 			writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 			return
 		}

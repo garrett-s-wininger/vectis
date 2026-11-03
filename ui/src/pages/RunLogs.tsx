@@ -150,9 +150,11 @@ export function RunLogs({
           <OperationalFact
             icon={Server}
             label="Execution"
+            layout="detail"
+            className={styles.executionContext}
             value={
               chosen?.executionID ? (
-                <CopyValue label="Execution ID" value={chosen.executionID}>
+                <CopyValue appearance="field" label="Execution ID" value={chosen.executionID}>
                   {runTaskExecutionLabel(context)}
                 </CopyValue>
               ) : (
