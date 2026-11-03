@@ -461,7 +461,9 @@ func printLocalReady(logger interfaces.Logger, scheme string, services []service
 		logger.Info("Source repository vectis-local is ready for local job authoring on main.")
 	}
 
-	logger.Info("Next: ./bin/vectis-cli jobs run examples/sequenced.json --follow")
+	if setup.Created {
+		logger.Info("Next: ./bin/vectis-cli jobs run examples/sequenced.json --follow")
+	}
 }
 
 func printCLITokenLine(logger interfaces.Logger, setup localSetupResult) {

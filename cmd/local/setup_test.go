@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -111,6 +112,12 @@ func TestFinishLocalSetupGeneratesAdminAndToken(t *testing.T) {
 
 	if !sawComplete || !result.Created || result.Username != "admin" {
 		t.Fatalf("result = %#v, sawComplete=%v", result, sawComplete)
+	}
+
+	var ready bytes.Buffer
+	printLocalReady(interfaces.NewLogger("test").WithOutput(&ready), "http", nil, result)
+	if !strings.Contains(ready.String(), "Next: ./bin/vectis-cli jobs run") {
+		t.Fatalf("first setup should print the quick-start hint, got %s", ready.String())
 	}
 
 	passwordPath := filepath.Join(dataHome, "vectis", localAdminPasswordFile)
@@ -273,6 +280,12 @@ func TestFinishLocalSetupAlreadyCompleteSkipsCreate(t *testing.T) {
 
 	if !result.AlreadyExists {
 		t.Fatalf("result = %#v", result)
+	}
+
+	var ready bytes.Buffer
+	printLocalReady(interfaces.NewLogger("test").WithOutput(&ready), "http", nil, result)
+	if strings.Contains(ready.String(), "Next:") {
+		t.Fatalf("existing installation should not print the quick-start hint, got %s", ready.String())
 	}
 }
 
