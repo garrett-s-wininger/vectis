@@ -911,7 +911,16 @@ describe("App", () => {
       await act(async () => accept());
       await screen.findByRole("heading", { level: 1, name: "direct-run (#1241)" });
       expect(navigate).toHaveBeenCalledOnce();
-      expect(navigate).toHaveBeenCalledWith(null, "", "/runs/run-1241");
+      expect(navigate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vectisNavigation: expect.objectContaining({
+            runList: expect.objectContaining({ href: "/runs?job=filtered-job" })
+          })
+        }),
+        "",
+        "/runs/run-1241"
+      );
+
     } finally {
       create.mockRestore();
       navigate.mockRestore();

@@ -184,3 +184,26 @@ it("keeps the draft open with a useful error when submission fails", async () =>
   expect(editor).not.toHaveAttribute("readonly");
   expect(screen.getByRole("button", { name: "Submit run" })).toHaveAttribute("aria-disabled", "false");
 });
+
+it("restores controlled filters and clears them atomically", async () => {
+  const change = vi.fn();
+  render(
+    <RunsPage
+      namespaces={[]}
+      namespacePath="/"
+      onSelectNamespace={vi.fn()}
+      onSelectRun={vi.fn()}
+      onSubmitEphemeralRun={vi.fn()}
+      runs={[]}
+      filters={{ job: "build", status: "failed", source: "stored" }}
+      onFiltersChange={change}
+    />
+  );
+
+  expect(screen.getByLabelText("Job")).toHaveValue("build");
+  expect(screen.getByLabelText("Status: Failed")).toBeVisible();
+  expect(screen.getByLabelText("Source: Saved")).toBeVisible();
+
+  await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+  expect(change).toHaveBeenCalledExactlyOnceWith({ job: "", status: "all", source: "all" }, undefined);
+});

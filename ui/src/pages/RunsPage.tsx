@@ -1,5 +1,5 @@
 import type { ChangeEvent, FormEvent } from "react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BreadcrumbTrail } from "../components";
 import { Button } from "../components";
 import { FormError } from "../components";
@@ -21,7 +21,7 @@ import {
   type RunFilter,
   type SourceFilter
 } from "../domain/consoleOptions";
-import { navigateTo } from "../routing/routes";
+import type { RunListFilters } from "../routing/runListFilters";
 import { jsonObject } from "../validation/FormValidation";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import { ResourceTitle } from "./shared";
@@ -31,6 +31,8 @@ const maxDefinitionFileBytes = 10 * 1024 * 1024;
 
 type RunsPageProps = {
   jobName?: string;
+  filters?: RunListFilters;
+  onFiltersChange?: (filters: RunListFilters, options?: { replace?: boolean }) => void;
   namespaces: Namespace[];
   namespacePath: string;
   onSelectNamespace: (namespacePath: string) => void;
@@ -41,6 +43,8 @@ type RunsPageProps = {
 
 export function RunsPage({
   jobName,
+  filters,
+  onFiltersChange,
   namespaces,
   namespacePath,
   onSelectNamespace,
@@ -48,9 +52,21 @@ export function RunsPage({
   onSubmitEphemeralRun,
   runs
 }: RunsPageProps) {
-  const jobFilter = jobName?.trim() ?? "";
-  const [status, setStatus] = useState<RunFilter>("all");
-  const [source, setSource] = useState<SourceFilter>("all");
+  const [localFilters, setLocalFilters] = useState<RunListFilters>({ job: "", status: "all", source: "all" });
+  const effectiveFilters = useMemo(
+    () => filters ?? { ...localFilters, job: jobName ?? localFilters.job },
+    [filters, localFilters, jobName]
+  );
+
+  const { job: jobFilter, status, source } = effectiveFilters;
+  const changeFilters = useCallback(
+    (next: RunListFilters, options?: { replace?: boolean }) => {
+      if (!filters) setLocalFilters(next);
+      onFiltersChange?.(next, options);
+    },
+    [filters, onFiltersChange]
+  );
+
   const [showRunOnce, setShowRunOnce] = useState(false);
   const [definition, setDefinition] = useState(defaultRunDefinition);
   const [definitionError, setDefinitionError] = useState("");
@@ -124,7 +140,7 @@ export function RunsPage({
   }
 
   const filteredRuns = useMemo(() => {
-    const normalizedJobFilter = jobFilter.toLowerCase();
+    const normalizedJobFilter = jobFilter.trim().toLowerCase();
 
     return runs.filter((run) => {
       const jobMatches =
@@ -255,7 +271,7 @@ export function RunsPage({
           </form>
         </section>
       ) : null}
-      <RunsFilters jobFilter={jobFilter} status={status} source={source} setStatus={setStatus} setSource={setSource} />
+      <RunsFilters filters={effectiveFilters} onChange={changeFilters} />
       <RunList
         emptyMessage={runEmptyMessage(runs.length, filteredRuns.length)}
         onSelectRun={onSelectRun}
@@ -267,35 +283,21 @@ export function RunsPage({
 }
 
 const RunsFilters = memo(function RunsFilters({
-  jobFilter,
-  status,
-  source,
-  setStatus,
-  setSource
+  filters,
+  onChange
 }: {
-  jobFilter: string;
-  status: RunFilter;
-  source: SourceFilter;
-  setStatus: (value: RunFilter) => void;
-  setSource: (value: SourceFilter) => void;
+  filters: RunListFilters;
+  onChange: (filters: RunListFilters, options?: { replace?: boolean }) => void;
 }) {
-  function clearFilters() {
-    setSource("all");
-    setStatus("all");
-    if (jobFilter) {
-      navigateTo("/runs");
-    }
-  }
-
-  function updateJobFilter(value: string) {
-    const trimmedValue = value.trim();
-    navigateTo(trimmedValue ? `/runs?job=${encodeURIComponent(trimmedValue)}` : "/runs");
-  }
+  const { job: jobFilter, status, source } = filters;
 
   return (
     <FilterBar
       actions={
-        <Button disabled={status === "all" && source === "all" && !jobFilter} onClick={clearFilters}>
+        <Button
+          disabled={status === "all" && source === "all" && !jobFilter}
+          onClick={() => onChange({ job: "", status: "all", source: "all" })}
+        >
           Clear
         </Button>
       }
@@ -304,21 +306,21 @@ const RunsFilters = memo(function RunsFilters({
           <FormField
             label="Job"
             name="runJob"
-            onChange={(event) => updateJobFilter(event.target.value)}
+            onChange={(event) => onChange({ ...filters, job: event.target.value }, { replace: true })}
             value={jobFilter}
             wide
           />
           <SelectField
             label="Status"
             name="runStatus"
-            onChange={(event) => setStatus(event.target.value as RunFilter)}
+            onChange={(event) => onChange({ ...filters, status: event.target.value as RunFilter })}
             options={runStatusOptions}
             value={status}
           />
           <SelectField
             label="Source"
             name="runSource"
-            onChange={(event) => setSource(event.target.value as SourceFilter)}
+            onChange={(event) => onChange({ ...filters, source: event.target.value as SourceFilter })}
             options={runSourceOptions}
             value={source}
           />

@@ -1,4 +1,6 @@
 import { Briefcase, FolderTree, HeartPulse, Play, Shield, Users } from "lucide-react";
+import { runListFiltersFromSearch, type RunListFilters } from "./runListFilters";
+export { navigateTo } from "./navigation";
 import { runInvestigationFromSearch, type RunInvestigationContext } from "./runInvestigation";
 import type { NavEntry } from "../components";
 
@@ -25,6 +27,7 @@ export type AppRoute = {
   namespaceMissing?: boolean;
   pathname: string;
   runJobName?: string;
+  runFilters?: RunListFilters;
   runID?: string;
   runInvestigation?: RunInvestigationContext;
   userID?: string;
@@ -70,7 +73,8 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
   }
 
   if (pathname === "/runs" || pathname === "/runs/") {
-    return { kind: "runs", activeHref: "/runs", pathname, runJobName: jobFilterFromSearch(search) };
+    const runFilters = runListFiltersFromSearch(search);
+    return { kind: "runs", activeHref: "/runs", pathname, runJobName: runFilters.job.trim() || undefined, runFilters };
   }
 
   if (pathname.startsWith("/runs/")) {
@@ -152,22 +156,12 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
   return { kind: "notFound", activeHref: "", pathname };
 }
 
-function jobFilterFromSearch(search: string) {
-  const job = new URLSearchParams(search).get("job")?.trim();
-  return job || undefined;
-}
-
 function decodeRouteSegment(value: string) {
   try {
     return decodeURIComponent(value);
   } catch {
     return value;
   }
-}
-
-export function navigateTo(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 export function safeNextPath(search = window.location.search, origin = window.location.origin) {

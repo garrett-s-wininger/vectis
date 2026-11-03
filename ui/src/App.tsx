@@ -23,6 +23,8 @@ import { NamespacesPage } from "./pages/NamespacesPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { useResolvedTheme } from "./theme";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { returnToRunList, runListNamespace, useNavigationScroll } from "./routing/navigation";
+import { runListFiltersPath } from "./routing/runListFilters";
 import { runInvestigationPath } from "./routing/runInvestigation";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
@@ -103,13 +105,15 @@ export function App() {
       setFormError("");
       setSubmitting(false);
       setRoute(nextRoute);
+
       if (consoleData) {
-        const routeNamespacePath = jobNamespacePathForRoute(consoleData, nextRoute);
+        const routeNamespacePath = namespacePathForRoute(consoleData, nextRoute);
         if (routeNamespacePath) {
           setSelectedNamespacePath(routeNamespacePath);
         }
       }
     };
+
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [consoleData]);
@@ -152,10 +156,12 @@ export function App() {
         if (!ignore) {
           setConsoleData(data);
           const currentRoute = routeFromPath(window.location.pathname, window.location.search);
-          const routeNamespacePath = jobNamespacePathForRoute(data, currentRoute);
+          const routeNamespacePath = namespacePathForRoute(data, currentRoute);
+
           if (routeNamespacePath) {
             setSelectedNamespacePath(routeNamespacePath);
           }
+
           setConsoleError("");
           setActionError("");
         }
@@ -525,7 +531,7 @@ export function App() {
       setActionError("");
 
       if (runID) {
-        navigateTo(`/runs/${runID}`);
+        navigateTo(`/runs/${runID}`, { namespace: runListNamespace() ?? selectedNamespacePath });
       }
     } catch (error) {
       throw new Error(errorMessage(error, "Unable to submit run."), { cause: error });
@@ -545,7 +551,9 @@ export function App() {
     }
 
     event.preventDefault();
-    navigateTo(href);
+
+    if (href === "/runs" && route.kind === "runs" && route.runID) returnToRunList();
+    else navigateTo(href);
   }
 
   async function signOut() {
@@ -802,6 +810,19 @@ function RouteContent({
   onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;
 }) {
+  const pendingRun =
+    route.kind === "runs" &&
+    route.runID &&
+    !consoleData?.runs.some((run) => run.id === route.runID) &&
+    missingRunID !== route.runID;
+
+  const scrollReady =
+    route.kind === "health"
+      ? !loadingHealthCells
+      : Boolean(consoleData || consoleError) && (!pendingRun || Boolean(consoleError));
+
+  useNavigationScroll(route, scrollReady);
+
   const withActionAlert = (children: ReactNode) => (
     <>
       <ActionAlertRail message={actionError} />
@@ -892,7 +913,7 @@ function RouteContent({
             onCancel={onCancelRun}
             onReplay={onReplayRun}
             onOpenRun={onOpenRun}
-            onBack={() => navigateTo("/runs")}
+            onBack={returnToRunList}
             onOpenJob={(jobName) => navigateTo(jobPathForRunJob(consoleData, jobName))}
             run={run}
             originalRun={consoleData.runs.find((candidate) => candidate.id === run?.replayOfRunID)}
@@ -903,10 +924,23 @@ function RouteContent({
 
       return withActionAlert(
         <RunsPage
+          filters={route.runFilters}
+          onFiltersChange={(filters, options) => {
+            const { search, hash } = window.location;
+            const path = runListFiltersPath(search, hash, filters);
+            if (path !== `${window.location.pathname}${search}${hash}`)
+              navigateTo(path, { ...options, namespace: namespacePath });
+          }}
           namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
-          onSelectNamespace={onSelectNamespace}
-          onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
+          onSelectNamespace={(namespace) => {
+            onSelectNamespace(namespace);
+            navigateTo(`${window.location.pathname}${window.location.search}${window.location.hash}`, {
+              replace: true,
+              namespace
+            });
+          }}
+          onSelectRun={(runID) => navigateTo(`/runs/${runID}`, { namespace: namespacePath })}
           onSubmitEphemeralRun={onSubmitEphemeralRun}
           jobName={route.runJobName}
           runs={scopedConsoleData.runs}
@@ -1019,7 +1053,12 @@ function jobPathForRunJob(consoleData: MockConsoleData, jobName: string) {
   return job ? `/jobs/${encodeURIComponent(job.id)}` : `/runs?job=${encodeURIComponent(jobName)}`;
 }
 
-function jobNamespacePathForRoute(consoleData: MockConsoleData, route: AppRoute) {
+function namespacePathForRoute(consoleData: MockConsoleData, route: AppRoute) {
+  if (route.kind === "runs" && !route.runID) {
+    const saved = runListNamespace();
+    if (saved === "/" || consoleData.namespaces.some((namespace) => namespace.path === saved)) return saved ?? null;
+  }
+
   if (route.kind === "runs" && route.runJobName) {
     return consoleData.jobs.find((job) => job.name === route.runJobName)?.namespacePath ?? null;
   }
