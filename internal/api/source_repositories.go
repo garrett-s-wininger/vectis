@@ -81,6 +81,7 @@ type sourceRepositoryUpdateRequest struct {
 type sourceRepositoryResponse struct {
 	RepositoryID            string                       `json:"repository_id"`
 	Namespace               string                       `json:"namespace"`
+	Namespaces              []string                     `json:"namespaces,omitempty"`
 	SourceKind              string                       `json:"source_kind"`
 	CheckoutPath            string                       `json:"checkout_path,omitempty"`
 	CheckoutMode            string                       `json:"checkout_mode"`
@@ -687,6 +688,31 @@ func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if r.URL.Query().Get("scope") == "all" {
+		if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, "/") {
+			return
+		}
+
+		recs, err := s.sources.ListAllRepositories(ctx)
+		if err != nil {
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+
+		declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "listing")
+		if !ok {
+			return
+		}
+
+		response := make([]sourceRepositoryResponse, 0, len(recs))
+		for _, rec := range recs {
+			response = append(response, s.sourceRepositoryRecordToResponse(rec, "", declared))
+		}
+
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+
 	namespacePath := strings.TrimSpace(r.URL.Query().Get("namespace"))
 	if namespacePath == "" {
 		namespacePath = "/"
@@ -730,8 +756,17 @@ func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Reques
 	}
 
 	resp := make([]sourceRepositoryResponse, 0, len(recs))
+	canManage := s.checkNamespaceAuth(ctx, p, authz.ActionAdmin, "/")
 	for _, rec := range recs {
-		resp = append(resp, s.sourceRepositoryRecordToResponse(rec, ns.Path, declared))
+		response := s.sourceRepositoryRecordToResponse(rec, ns.Path, declared)
+		if !canManage {
+			response.CredentialRef = ""
+			response.CheckoutPath = ""
+			response.FallbackRemoteURLs = nil
+			response.WorkerCacheWarmRefspecs = nil
+		}
+
+		resp = append(resp, response)
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -750,7 +785,7 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, false)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, false)
 	if !ok {
 		return
 	}
@@ -760,7 +795,15 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(rec, nsPath, declared))
+	response := s.sourceRepositoryRecordToResponse(rec, nsPath, declared)
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionAdmin, "/") {
+		response.CredentialRef = ""
+		response.CheckoutPath = ""
+		response.FallbackRemoteURLs = nil
+		response.WorkerCacheWarmRefspecs = nil
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *APIServer) ListSourceSchedules(w http.ResponseWriter, r *http.Request) {
@@ -850,8 +893,13 @@ func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, false)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, false)
 	if !ok {
+		return
+	}
+
+	if rec.NamespaceID == 0 {
+		writeAPIError(w, 400, "namespace_required", "namespace is required for repository schedules", nil)
 		return
 	}
 
@@ -1238,7 +1286,7 @@ func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, false)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobWrite, false)
 	if !ok {
 		return
 	}
@@ -1313,7 +1361,7 @@ func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, false)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, false)
 	if !ok {
 		return
 	}
@@ -1323,7 +1371,15 @@ func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.sourceRepositoryStatusFromRecord(ctx, rec, nsPath, declared))
+	response := s.sourceRepositoryStatusFromRecord(ctx, rec, nsPath, declared)
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionAdmin, "/") {
+		response.CredentialRef = ""
+		response.CheckoutPath = ""
+		response.WorkTreePath = ""
+		response.ObjectStore = nil
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.Request) {
@@ -1339,7 +1395,7 @@ func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, true)
 	if !ok {
 		return
 	}
@@ -1388,7 +1444,7 @@ func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, true)
 	if !ok {
 		return
 	}
@@ -1458,7 +1514,7 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, true)
 	if !ok {
 		return
 	}
@@ -1519,7 +1575,7 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, true)
 	if !ok {
 		return
 	}
@@ -1626,7 +1682,7 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, true)
 	if !ok {
 		return
 	}
@@ -1747,7 +1803,7 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, true)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobWrite, true)
 	if !ok {
 		return
 	}
@@ -1857,7 +1913,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunTrigger, true)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionRunTrigger, true)
 	if !ok {
 		return
 	}
@@ -1875,7 +1931,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	}
 
 	idempotencyKey := idempotencyKeyFromRequest(r)
-	idempotencyScope := principalIdempotencyScope("source-trigger:"+rec.RepositoryID+":"+jobID, p)
+	idempotencyScope := principalIdempotencyScope("source-trigger:"+sourceRepositoryRunBroadcastKey(rec.RepositoryID, jobID, nsPath), p)
 	idempotencyHash := hashIdempotencyRequest(
 		http.MethodPost,
 		"/api/v1/source-repositories/"+rec.RepositoryID+"/jobs/"+jobID+"/trigger",
@@ -1997,7 +2053,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		loaded.DefinitionJSON,
 		sourceRec,
 		targetCellID,
-		dal.RunAuditMetadata{TriggerInvocationID: invocationID, SubmittedBy: runSubmitter(p)},
+		dal.RunAuditMetadata{TriggerInvocationID: invocationID, SubmittedBy: runSubmitter(p), NamespacePath: nsPath},
 	)
 
 	if err != nil {
@@ -2035,7 +2091,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		"invocation":         invocationID,
 	})
 
-	s.runBroadcaster.Broadcast(sourceRepositoryRunBroadcastKey(rec.RepositoryID, jobID), runID, runIndex)
+	s.runBroadcaster.Broadcast(sourceRepositoryRunBroadcastKey(rec.RepositoryID, jobID, nsPath), runID, runIndex)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, targetCellID, nil)
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindSource, observability.APIEnqueueOutcomeAccepted)
 
@@ -2107,7 +2163,7 @@ func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunRead, false)
+	rec, namespacePath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionRunRead, false)
 	if !ok {
 		return
 	}
@@ -2116,6 +2172,7 @@ func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Re
 		ctx,
 		rec.RepositoryID,
 		jobID,
+		namespacePath,
 		opts.afterIndex,
 		opts.since,
 		opts.owningCell,
@@ -2166,7 +2223,7 @@ func (s *APIServer) GetSourceRepositoryJobRunLogs(w http.ResponseWriter, r *http
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunRead, false)
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionRunRead, false)
 	if !ok {
 		return
 	}
@@ -2212,8 +2269,23 @@ func (s *APIServer) GetSourceRepositoryJobRunLogs(w http.ResponseWriter, r *http
 		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
-	s.markDBRecovered()
+	namespacePath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, 404, "run_not_found", "run not found", nil)
+		} else {
+			writeAPIErrorCode(w, 500, apiErrInternal)
+		}
 
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, namespacePath) {
+		writeAPIError(w, 404, "run_not_found", "run not found", nil)
+		return
+	}
+
+	s.markDBRecovered()
 	s.streamRunLogs(w, r, runID, replay)
 }
 
@@ -2236,12 +2308,17 @@ func (s *APIServer) HandleSSESourceRepositoryJobRuns(w http.ResponseWriter, r *h
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunRead, false)
+	rec, namespacePath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionRunRead, false)
 	if !ok {
 		return
 	}
 
-	subscriptionKey := sourceRepositoryRunBroadcastKey(rec.RepositoryID, jobID)
+	if namespacePath == "" {
+		writeAPIError(w, 400, "namespace_required", "namespace is required for run subscriptions", nil)
+		return
+	}
+
+	subscriptionKey := sourceRepositoryRunBroadcastKey(rec.RepositoryID, jobID, namespacePath)
 	s.streamRunEvents(w, r, subscriptionKey, "source repository "+rec.RepositoryID+" job "+jobID)
 }
 
@@ -2269,7 +2346,13 @@ func (s *APIServer) broadcastSourceRepositoryRunEvent(
 		return
 	}
 
-	s.runBroadcaster.Broadcast(sourceRepositoryRunBroadcastKey(source.RepositoryID, jobID), runID, runIndex)
+	namespacePath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		s.logger.Error("Failed to resolve source run namespace: %v", err)
+		return
+	}
+
+	s.runBroadcaster.Broadcast(sourceRepositoryRunBroadcastKey(source.RepositoryID, jobID, namespacePath), runID, runIndex)
 }
 
 func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -2285,12 +2368,12 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, false)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobWrite, false)
 	if !ok {
 		return
 	}
-	actorID := actorIDFromPrincipal(p)
 
+	actorID := actorIDFromPrincipal(p)
 	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "syncing")
 	if !ok {
 		return
@@ -2484,7 +2567,7 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, false)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobWrite, false)
 	if !ok {
 		return
 	}
@@ -2721,7 +2804,7 @@ func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobRead, true)
 	if !ok {
 		return
 	}
@@ -2759,6 +2842,7 @@ func (s *APIServer) getAuthorizedSourceRepository(
 	ctx context.Context,
 	w http.ResponseWriter,
 	p *authn.Principal,
+	request *http.Request,
 	repositoryID string,
 	action authz.Action,
 	requireEnabled bool,
@@ -2786,38 +2870,65 @@ func (s *APIServer) getAuthorizedSourceRepository(
 	}
 	s.markDBRecovered()
 
-	ns, err := s.namespaces.GetByID(ctx, rec.NamespaceID)
+	if action == authz.ActionJobWrite || (request.URL.Query().Get("scope") == "all" && action != authz.ActionRunTrigger) {
+		if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, "/") {
+			return dal.SourceRepositoryRecord{}, "", false
+		}
+
+		if requireEnabled && !rec.Enabled {
+			writeAPIError(w, http.StatusConflict, "source_repository_disabled", "source repository is disabled", nil)
+			return dal.SourceRepositoryRecord{}, "", false
+		}
+
+		return rec, "", true
+	}
+
+	grants, err := s.sources.RepositoryNamespaces(ctx, rec.RepositoryID)
 	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(
-				w,
-				http.StatusNotFound,
-				"source_repository_not_found",
-				"source repository namespace not found",
-				nil,
-			)
-			return dal.SourceRepositoryRecord{}, "", false
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return dal.SourceRepositoryRecord{}, "", false
-		}
-
-		s.logger.Error("Database error getting source repository namespace: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return dal.SourceRepositoryRecord{}, "", false
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, action, ns.Path) {
+	namespacePath := strings.TrimSpace(request.URL.Query().Get("namespace"))
+	if namespacePath == "" && len(grants) == 1 {
+		namespacePath = grants[0].Path
+	}
+
+	if namespacePath == "" {
+		if action == authz.ActionRunTrigger {
+			writeAPIError(w, http.StatusBadRequest, "namespace_required", "namespace is required for a shared repository", nil)
+			return dal.SourceRepositoryRecord{}, "", false
+		}
+
+		for _, grant := range grants {
+			if s.checkNamespaceAuth(ctx, p, action, grant.Path) {
+				namespacePath = grant.Path
+				break
+			}
+		}
+	}
+
+	var namespaceID int64
+	for _, grant := range grants {
+		if grant.Path == namespacePath {
+			namespaceID = grant.ID
+			break
+		}
+	}
+
+	if namespaceID == 0 || !s.checkNamespaceAuth(ctx, p, action, namespacePath) {
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 		return dal.SourceRepositoryRecord{}, "", false
 	}
+
+	rec.NamespaceID = namespaceID
 
 	if requireEnabled && !rec.Enabled {
 		writeAPIError(w, http.StatusConflict, "source_repository_disabled", "source repository is disabled", nil)
 		return dal.SourceRepositoryRecord{}, "", false
 	}
 
-	return rec, ns.Path, true
+	return rec, namespacePath, true
 }
 
 func (s *APIServer) getAuthorizedSourceSchedule(
@@ -2855,7 +2966,7 @@ func (s *APIServer) getAuthorizedSourceSchedule(
 		return dal.CronScheduleRecord{}, "", false
 	}
 
-	repo, err := s.sources.GetRepository(ctx, rec.SourceRepositoryID)
+	_, err = s.sources.GetRepository(ctx, rec.SourceRepositoryID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
@@ -2871,7 +2982,7 @@ func (s *APIServer) getAuthorizedSourceSchedule(
 		return dal.CronScheduleRecord{}, "", false
 	}
 
-	ns, err := s.namespaces.GetByID(ctx, repo.NamespaceID)
+	ns, err := s.namespaces.GetByID(ctx, rec.NamespaceID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(
@@ -2922,6 +3033,7 @@ func (s *APIServer) sourceRepositoryRecordToResponse(
 	return sourceRepositoryResponse{
 		RepositoryID:            rec.RepositoryID,
 		Namespace:               namespacePath,
+		Namespaces:              rec.NamespacePaths,
 		SourceKind:              rec.SourceKind,
 		CheckoutPath:            rec.CheckoutPath,
 		CheckoutMode:            rec.CheckoutMode,

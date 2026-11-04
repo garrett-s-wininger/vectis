@@ -44,6 +44,7 @@ import { PageMissingState } from "./shared";
 import styles from "./RunDetailPage.module.css";
 
 type RunDetailPageProps = RunControlActions & {
+  sharedWorkspace?: boolean;
   onBack: () => void;
   onOpenJob?: (jobName: string) => void;
   onOpenRun?: (runID: string) => Promise<void>;
@@ -57,6 +58,7 @@ type RunDetailPageProps = RunControlActions & {
 
 export function RunDetailPage({
   onBack,
+  sharedWorkspace = false,
   onOpenJob,
   onOpenRun,
   onCancel,
@@ -91,6 +93,7 @@ export function RunDetailPage({
     <RunDetailContent
       key={run.id}
       onBack={onBack}
+      sharedWorkspace={sharedWorkspace}
       onOpenJob={onOpenJob}
       onOpenRun={onOpenRun}
       onCancel={onCancel}
@@ -106,6 +109,7 @@ export function RunDetailPage({
 
 function RunDetailContent({
   onBack,
+  sharedWorkspace = false,
   onOpenJob,
   onOpenRun,
   onCancel,
@@ -119,6 +123,7 @@ function RunDetailContent({
   onBack: () => void;
   onOpenJob?: (jobName: string) => void;
   onOpenRun?: (runID: string) => Promise<void>;
+  sharedWorkspace?: boolean;
   run: RunListItem;
   originalRun?: RunListItem;
   loadArtifacts?: LoadRunArtifacts;
@@ -167,7 +172,7 @@ function RunDetailContent({
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: formatNamespaceCrumb(run.namespacePath ?? "/") },
+              ...(!sharedWorkspace ? [{ label: formatNamespaceCrumb(run.namespacePath ?? "/") }] : []),
               { label: "Runs", onClick: onBack },
               {
                 label: runOnceID ?? runDisplayName(run),

@@ -1,3 +1,4 @@
+import { openNavigation } from "./navigationHelpers";
 import { expect, test } from "@playwright/test";
 
 async function expectNonBlankPage() {
@@ -91,12 +92,13 @@ test.describe("app smoke", () => {
   });
 
   test("renders the jobs page with CRUD affordances", async ({ page }) => {
-    await page.goto("/jobs");
+    await page.goto("/jobs?namespace=%2Fteam-a");
 
     await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create" })).toBeVisible();
     await expect(page.getByRole("table")).toContainText("Job");
-    await expect(page.getByLabel("Namespace")).toBeVisible();
+    await openNavigation(page);
+    await expect(page.getByLabel("Namespace: /team-a", { exact: true })).toBeVisible();
 
     const pageShape = await page.evaluate(expectNonBlankPage);
     expect(pageShape.textLength).toBeGreaterThan(100);
@@ -109,7 +111,7 @@ test.describe("app smoke", () => {
 
     await page.goto("/jobs/create");
     await expect(page.getByRole("heading", { name: "Create Job" })).toBeVisible();
-    await expectDropdownUsesOverlaySafePanel(page, "Repository ID: Select a repository");
+    await expectDropdownUsesOverlaySafePanel(page, "Repository ID: vectis-local");
 
     await page.goto("/runs/run-1240");
     await expect(page.getByRole("heading", { name: "Run Logs" })).toBeVisible();
@@ -169,7 +171,7 @@ test.describe("storybook smoke", () => {
     await page.goto("http://127.0.0.1:6101/iframe.html?id=components-layout-appshell--dashboard&viewMode=story");
 
     await expect(page.getByRole("heading", { name: "Cluster dashboard" })).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Utility" })).toContainText("Health");
+    await expect(page.getByRole("navigation", { name: "Administration" })).toContainText("Health");
 
     let pageShape = await page.evaluate(expectNonBlankPage);
     expect(pageShape.textLength).toBeGreaterThan(100);

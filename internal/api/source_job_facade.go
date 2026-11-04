@@ -228,7 +228,7 @@ func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(
 		return
 	}
 
-	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, repositoryID, authz.ActionJobWrite, true)
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, repositoryID, authz.ActionJobWrite, true)
 	if !ok {
 		return
 	}

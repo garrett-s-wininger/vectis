@@ -63,6 +63,28 @@ func reconcileConfiguredSourceRepositories(
 			return err
 		}
 
+		grantIDs := []int64{rec.NamespaceID}
+		for _, path := range decl.Namespaces {
+			ns, err := repos.Namespaces().GetByPath(ctx, path)
+			if err != nil {
+				return fmt.Errorf("configured source repository %q namespace %q: %w", rec.RepositoryID, path, err)
+			}
+
+			if ns.ID != rec.NamespaceID {
+				grantIDs = append(grantIDs, ns.ID)
+			}
+		}
+
+		grantAll := func() error {
+			for _, id := range grantIDs {
+				if err := repos.Sources().GrantRepositoryNamespace(ctx, rec.RepositoryID, id); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
+
 		existing, err := repos.Sources().GetRepository(ctx, rec.RepositoryID)
 		if err != nil {
 			if !dal.IsNotFound(err) {
@@ -74,15 +96,16 @@ func reconcileConfiguredSourceRepositories(
 				return fmt.Errorf("create configured source repository %q: %w", rec.RepositoryID, err)
 			}
 
+			if err := grantAll(); err != nil {
+				return err
+			}
+
 			logConfiguredSourceRepository(logger, "created", created, namespacePath)
 			continue
 		}
 
-		if existing.NamespaceID != rec.NamespaceID {
-			return fmt.Errorf(
-				"configured source repository %q is already registered in another namespace",
-				rec.RepositoryID,
-			)
+		if err := grantAll(); err != nil {
+			return err
 		}
 
 		if configuredSourceRepositoryEqual(existing, rec) {
@@ -560,7 +583,29 @@ func configuredSourceScheduleRecord(
 		return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q cron_spec: %w", decl.ScheduleID, err)
 	}
 
+	grants, err := repos.Sources().RepositoryNamespaces(ctx, decl.RepositoryID)
+	if err != nil {
+		return dal.CronScheduleRecord{}, err
+	}
+
+	namespacePath := strings.TrimSpace(decl.Namespace)
+	if namespacePath == "" && len(grants) == 1 {
+		namespacePath = grants[0].Path
+	}
+
+	var namespaceID int64
+	for _, grant := range grants {
+		if grant.Path == namespacePath {
+			namespaceID = grant.ID
+		}
+	}
+
+	if namespaceID == 0 {
+		return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q requires a granted namespace", decl.ScheduleID)
+	}
+
 	return dal.CronScheduleRecord{
+		NamespaceID:        namespaceID,
 		ScheduleID:         strings.TrimSpace(decl.ScheduleID),
 		JobID:              strings.TrimSpace(decl.JobID),
 		CronSpec:           strings.TrimSpace(decl.CronSpec),
@@ -583,7 +628,8 @@ func configuredSourceScheduleNextRun(cronSpec string, from time.Time) (time.Time
 }
 
 func configuredSourceScheduleEqual(existing, desired dal.CronScheduleRecord) bool {
-	return existing.JobID == desired.JobID &&
+	return existing.NamespaceID == desired.NamespaceID &&
+		existing.JobID == desired.JobID &&
 		existing.CronSpec == desired.CronSpec &&
 		existing.SourceRepositoryID == desired.SourceRepositoryID &&
 		existing.SourceRef == desired.SourceRef &&

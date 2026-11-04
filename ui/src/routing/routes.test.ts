@@ -104,3 +104,29 @@ describe("routes", () => {
     }
   );
 });
+
+it("routes repositories with a namespace only on the index", () => {
+  expect(routeFromPath("/repositories", "?namespace=%2Fteam")).toMatchObject({
+    kind: "repositories",
+    repositoryNamespace: "/team",
+    activeHref: "/repositories"
+  });
+
+  expect(routeFromPath("/repositories/team%20builds")).toMatchObject({
+    kind: "repositories",
+    repositoryID: "team builds"
+  });
+});
+
+it("preserves repository context and decodes nested job IDs", () => {
+  expect(routeFromPath("/jobs/folder%2Fbuild", "?repository=repo&namespace=%2Fteam")).toMatchObject({
+    jobID: "folder/build",
+    jobRepository: "repo",
+    jobNamespace: "/team"
+  });
+
+  expect(routeFromPath("/jobs/folder%2Fbuild/config", "?repository=repo&namespace=%2Fteam")).toMatchObject({
+    jobEditor: { kind: "edit", jobID: "folder/build" },
+    jobRepository: "repo"
+  });
+});

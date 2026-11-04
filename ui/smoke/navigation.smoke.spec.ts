@@ -17,7 +17,8 @@ for (const colorScheme of ["light", "dark"] as const) {
       );
 
       await page.goto("/runs");
-      const help = page.getByText("Help", { exact: true });
+
+      const help = page.getByLabel("Help", { exact: true });
       await help.click();
       const docs = page.getByRole("link", { name: "Documentation (opens in a new tab)" });
       await expect(docs).toHaveAttribute("href", "https://docs.example.test/vectis/docs/getting-started");

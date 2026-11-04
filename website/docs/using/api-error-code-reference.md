@@ -251,3 +251,5 @@ Most API failures use this JSON envelope:
 | Job validation detail shape | [Job Definition Validation](./job-validation.md) |
 | Idempotency behavior and conflicts | [Idempotency And Retries](./idempotency-and-retries.md) |
 | API security rejection metrics | [Metrics Catalog](../operating/reference/metrics-catalog.md#api-audit-sql-and-retention) |
+
+| `namespace_required` | Specify the namespace when triggering a repository shared by multiple namespaces. |

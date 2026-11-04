@@ -282,7 +282,7 @@ func TestReconcileConfiguredSourceRepositories_DerivesManagedCheckoutPath(t *tes
 	}
 }
 
-func TestReconcileConfiguredSourceRepositories_RejectsNamespaceMove(t *testing.T) {
+func TestReconcileConfiguredSourceRepositories_AddsNamespaceGrant(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
@@ -314,9 +314,28 @@ func TestReconcileConfiguredSourceRepositories_RejectsNamespaceMove(t *testing.T
 		},
 	})
 
-	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err == nil {
-		t.Fatal("expected namespace move error")
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatal(err)
 	}
+
+	grants, err := repos.Sources().RepositoryNamespaces(ctx, "vectis-local")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(grants) != 2 {
+		t.Fatalf("expected one connection shared with two namespaces, got %+v", grants)
+	}
+
+	global, err := repos.Sources().GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if global.NamespaceID != 0 {
+		t.Fatal("global connection must not have a namespace owner")
+	}
+
 }
 
 func TestReconcileConfiguredSourceSchedules_CreatesAndUpdates(t *testing.T) {

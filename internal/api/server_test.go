@@ -2152,7 +2152,12 @@ func TestAPIServer_TriggerJob_IdempotencyReplaysSourceTriggerResponse(t *testing
 	jobID := "job-idempotent-crash"
 	repositoryID := "repo-idempotent-crash"
 	key := "trigger-key-crash"
-	scope := "source-trigger:" + repositoryID + ":" + jobID + ":anonymous"
+	scopeKey, err := json.Marshal([]string{repositoryID, jobID, "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scope := "source-trigger:source-repository:" + string(scopeKey) + ":anonymous"
 	jobDef := `{"id": "job-idempotent-crash", "root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 

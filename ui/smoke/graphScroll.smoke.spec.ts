@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-for (const width of [1280, 390]) {
+for (const width of [1280, 320]) {
   test(`graph moves with its panel during rapid page scrolling at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
     await page.route("**/ui/api/context", (route) =>

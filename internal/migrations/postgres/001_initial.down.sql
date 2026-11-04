@@ -94,6 +94,7 @@ DROP TABLE IF EXISTS api_rate_limit_buckets;
 DROP TABLE IF EXISTS local_users CASCADE;
 DROP TABLE IF EXISTS auth_instance_state;
 DROP TABLE IF EXISTS job_definition_sources;
+DROP TABLE IF EXISTS source_repository_namespaces;
 DROP TABLE IF EXISTS source_repositories;
 DROP TABLE IF EXISTS job_definitions;
 DROP TABLE IF EXISTS idempotency_keys;

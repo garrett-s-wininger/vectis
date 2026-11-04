@@ -1022,7 +1022,6 @@ func (r *SQLAuthRepository) DisableLocalUserAndRevokeTokens(ctx context.Context,
 	return tx.Commit()
 }
 
-.
 func (r *SQLAuthRepository) DeleteLocalUser(ctx context.Context, id int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -119,7 +119,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(submitButton).not.toHaveAttribute("disabled");
 
     await submitButton.dispatchEvent("click");
-    await expect(page).toHaveURL(/\/runs$/);
+    await expect(page).toHaveURL(/\/runs\?namespace=%2F$/);
     await expect(editor).toHaveValue(definition);
     await expect(editor).not.toHaveAttribute("readonly");
     await expect(editor).toHaveAttribute("data-import-identity", "original");
@@ -139,7 +139,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 
     await expect(submitButton).toHaveAttribute("aria-disabled", "false");
     await expect(page.getByRole("status")).toHaveText("Imported log-viewer.json");
-    await expect(page).toHaveURL(/\/runs$/);
+    await expect(page).toHaveURL(/\/runs\?namespace=%2F$/);
 
     const font = await editor.evaluate((element) => getComputedStyle(element).fontFamily);
     expect(font).toContain("monospace");
@@ -203,5 +203,5 @@ test("Run Once preserves the draft on invalid file import", async ({ page }) => 
     .setInputFiles({ name: "bad.json", mimeType: "application/json", buffer: Buffer.from("{broken") });
   await expect(page.getByRole("alert")).toContainText("The current definition has been kept.");
   await expect(editor).toHaveValue(previous);
-  await expect(page).toHaveURL(/\/runs$/);
+  await expect(page).toHaveURL(/\/runs\?namespace=%2F$/);
 });

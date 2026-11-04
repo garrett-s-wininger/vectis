@@ -1,4 +1,4 @@
-import { useConsoleAccess } from "../domain/access";
+import { namespaceAccessLabel, useConsoleAccess } from "../domain/access";
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 import { BreadcrumbTrail } from "../components";
@@ -367,7 +367,7 @@ function NamespaceDetail({
   onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   users: User[];
 }) {
-  const { can } = useConsoleAccess();
+  const { can, access } = useConsoleAccess();
   const canManage = can("admin:*", namespace.path);
   const childNamespaces = namespaces.filter((candidate) => candidate.parentID === namespace.id);
   const namespaceJobs = jobs.filter((job) => job.namespacePath === namespace.path);
@@ -509,7 +509,7 @@ function NamespaceDetail({
             <MetricCard
               detail={namespace.breakInheritance ? "Local boundary" : "Inherited boundary"}
               label="Access"
-              value={namespace.role === "Not reported" ? namespaceAccessLabel(can, namespace.path) : namespace.role}
+              value={namespaceAccessLabel(access, namespace.path) ?? "Unavailable"}
               variant="plain"
             />
           </div>
@@ -687,25 +687,10 @@ function parentPathFor(namespaces: Namespace[], namespace: Namespace) {
   return parent?.path === "/" || !parent?.path ? "Root" : parent.path;
 }
 
-function namespaceAccessLabel(can: ReturnType<typeof useConsoleAccess>["can"], path: string) {
-  if (can("admin:*", path)) return "Administer";
-  if (can("job:write", path)) return "Edit jobs";
-  if (can("run:operator", path)) return "Operate runs";
-  if (can("run:trigger", path)) return "Trigger runs";
-  return "Read only";
-}
-
 function NamespaceAccess({ namespace }: { namespace: Namespace }) {
-  const { can } = useConsoleAccess();
-  const label = namespace.role === "Not reported" ? namespaceAccessLabel(can, namespace.path) : namespace.role;
-  const tone =
-    namespace.role === "Not reported"
-      ? can("admin:*", namespace.path)
-        ? "active"
-        : can("run:operator", namespace.path)
-          ? "enabled"
-          : "disabled"
-      : roleTone(namespace.role);
+  const { access } = useConsoleAccess();
+  const label = namespaceAccessLabel(access, namespace.path) ?? "Unavailable";
+  const tone = label === "Admin" ? "active" : label === "Operator" || label === "Trigger" ? "enabled" : "disabled";
 
   return <ResourceStatus tone={tone}>{label}</ResourceStatus>;
 }

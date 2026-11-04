@@ -13,6 +13,8 @@ type BreadcrumbTrailProps = {
 };
 
 export function BreadcrumbTrail({ items, label }: BreadcrumbTrailProps) {
+  if (items.length === 0 || (items.length === 1 && items[0].current)) return null;
+
   return (
     <nav aria-label={label} className={styles.root}>
       {items.map((item) =>

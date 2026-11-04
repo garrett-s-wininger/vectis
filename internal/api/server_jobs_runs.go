@@ -2295,6 +2295,7 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 		RunID                 string   `json:"run_id"`
 		JobID                 string   `json:"job_id"`
 		Namespace             string   `json:"namespace"`
+		SourceRepositoryID    string   `json:"source_repository_id,omitempty"`
 		RunIndex              int      `json:"run_index"`
 		Status                string   `json:"status"`
 		OrphanReason          *string  `json:"orphan_reason,omitempty"`
@@ -2340,10 +2341,17 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		repositoryID, err := s.runSourceRepository(ctx, rec.JobID, rec.DefinitionVersion)
+		if err != nil {
+			writeAPIErrorCode(w, 500, apiErrInternal)
+			return
+		}
+
 		runs = append(runs, runRow{
 			RunID:                 rec.RunID,
 			JobID:                 rec.JobID,
 			Namespace:             nsPath,
+			SourceRepositoryID:    repositoryID,
 			RunIndex:              rec.RunIndex,
 			Status:                rec.Status,
 			OrphanReason:          rec.OrphanReason,
@@ -2750,6 +2758,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		RunID                     string                     `json:"run_id"`
 		JobID                     string                     `json:"job_id"`
 		Namespace                 string                     `json:"namespace"`
+		SourceRepositoryID        string                     `json:"source_repository_id,omitempty"`
 		RunIndex                  int                        `json:"run_index"`
 		Status                    string                     `json:"status"`
 		OrphanReason              *string                    `json:"orphan_reason,omitempty"`
@@ -2809,11 +2818,18 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	repositoryID, err := s.runSourceRepository(ctx, jobID, rec.DefinitionVersion)
+	if err != nil {
+		writeAPIErrorCode(w, 500, apiErrInternal)
+		return
+	}
+
 	resp := runRow{
 		CancelRequested:       cancelRequested,
 		RunID:                 rec.RunID,
 		JobID:                 jobID,
 		Namespace:             nsPath,
+		SourceRepositoryID:    repositoryID,
 		RunIndex:              rec.RunIndex,
 		Status:                effectiveStatus,
 		OrphanReason:          rec.OrphanReason,

@@ -2451,6 +2451,10 @@ func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(
 		return "", 0, 0, false, err
 	}
 
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT ns.path FROM cron_trigger_specs cts JOIN job_triggers jt ON jt.id=cts.trigger_id JOIN namespaces ns ON ns.id=jt.namespace_id JOIN source_repository_namespaces access ON access.namespace_id=ns.id AND access.repository_id=jt.source_repository_id WHERE cts.id=? AND jt.source_repository_id=?`), scheduleID, source.RepositoryID).Scan(&audit.NamespacePath); err != nil {
+		return "", 0, 0, false, normalizeSQLError(err)
+	}
+
 	runID = uuid.New().String()
 	runIndexOut, err = createRunTx(ctx, tx, runID, jobID, nil, definitionVersion, r.currentCellID(), audit)
 	if err != nil {
@@ -2592,6 +2596,10 @@ func (r *SQLRunsRepository) tryCreateSCMEventRun(
 
 	if existingRunID.Valid && strings.TrimSpace(existingRunID.String) != "" {
 		return "", 0, false, nil
+	}
+
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT ns.path FROM job_triggers jt JOIN namespaces ns ON ns.id=jt.namespace_id WHERE jt.id=?`), triggerID).Scan(&audit.NamespacePath); err != nil {
+		return "", 0, false, normalizeSQLError(err)
 	}
 
 	runID = uuid.New().String()
@@ -3441,7 +3449,7 @@ func (r *SQLRunsRepository) ListByJob(
 
 func (r *SQLRunsRepository) ListBySourceRepositoryJob(
 	ctx context.Context,
-	repositoryID, jobID string,
+	repositoryID, jobID, namespacePath string,
 	afterIndex *int,
 	since *time.Time,
 	owningCell string,
@@ -3482,7 +3490,12 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(
 		LEFT JOIN trigger_invocations ti ON ti.invocation_id = jr.trigger_invocation_id
 		LEFT JOIN job_triggers jt ON jt.id = ti.trigger_id
 		WHERE jr.job_id = ?`
+
 	args := []any{strings.TrimSpace(repositoryID), jobID}
+	if namespacePath != "" {
+		query += " AND COALESCE(NULLIF(jr.namespace_path, ''), '/') = ?"
+		args = append(args, namespacePath)
+	}
 
 	if afterIndex != nil {
 		query += " AND jr.run_index > ?"
@@ -5849,7 +5862,7 @@ func (r *SQLRunsRepository) ListPendingExecutions(
 		SELECT
 			jr.run_id,
 			jr.job_id,
-			COALESCE(ns.path, NULLIF(jr.namespace_path, ''), '/'),
+			COALESCE(NULLIF(jr.namespace_path, ''), '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -5872,9 +5885,6 @@ func (r *SQLRunsRepository) ListPendingExecutions(
 		JOIN segment_executions se ON se.segment_id = rs.segment_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
-		LEFT JOIN job_definition_sources jds ON jds.job_id = jr.job_id AND jds.version = jr.definition_version
-		LEFT JOIN source_repositories sr ON sr.repository_id = jds.repository_id
-		LEFT JOIN namespaces ns ON ns.id = sr.namespace_id
 		WHERE jr.run_id = ?
 			AND rs.status = ?
 			AND se.status = ?
@@ -5918,7 +5928,7 @@ func (r *SQLRunsRepository) GetExecutionDispatch(
 		SELECT
 			jr.run_id,
 			jr.job_id,
-			COALESCE(ns.path, NULLIF(jr.namespace_path, ''), '/'),
+			COALESCE(NULLIF(jr.namespace_path, ''), '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -5941,9 +5951,6 @@ func (r *SQLRunsRepository) GetExecutionDispatch(
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
-		LEFT JOIN job_definition_sources jds ON jds.job_id = jr.job_id AND jds.version = jr.definition_version
-		LEFT JOIN source_repositories sr ON sr.repository_id = jds.repository_id
-		LEFT JOIN namespaces ns ON ns.id = sr.namespace_id
 		WHERE se.execution_id = ?
 			AND rs.status = ?
 			AND se.status = ?
@@ -5977,7 +5984,7 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(
 		SELECT
 			jr.run_id,
 			jr.job_id,
-			COALESCE(ns.path, NULLIF(jr.namespace_path, ''), '/'),
+			COALESCE(NULLIF(jr.namespace_path, ''), '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -6000,9 +6007,6 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
-		LEFT JOIN job_definition_sources jds ON jds.job_id = jr.job_id AND jds.version = jr.definition_version
-		LEFT JOIN source_repositories sr ON sr.repository_id = jds.repository_id
-		LEFT JOIN namespaces ns ON ns.id = sr.namespace_id
 		WHERE jr.run_id = ?
 			AND se.execution_id = ?
 			AND jr.status = ?

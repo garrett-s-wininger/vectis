@@ -36,6 +36,7 @@ type RunsPageProps = {
   onFiltersChange?: (filters: RunListFilters, options?: { replace?: boolean }) => void;
   namespaces: Namespace[];
   namespacePath: string;
+  sharedWorkspace?: boolean;
   onSelectNamespace: (namespacePath: string) => void;
   onSelectRun: (runID: string) => void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
@@ -48,6 +49,7 @@ export function RunsPage({
   onFiltersChange,
   namespaces,
   namespacePath,
+  sharedWorkspace = false,
   onSelectNamespace,
   onSelectRun,
   onSubmitEphemeralRun,
@@ -190,13 +192,18 @@ export function RunsPage({
         description="Recent queued, running, and completed work."
         navigation={
           <BreadcrumbTrail
-            items={[{ label: formatNamespaceCrumb(namespacePath) }, { label: "Runs", current: true }]}
+            items={[
+              ...(!sharedWorkspace ? [{ label: formatNamespaceCrumb(namespacePath) }] : []),
+              { label: "Runs", current: true }
+            ]}
             label="Runs location"
           />
         }
         actions={
           <>
-            <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
+            {!sharedWorkspace ? (
+              <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
+            ) : null}
             {can("run:trigger", namespacePath) ? (
               <Button
                 aria-disabled={submittingRun}

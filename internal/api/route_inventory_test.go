@@ -42,11 +42,14 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"PUT /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
 		{"DELETE /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
 		{"GET /api/v1/source-repositories", string(authz.ActionJobRead)},
-		{"POST /api/v1/source-repositories", string(authz.ActionJobWrite)},
+		{"GET /api/v1/source-repositories/{id}/namespaces", string(authz.ActionAdmin)},
+		{"PUT /api/v1/source-repositories/{id}/namespaces/{namespace_id}", string(authz.ActionAdmin)},
+		{"DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}", string(authz.ActionAdmin)},
+		{"POST /api/v1/source-repositories", string(authz.ActionAdmin)},
 		{"GET /api/v1/source-repositories/{id}", string(authz.ActionJobRead)},
-		{"PUT /api/v1/source-repositories/{id}", string(authz.ActionJobWrite)},
-		{"DELETE /api/v1/source-repositories/{id}", string(authz.ActionJobWrite)},
-		{"POST /api/v1/source-repositories/{id}/sync", string(authz.ActionJobWrite)},
+		{"PUT /api/v1/source-repositories/{id}", string(authz.ActionAdmin)},
+		{"DELETE /api/v1/source-repositories/{id}", string(authz.ActionAdmin)},
+		{"POST /api/v1/source-repositories/{id}/sync", string(authz.ActionAdmin)},
 		{"GET /api/v1/source-repositories/{id}/status", string(authz.ActionJobRead)},
 		{"GET /api/v1/source-repositories/{id}/schedules", string(authz.ActionJobRead)},
 		{"GET /api/v1/source-repositories/{id}/refs/branches", string(authz.ActionJobRead)},
@@ -55,7 +58,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/source-repositories/{id}/jobs", string(authz.ActionJobRead)},
 		{"POST /api/v1/source-repositories/{id}/definitions/resolve", string(authz.ActionJobRead)},
 		{"GET /api/v1/source-repositories/{id}/jobs/{job_id}/definition", string(authz.ActionJobRead)},
-		{"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition", string(authz.ActionJobWrite)},
+		{"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition", string(authz.ActionAdmin)},
 		{"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs", string(authz.ActionRunRead)},
 		{"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs", string(authz.ActionRunRead)},
 		{"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger", string(authz.ActionRunTrigger)},
@@ -140,7 +143,7 @@ func TestAPIRouteInventory(t *testing.T) {
 
 		if spec.Auth.normalized().Action == authz.ActionAdmin {
 			wantNamespace := "/"
-			if strings.Contains(spec.Pattern, "/namespaces") {
+			if strings.HasPrefix(spec.Pattern[strings.Index(spec.Pattern, " ")+1:], "/api/v1/namespaces") {
 				wantNamespace = ""
 			}
 
@@ -179,30 +182,32 @@ func TestAPIRouteInventory_mutationAuditCoverage(t *testing.T) {
 	s := &APIServer{}
 
 	audited := map[string][]string{
-		"POST /api/v1/source-repositories":                              {audit.EventSourceRepositoryCreated},
-		"PUT /api/v1/source-repositories/{id}":                          {audit.EventSourceRepositoryUpdated},
-		"DELETE /api/v1/source-repositories/{id}":                       {audit.EventSourceRepositoryDeleted},
-		"POST /api/v1/source-repositories/{id}/sync":                    {audit.EventSourceRepositorySyncRequested},
-		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition": {audit.EventJobCreated, audit.EventJobUpdated},
-		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger":   {audit.EventRunTriggered},
-		"PATCH /api/v1/source-schedules/{schedule_id}":                  {audit.EventSourceScheduleUpdated},
-		"DELETE /api/v1/source-schedules/{schedule_id}":                 {audit.EventSourceScheduleDeleted},
-		"PUT /api/v1/source-schedules/{schedule_id}/override":           {audit.EventSourceScheduleOverrideSet},
-		"DELETE /api/v1/source-schedules/{schedule_id}/override":        {audit.EventSourceScheduleOverrideCleared},
-		"POST /api/v1/jobs":                                             {audit.EventJobCreated},
-		"POST /api/v1/jobs/run":                                         {audit.EventRunTriggered},
-		"DELETE /api/v1/jobs/{id}":                                      {audit.EventJobDeleted},
-		"PUT /api/v1/jobs/{id}":                                         {audit.EventJobUpdated},
-		"POST /api/v1/jobs/trigger/{id}":                                {audit.EventRunTriggered},
-		"POST /api/v1/runs/{id}/replay":                                 {audit.EventRunTriggered},
-		"POST /api/v1/runs/{id}/cancel":                                 {audit.EventRunCancelled},
-		"POST /api/v1/runs/{id}/repair/mark-succeeded":                  {audit.EventRunRepairMarked},
-		"POST /api/v1/runs/{id}/repair/mark-failed":                     {audit.EventRunRepairMarked},
-		"POST /api/v1/runs/{id}/repair/mark-cancelled":                  {audit.EventRunRepairMarked},
-		"POST /api/v1/runs/{id}/repair/mark-abandoned":                  {audit.EventRunRepairMarked},
-		"POST /api/v1/runs/{id}/repair/mark-queued":                     {audit.EventRunRepairMarked},
-		"POST /api/v1/runs/{id}/force-fail":                             {audit.EventRunForceFailed},
-		"POST /api/v1/runs/{id}/force-requeue":                          {audit.EventRunForceRequeued},
+		"PUT /api/v1/source-repositories/{id}/namespaces/{namespace_id}":    {audit.EventSourceRepositoryUpdated},
+		"DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}": {audit.EventSourceRepositoryUpdated},
+		"POST /api/v1/source-repositories":                                  {audit.EventSourceRepositoryCreated},
+		"PUT /api/v1/source-repositories/{id}":                              {audit.EventSourceRepositoryUpdated},
+		"DELETE /api/v1/source-repositories/{id}":                           {audit.EventSourceRepositoryDeleted},
+		"POST /api/v1/source-repositories/{id}/sync":                        {audit.EventSourceRepositorySyncRequested},
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition":     {audit.EventJobCreated, audit.EventJobUpdated},
+		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger":       {audit.EventRunTriggered},
+		"PATCH /api/v1/source-schedules/{schedule_id}":                      {audit.EventSourceScheduleUpdated},
+		"DELETE /api/v1/source-schedules/{schedule_id}":                     {audit.EventSourceScheduleDeleted},
+		"PUT /api/v1/source-schedules/{schedule_id}/override":               {audit.EventSourceScheduleOverrideSet},
+		"DELETE /api/v1/source-schedules/{schedule_id}/override":            {audit.EventSourceScheduleOverrideCleared},
+		"POST /api/v1/jobs":                            {audit.EventJobCreated},
+		"POST /api/v1/jobs/run":                        {audit.EventRunTriggered},
+		"DELETE /api/v1/jobs/{id}":                     {audit.EventJobDeleted},
+		"PUT /api/v1/jobs/{id}":                        {audit.EventJobUpdated},
+		"POST /api/v1/jobs/trigger/{id}":               {audit.EventRunTriggered},
+		"POST /api/v1/runs/{id}/replay":                {audit.EventRunTriggered},
+		"POST /api/v1/runs/{id}/cancel":                {audit.EventRunCancelled},
+		"POST /api/v1/runs/{id}/repair/mark-succeeded": {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-failed":    {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-cancelled": {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-abandoned": {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-queued":    {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/force-fail":            {audit.EventRunForceFailed},
+		"POST /api/v1/runs/{id}/force-requeue":         {audit.EventRunForceRequeued},
 		"POST /api/v1/setup/complete": {
 			audit.EventSetupCompleted,
 			audit.EventSetupBootstrapFailed,
@@ -519,7 +524,7 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 			"repository_id",
 			"since",
 		),
-		"GET /api/v1/sse/jobs/{id}/runs": routeQueryParams("repository_id"),
+		"GET /api/v1/sse/jobs/{id}/runs": routeQueryParams("namespace", "scope", "repository_id"),
 		"DELETE /api/v1/jobs/{id}": routeQueryParams(
 			"branch",
 			"expected_head",
@@ -553,6 +558,26 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 		),
 		"GET /api/v1/tokens": routeQueryParams("user_id"),
 		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}": routeQueryParams("role"),
+	}
+
+	for _, spec := range s.routeSpecs(false) {
+		if strings.Contains(spec.Pattern, "/source-repositories") && !strings.Contains(spec.Pattern, "/namespaces") || strings.HasPrefix(spec.Pattern, "GET /api/v1/jobs") || strings.HasPrefix(spec.Pattern, "POST /api/v1/jobs/trigger") || strings.HasPrefix(spec.Pattern, "PUT /api/v1/jobs") || strings.HasPrefix(spec.Pattern, "DELETE /api/v1/jobs") {
+			policy := want[spec.Pattern]
+			for _, key := range []string{"namespace", "scope"} {
+				found := false
+				for _, existing := range policy.allowed {
+					if existing == key {
+						found = true
+					}
+				}
+
+				if !found {
+					policy.allowed = append(policy.allowed, key)
+				}
+			}
+
+			want[spec.Pattern] = policy
+		}
 	}
 
 	seen := make(map[string]bool, len(want))

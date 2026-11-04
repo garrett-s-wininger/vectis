@@ -23,7 +23,7 @@ The access middleware first checks the route's coarse action without a namespace
 | Action | Namespace scope | Used for |
 | --- | --- | --- |
 | `job:read` | Yes | Reading stored jobs and namespaces. |
-| `job:write` | Yes | Creating, updating, and deleting stored jobs. |
+| `job:write` | Yes | Namespace-local schedule management. Shared source definition authoring additionally requires Admin on Root. |
 | `run:trigger` | Yes | Starting ephemeral runs and triggering stored jobs. |
 | `run:read` | Yes | Reading runs, tasks, logs, artifacts, and run event streams. |
 | `run:operator` | Yes | Replay, cancellation, run repair, and frozen execution payload access. |
@@ -45,7 +45,7 @@ Namespace roles grant actions at the namespace where they are bound and, unless 
 | `viewer` | `job:read`, `run:read` | Inspect jobs, runs, logs, tasks, and artifacts. |
 | `trigger` | `job:read`, `run:read`, `run:trigger` | Run existing jobs or submit one-off runs without editing stored jobs. |
 | `operator` | `job:read`, `run:read`, `run:trigger`, `run:operator` | Operate runs: replay, cancel, repair, and inspect execution payloads. |
-| `admin` | `job:read`, `job:write`, `run:read`, `run:trigger`, `run:operator`, `admin:*`, `api:any` | Manage namespace-local jobs and namespace administration surfaces. Root `admin` also grants `catalog:ingest` and `user:admin`. |
+| `admin` | `job:read`, `job:write`, `run:read`, `run:trigger`, `run:operator`, `admin:*`, `api:any` | Manage namespace administration and schedules. Root `admin` also manages shared repository connections and definitions, and grants `catalog:ingest` and `user:admin`. |
 
 Notes:
 
@@ -141,3 +141,11 @@ Use [API Reference](../../using/api-reference.md#routes) for the exact method an
 Operator is a run-management role: it can trigger, cancel, replay, and repair runs in its scope. It does not grant job authoring, namespace creation, or administrative Health access. Viewer sees jobs and runs without execution controls. Namespace Admins can create child namespaces only under parents they administer.
 
 Cluster Health, version/schema status, audit diagnostics, and metrics require an Admin binding in the root namespace (`/`). Administration of a child namespace grants namespace controls within that scope, without cluster-wide diagnostic access. The console hides Health for namespace-only administrators.
+
+## Shared Repository Connections
+
+Connections are global registrations with explicit grants to namespaces. Namespace roles govern reading source definitions and starting runs in a granted namespace. Connection registration, settings, deletion, sync, definition authoring, global inventory (`scope=all`), and namespace grants require `admin:*` on Root (`/`). Admin on a child namespace cannot change a shared checkout or credentials.
+
+`GET /api/v1/source-repositories/{id}/namespaces` lists grants. `PUT` and `DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}` grant or revoke use. A grant does not assign user roles or propagate to descendant namespaces. Private checkout paths, credential references, and object-store diagnostics are hidden from callers without instance administration.
+
+Source triggers, run-history requests, and run-event subscriptions accept an explicit `namespace`. Triggers require it when the repository has several grants. History filters the persisted run namespace before pagination; logs and other run resources authorize against that same immutable namespace. Revocation blocks new runs while preserving authorization for historical runs.

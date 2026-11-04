@@ -15,7 +15,7 @@
   --color-text-default: #42515d;
   --color-text-muted: #516673;
   --color-text-subtle: #4b606e;
-  --color-text-nav: #4b6475;
+  --color-text-nav: #415c6e;
   --color-primary: #1f5f78;
   --color-primary-hover: #174c60;
   --color-primary-pressed: #123a49;
@@ -121,14 +121,16 @@
   --layout-token-value-width: 72px;
   --breakpoint-sm: 640px;
   --breakpoint-md: 720px;
-
-  /* Content cards use panel; inset groups use subtle; controls and toolbars
-     use chrome gradients. Keep selected surfaces distinct from status colors. */
   --surface-page: var(--color-bg-canvas);
   --surface-metal: var(--color-bg-metal);
   --surface-metal-strong: var(--color-bg-metal-strong);
   --surface-metal-soft: var(--color-bg-metal-soft);
   --surface-panel: var(--color-bg-surface);
+  --surface-navigation: var(--color-bg-metal-strong);
+  --surface-navigation-recessed: #cfdde5;
+  --surface-topbar: #e5eef4;
+  --surface-topbar-raised: #f7fafc;
+  --topbar-edge-shadow: linear-gradient(180deg, rgb(23 32 38 / 18%), rgb(23 32 38 / 5%) 40%, transparent);
   --surface-subtle: var(--color-bg-subtle);
   --surface-selected: var(--color-bg-selected);
   --text-primary: var(--color-text-strong);
@@ -243,6 +245,11 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
+  --surface-navigation: var(--color-bg-surface);
+  --surface-navigation-recessed: #15212c;
+  --surface-topbar: #263b4b;
+  --surface-topbar-raised: #31485a;
+  --topbar-edge-shadow: linear-gradient(180deg, rgb(0 0 0 / 38%), rgb(0 0 0 / 12%) 40%, transparent);
   --color-bg-canvas: #111922;
   --color-bg-surface: #1c2732;
   --color-bg-subtle: #263746;

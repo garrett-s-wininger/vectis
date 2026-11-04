@@ -172,10 +172,11 @@ type JobRecord struct {
 }
 
 type SourceRepositoryRecord struct {
-	ID                      int64
-	GlobalID                string
-	RepositoryID            string
+	ID           int64
+	GlobalID     string
+	RepositoryID string
 	NamespaceID             int64
+	NamespacePaths          []string
 	SourceKind              string
 	CheckoutPath            string
 	CheckoutMode            string
@@ -918,6 +919,7 @@ type CatalogStatusBackfillRepository interface {
 }
 
 type CronSchedule struct {
+	NamespaceID                 int64
 	ID                          int64
 	TriggerID                   int64
 	ScheduleID                  string
@@ -941,6 +943,7 @@ type CronScheduleSummary struct {
 }
 
 type CronScheduleRecord struct {
+	NamespaceID                 int64
 	ID                          int64
 	TriggerID                   int64
 	ScheduleID                  string
@@ -1214,7 +1217,7 @@ type RunsRepository interface {
 type SourceRepositoryRunLister interface {
 	ListBySourceRepositoryJob(
 		ctx context.Context,
-		repositoryID, jobID string,
+		repositoryID, jobID, namespacePath string,
 		afterIndex *int,
 		since *time.Time,
 		owningCell string,
@@ -1295,6 +1298,10 @@ type JobsRepository interface {
 }
 
 type SourcesRepository interface {
+	GrantRepositoryNamespace(ctx context.Context, repositoryID string, namespaceID int64) error
+	RevokeRepositoryNamespace(ctx context.Context, repositoryID string, namespaceID int64) error
+	RepositoryNamespaces(ctx context.Context, repositoryID string) ([]NamespaceRecord, error)
+	ListAllRepositories(ctx context.Context) ([]SourceRepositoryRecord, error)
 	CreateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
 	UpdateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
 	DeleteRepository(ctx context.Context, repositoryID string) error
@@ -1757,7 +1764,19 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(
 	targetCellID = normalizeTargetCellID(targetCellID, r.cellID)
 	namespacePath := strings.TrimSpace(audit.NamespacePath)
 	if namespacePath == "" {
-		namespacePath = RootNamespacePath
+		namespacePath, err = namespacePathForRepositoryGrantTx(ctx, tx, source.RepositoryID)
+		if err != nil {
+			return "", 0, 0, err
+		}
+	}
+
+	var allowed int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT COUNT(*) FROM source_repository_namespaces access JOIN namespaces ns ON ns.id=access.namespace_id WHERE access.repository_id=? AND ns.path=?`), source.RepositoryID, namespacePath).Scan(&allowed); err != nil {
+		return "", 0, 0, err
+	}
+
+	if allowed != 1 {
+		return "", 0, 0, fmt.Errorf("%w: repository is not granted to namespace", ErrConflict)
 	}
 
 	if _, err := tx.ExecContext(

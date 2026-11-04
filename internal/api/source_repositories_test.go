@@ -747,7 +747,7 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 
 		metadata := event.Metadata
 		if metadata["job_id"] != "build" ||
-			metadata["namespace"] != "/" ||
+			metadata["namespace"] != "" ||
 			metadata["repository_id"] != "managed-repo" ||
 			metadata["source_operation"] != wantOperations[i] ||
 			metadata["source_path"] != ".vectis/jobs/build.json" ||
@@ -2402,7 +2402,7 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 		metadata["sync_status"] != dal.SourceSyncStatusSucceeded ||
 		metadata["sync_ref"] != "HEAD" ||
 		metadata["sync_commit"] != commit ||
-		metadata["namespace"] != "/" {
+		metadata["namespace"] != "" {
 		t.Fatalf("source sync audit metadata mismatch: %+v", metadata)
 	}
 

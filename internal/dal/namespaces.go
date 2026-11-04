@@ -345,8 +345,8 @@ func (r *SQLNamespacesRepository) HasChildren(ctx context.Context, id int64) (bo
 func (r *SQLNamespacesRepository) HasJobs(ctx context.Context, id int64) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT COUNT(*) FROM source_repositories WHERE namespace_id = ?"),
-		id,
+		rebindQueryForPgx(`SELECT (SELECT COUNT(*) FROM source_repository_namespaces WHERE namespace_id = ?) + (SELECT COUNT(*) FROM job_runs jr JOIN namespaces ns ON ns.path = jr.namespace_path WHERE ns.id = ?)`),
+		id, id,
 	).Scan(&count)
 
 	if err != nil {

@@ -1656,3 +1656,20 @@ func TestDiscovery_RegistryFallback(t *testing.T) {
 		t.Fatalf("APIRegistryAddress: got %q", got)
 	}
 }
+
+func TestSharedRepositoryConfiguredNamespaceGrants(t *testing.T) {
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"shared","namespaces":[" /team-a ","/team-b","/team-a"],"checkout_path":"/workspace/shared"}]`)
+	rows, err := SourceRepositoryDeclarations()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 1 || rows[0].Namespace != "/team-a" || len(rows[0].Namespaces) != 2 {
+		t.Fatalf("grants: %+v", rows)
+	}
+
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"shared","namespaces":["team-a"],"checkout_path":"/workspace/shared"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("accepted relative namespace")
+	}
+}

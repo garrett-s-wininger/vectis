@@ -1,21 +1,26 @@
 import type { BreadcrumbItem } from "../../components";
 import type { JobEditorMode } from "./JobEditorModel";
 
-export function jobsIndexBreadcrumbItems(namespacePath: string): BreadcrumbItem[] {
-  return [{ label: formatNamespaceCrumb(namespacePath) }, { label: "Jobs", current: true }];
+export function jobsIndexBreadcrumbItems(namespacePath: string, hideNamespace = false): BreadcrumbItem[] {
+  return [
+    ...(!hideNamespace ? [{ label: formatNamespaceCrumb(namespacePath) }] : []),
+    { label: "Jobs", current: true }
+  ];
 }
 
 export function jobDetailBreadcrumbItems({
   jobName,
   namespacePath,
-  onJobs
+  onJobs,
+  hideNamespace = false
 }: {
   jobName: string;
   namespacePath: string;
   onJobs: () => void;
+  hideNamespace?: boolean;
 }): BreadcrumbItem[] {
   return [
-    { label: formatNamespaceCrumb(namespacePath) },
+    ...(!hideNamespace ? [{ label: formatNamespaceCrumb(namespacePath) }] : []),
     { label: "Jobs", onClick: onJobs },
     { label: jobName, current: true }
   ];
@@ -26,16 +31,18 @@ export function jobEditorBreadcrumbItems({
   mode,
   namespacePath,
   onJob,
-  onJobs
+  onJobs,
+  hideNamespace = false
 }: {
   editorJobName: string;
   mode: JobEditorMode;
   namespacePath: string;
   onJob: () => void;
   onJobs: () => void;
+  hideNamespace?: boolean;
 }): BreadcrumbItem[] {
   const baseItems: BreadcrumbItem[] = [
-    { label: formatNamespaceCrumb(namespacePath) },
+    ...(!hideNamespace ? [{ label: formatNamespaceCrumb(namespacePath) }] : []),
     { label: "Jobs", onClick: onJobs }
   ];
 

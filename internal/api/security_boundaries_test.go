@@ -308,7 +308,18 @@ func TestNamespaceAdminCannotBindSourceCredentials(t *testing.T) {
 		t.Fatalf("operator credential binding: %d %s", updated.Code, updated.Body.String())
 	}
 
-	synced := securityBoundaryRequest(t, h, http.MethodPost, "/api/v1/source-repositories/credential-probe/sync", token, nil)
+	deniedSync := securityBoundaryRequest(t, h, http.MethodPost, "/api/v1/source-repositories/credential-probe/sync", token, nil)
+	if deniedSync.Code != http.StatusForbidden {
+		t.Fatalf("namespace user synchronized a shared connection: %d", deniedSync.Code)
+	}
+
+	select {
+	case <-received:
+		t.Fatal("denied sync contacted the remote")
+	default:
+	}
+
+	synced := securityBoundaryRequest(t, h, http.MethodPost, "/api/v1/source-repositories/credential-probe/sync", rootToken, nil)
 	select {
 	case match := <-received:
 		if !match {

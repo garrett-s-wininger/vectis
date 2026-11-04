@@ -214,22 +214,12 @@ test("supports browser policies that disable localStorage", async ({ page }) => 
 });
 
 for (const width of [1280, 800, 640]) {
-  test(`centers header controls below the accent at width ${width}`, async ({ page }) => {
+  test(`keeps the global header compact at width ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/jobs");
-    const link = page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Jobs", exact: true });
-    await expect(link).toBeVisible();
-    const spacing = await link.evaluate((element) => {
-      const header = element.closest("header")!;
-      const bar = header.getBoundingClientRect();
-      const control = element.getBoundingClientRect();
-      const style = getComputedStyle(header);
-      const accent = parseFloat(getComputedStyle(header, "::before").height);
-      return {
-        above: control.top - bar.top - accent,
-        below: bar.bottom - parseFloat(style.borderBottomWidth) - control.bottom
-      };
-    });
-    expect(Math.abs(spacing.above - spacing.below)).toBeLessThan(1);
+    await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+    expect((await page.getByRole("banner").boundingBox())!.height).toBe(56);
+
+    await expect(page.getByLabel("Account menu for admin", { exact: true })).toBeVisible();
   });
 }

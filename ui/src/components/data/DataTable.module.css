@@ -414,3 +414,32 @@
     width: auto;
   }
 }
+
+.root.inset {
+  box-shadow: none;
+}
+
+.root.inset::before,
+.root.inset tbody tr::before {
+  content: none;
+}
+
+.root.inset th {
+  background: var(--surface-subtle);
+  height: auto;
+}
+
+.root.inset tbody tr {
+  box-shadow: none;
+}
+
+.root.inset td:first-child::after {
+  content: none;
+}
+
+@media (max-width: 700px) {
+  .root.inset td:first-child {
+    background: var(--surface-subtle);
+    box-shadow: none;
+  }
+}

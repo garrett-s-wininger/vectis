@@ -19,6 +19,7 @@
 }
 
 .statusMetric {
+  align-content: start;
   display: grid;
   gap: var(--space-xs);
   min-height: var(--size-card-min);
@@ -26,6 +27,7 @@
 }
 
 .statusLabel {
+  grid-row: 2;
   color: var(--text-navigation);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -33,12 +35,14 @@
 }
 
 .statusValue {
+  grid-row: 1;
   color: var(--text-primary);
   font-size: var(--font-size-3xl);
   line-height: var(--line-height-heading);
 }
 
 .statusBar {
+  grid-row: 3;
   background: rgb(151 168 177 / 24%);
   border: 1px solid rgb(120 141 152 / 28%);
   border-radius: var(--radius-pill);
@@ -69,6 +73,7 @@
 }
 
 .statusLegend {
+  grid-row: 4;
   align-items: center;
   color: var(--text-subtle);
   display: flex;
@@ -98,6 +103,7 @@
   }
 
   .statusMetric {
+    align-content: start;
     order: 1;
   }
 

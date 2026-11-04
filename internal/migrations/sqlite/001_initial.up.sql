@@ -24,6 +24,7 @@ CREATE TABLE stored_jobs (
 );
 
 CREATE TABLE job_triggers (
+    namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id TEXT NOT NULL,
     trigger_type TEXT NOT NULL,
@@ -567,7 +568,6 @@ CREATE TABLE source_repositories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     global_id TEXT UNIQUE,
     repository_id TEXT UNIQUE NOT NULL,
-    namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
     source_kind TEXT NOT NULL CHECK (source_kind IN ('local_checkout')),
     checkout_path TEXT NOT NULL DEFAULT '',
     checkout_mode TEXT NOT NULL DEFAULT 'external' CHECK (checkout_mode IN ('external', 'managed')),
@@ -589,7 +589,14 @@ CREATE TABLE source_repositories (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_source_repositories_namespace ON source_repositories(namespace_id);
+CREATE TABLE source_repository_namespaces (
+    repository_id TEXT NOT NULL REFERENCES source_repositories(repository_id) ON DELETE CASCADE,
+    namespace_id INTEGER NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (repository_id, namespace_id)
+);
+
+CREATE INDEX idx_source_repository_namespaces_namespace ON source_repository_namespaces(namespace_id);
 CREATE UNIQUE INDEX uidx_source_repositories_kind_checkout_path ON source_repositories(source_kind, checkout_path);
 
 CREATE TABLE job_definition_sources (

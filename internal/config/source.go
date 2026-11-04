@@ -53,6 +53,7 @@ const (
 )
 
 type SourceRepositoryDeclaration struct {
+	Namespaces              []string `json:"namespaces" mapstructure:"namespaces" toml:"namespaces"`
 	RepositoryID            string   `json:"repository_id"              mapstructure:"repository_id"              toml:"repository_id"`
 	Namespace               string   `json:"namespace"                  mapstructure:"namespace"                  toml:"namespace"`
 	SourceKind              string   `json:"source_kind"                mapstructure:"source_kind"                toml:"source_kind"`
@@ -69,6 +70,7 @@ type SourceRepositoryDeclaration struct {
 }
 
 type SourceScheduleDeclaration struct {
+	Namespace    string `json:"namespace" mapstructure:"namespace" toml:"namespace"`
 	ScheduleID   string `json:"schedule_id"   mapstructure:"schedule_id"   toml:"schedule_id"`
 	RepositoryID string `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
 	JobID        string `json:"job_id"        mapstructure:"job_id"        toml:"job_id"`
@@ -272,6 +274,31 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 	for i, repo := range in {
 		repo.RepositoryID = strings.TrimSpace(repo.RepositoryID)
 		repo.Namespace = strings.TrimSpace(repo.Namespace)
+
+		var namespacePaths []string
+		seenNamespaces := map[string]bool{}
+		if repo.Namespace != "" {
+			namespacePaths = append(namespacePaths, repo.Namespace)
+			seenNamespaces[repo.Namespace] = true
+		}
+
+		for _, path := range repo.Namespaces {
+			path = strings.TrimSpace(path)
+			if path == "" || !strings.HasPrefix(path, "/") {
+				return nil, fmt.Errorf("source.repositories[%d].namespaces: namespace paths must start with /", i)
+			}
+
+			if !seenNamespaces[path] {
+				namespacePaths = append(namespacePaths, path)
+				seenNamespaces[path] = true
+			}
+		}
+
+		if len(namespacePaths) > 0 {
+			repo.Namespace = namespacePaths[0]
+		}
+
+		repo.Namespaces = namespacePaths
 		repo.SourceKind = strings.TrimSpace(repo.SourceKind)
 		repo.CheckoutPath = strings.TrimSpace(repo.CheckoutPath)
 		repo.CheckoutMode = strings.TrimSpace(repo.CheckoutMode)

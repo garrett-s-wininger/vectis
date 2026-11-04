@@ -25,8 +25,9 @@ func NewRunBroadcaster(logger interfaces.Logger) *RunBroadcaster {
 	}
 }
 
-func sourceRepositoryRunBroadcastKey(repositoryID, jobID string) string {
-	return "source-repository:" + repositoryID + ":job:" + jobID
+func sourceRepositoryRunBroadcastKey(repositoryID, jobID, namespacePath string) string {
+	key, _ := json.Marshal([]string{repositoryID, jobID, namespacePath})
+	return "source-repository:" + string(key)
 }
 
 func (b *RunBroadcaster) Subscribe(jobID string) chan []byte {

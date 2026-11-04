@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
-import { BreadcrumbTrail, Button, PageHeader, ResourceStatus } from "../../components";
+import { Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
+import { BreadcrumbTrail, Button, OperationalFact, PageHeader, ResourceStatus } from "../../components";
 import type { Namespace, RoleBindingRole, User, UserStatus } from "../../domain/console";
 import { roleBindingRoleOptions } from "../../domain/consoleOptions";
 import { RoleBindingPanel } from "../shared";
@@ -127,11 +128,15 @@ export function UserDetailPage({
             </div>
             <ResourceStatus tone={user.status}>{user.status === "active" ? "Active" : "Disabled"}</ResourceStatus>
           </div>
-          <div className={styles.detailFacts}>
-            <DetailFact label="Role" value={user.role} tone={roleTone(user.role)} />
-            <DetailFact label="Provider" value="Local" />
-            <DetailFact label="Account ID" value={user.id} />
-          </div>
+          <dl className={styles.detailFacts}>
+            <OperationalFact
+              icon={ShieldCheck}
+              label="Role"
+              value={<ResourceStatus tone={roleTone(user.role)}>{user.role}</ResourceStatus>}
+            />
+            <OperationalFact icon={KeyRound} label="Provider" value="Local" />
+            <OperationalFact icon={Fingerprint} label="Account ID" value={user.id} wrap />
+          </dl>
         </section>
 
         <section
@@ -197,14 +202,5 @@ export function UserDetailPage({
       </div>
       {children}
     </>
-  );
-}
-
-function DetailFact({ label, tone, value }: { label: string; tone?: ReturnType<typeof roleTone>; value: string }) {
-  return (
-    <div className={styles.detailFact}>
-      <span>{label}</span>
-      {tone ? <ResourceStatus tone={tone}>{value}</ResourceStatus> : <strong>{value}</strong>}
-    </div>
   );
 }

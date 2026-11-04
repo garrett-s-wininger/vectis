@@ -25,12 +25,17 @@ func (r *SQLSourcesRepository) CreateRepository(
 		return SourceRepositoryRecord{}, err
 	}
 
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	var id int64
-	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
 		INSERT INTO source_repositories (
 			global_id,
 			repository_id,
-			namespace_id,
 			source_kind,
 			checkout_path,
 			checkout_mode,
@@ -43,12 +48,11 @@ func (r *SQLSourcesRepository) CreateRepository(
 			credential_ref,
 			enabled
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`),
 		newGlobalID(),
 		rec.RepositoryID,
-		rec.NamespaceID,
 		rec.SourceKind,
 		rec.CheckoutPath,
 		rec.CheckoutMode,
@@ -62,6 +66,14 @@ func (r *SQLSourcesRepository) CreateRepository(
 		rec.Enabled,
 	).Scan(&id); err != nil {
 		return SourceRepositoryRecord{}, normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO source_repository_namespaces(repository_id, namespace_id) VALUES (?, ?)`), rec.RepositoryID, rec.NamespaceID); err != nil {
+		return SourceRepositoryRecord{}, normalizeSQLError(err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return SourceRepositoryRecord{}, err
 	}
 
 	return r.GetRepository(ctx, rec.RepositoryID)
@@ -279,7 +291,6 @@ func (r *SQLSourcesRepository) GetRepository(ctx context.Context, repositoryID s
 			id,
 			COALESCE(global_id, ''),
 			repository_id,
-			namespace_id,
 			source_kind,
 			checkout_path,
 			COALESCE(checkout_mode, ''),
@@ -321,7 +332,6 @@ func (r *SQLSourcesRepository) ListRepositories(
 			id,
 			COALESCE(global_id, ''),
 			repository_id,
-			namespace_id,
 			source_kind,
 			checkout_path,
 			COALESCE(checkout_mode, ''),
@@ -340,7 +350,7 @@ func (r *SQLSourcesRepository) ListRepositories(
 			last_sync_commit,
 			last_sync_error
 		FROM source_repositories
-		WHERE namespace_id = ?
+		WHERE EXISTS (SELECT 1 FROM source_repository_namespaces access WHERE access.repository_id = source_repositories.repository_id AND access.namespace_id = ?)
 		ORDER BY repository_id
 	`), namespaceID)
 	if err != nil {
@@ -355,6 +365,7 @@ func (r *SQLSourcesRepository) ListRepositories(
 			return nil, err
 		}
 
+		rec.NamespaceID = namespaceID
 		out = append(out, rec)
 	}
 
@@ -379,7 +390,6 @@ func (r *SQLSourcesRepository) ListRepositoriesByWorkerCacheMode(
 			id,
 			COALESCE(global_id, ''),
 			repository_id,
-			namespace_id,
 			source_kind,
 			checkout_path,
 			COALESCE(checkout_mode, ''),
@@ -1063,7 +1073,6 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 		&rec.ID,
 		&rec.GlobalID,
 		&rec.RepositoryID,
-		&rec.NamespaceID,
 		&rec.SourceKind,
 		&rec.CheckoutPath,
 		&rec.CheckoutMode,
@@ -1134,7 +1143,6 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 		&rec.ID,
 		&rec.GlobalID,
 		&rec.RepositoryID,
-		&rec.NamespaceID,
 		&rec.SourceKind,
 		&rec.CheckoutPath,
 		&rec.CheckoutMode,

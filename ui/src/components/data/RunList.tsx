@@ -22,6 +22,7 @@ export type RunListItem = {
   id: string;
   jobName: string;
   jobID?: string;
+  repositoryID?: string;
   runNumber: number;
   commit: string;
   createdAt?: string;

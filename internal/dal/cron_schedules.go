@@ -32,9 +32,25 @@ func (r *SQLSchedulesRepository) CreateCronSchedule(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if rec.NamespaceID <= 0 {
+		if rec.SourceRepositoryID != "" {
+			path, err := namespacePathForRepositoryGrantTx(ctx, tx, rec.SourceRepositoryID)
+			if err != nil {
+				return CronScheduleRecord{}, err
+			}
+
+			if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT id FROM namespaces WHERE path=?`), path).Scan(&rec.NamespaceID); err != nil {
+				return CronScheduleRecord{}, err
+			}
+		} else {
+			rec.NamespaceID = RootNamespaceID
+		}
+	}
+
 	var triggerID int64
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
 		INSERT INTO job_triggers (
+            namespace_id,
 			job_id,
 			trigger_type,
 			source_repository_id,
@@ -42,9 +58,10 @@ func (r *SQLSchedulesRepository) CreateCronSchedule(
 			source_path,
 			enabled
 		)
-		VALUES (?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`),
+		rec.NamespaceID,
 		rec.JobID,
 		TriggerTypeCron,
 		rec.SourceRepositoryID,
@@ -93,6 +110,10 @@ func (r *SQLSchedulesRepository) UpdateCronSchedule(
 		return CronScheduleRecord{}, err
 	}
 
+	if rec.NamespaceID <= 0 {
+		rec.NamespaceID = existing.NamespaceID
+	}
+
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return CronScheduleRecord{}, err
@@ -102,6 +123,7 @@ func (r *SQLSchedulesRepository) UpdateCronSchedule(
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_triggers
 		SET
+            namespace_id = ?,
 			job_id = ?,
 			source_repository_id = ?,
 			source_ref = ?,
@@ -110,6 +132,7 @@ func (r *SQLSchedulesRepository) UpdateCronSchedule(
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`),
+		rec.NamespaceID,
 		rec.JobID,
 		rec.SourceRepositoryID,
 		rec.SourceRef,
@@ -163,6 +186,7 @@ func (r *SQLSchedulesRepository) GetCronScheduleByScheduleID(
 		SELECT
 			cts.id,
 			cts.trigger_id,
+            jt.namespace_id,
 			COALESCE(cts.schedule_id, ''),
 			jt.job_id,
 			cts.cron_spec,
@@ -202,6 +226,7 @@ func (r *SQLSchedulesRepository) ListSourceCronSchedules(
 		SELECT
 			cts.id,
 			cts.trigger_id,
+            jt.namespace_id,
 			COALESCE(cts.schedule_id, ''),
 			jt.job_id,
 			cts.cron_spec,
@@ -217,7 +242,7 @@ func (r *SQLSchedulesRepository) ListSourceCronSchedules(
 		FROM cron_trigger_specs cts
 		JOIN job_triggers jt ON jt.id = cts.trigger_id
 		JOIN source_repositories sr ON sr.repository_id = jt.source_repository_id
-		WHERE sr.namespace_id = ?`
+		WHERE jt.namespace_id = ?`
 	args := []any{namespaceID}
 	if repositoryID != "" {
 		query += ` AND jt.source_repository_id = ?`
@@ -499,6 +524,7 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 		SELECT
 			cts.id,
 			cts.trigger_id,
+            jt.namespace_id,
 			COALESCE(cts.schedule_id, ''),
 			jt.job_id,
 			cts.cron_spec,
@@ -529,6 +555,7 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 		if err := rows.Scan(
 			&sched.ID,
 			&sched.TriggerID,
+			&sched.NamespaceID,
 			&sched.ScheduleID,
 			&sched.JobID,
 			&sched.CronSpec,
@@ -651,6 +678,7 @@ func scanCronScheduleRecord(scanner cronScheduleRecordScanner) (CronScheduleReco
 	if err := scanner.Scan(
 		&rec.ID,
 		&rec.TriggerID,
+		&rec.NamespaceID,
 		&rec.ScheduleID,
 		&rec.JobID,
 		&rec.CronSpec,

@@ -1,23 +1,38 @@
-import { ConsoleAccessProvider, hasAccess, useConsoleAccess, type ConsoleAccess } from "./domain/access";
+import { WorkspacePicker } from "./components/navigation/WorkspacePicker";
+import { workspacePath, isWorkspaceRoute } from "./routing/workspace";
+import {
+  ConsoleAccessProvider,
+  hasAccess,
+  namespaceAccessLabel,
+  useConsoleAccess,
+  type ConsoleAccess
+} from "./domain/access";
 import type { FormEvent, MouseEvent, ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import "./index.css";
 import vectisLogo from "../../assets/brand/public/vectis.png";
 import vectisDarkLogo from "../../assets/brand/public/vectis-dark.png";
 import { completeSetup, loadUIContext, login, logout } from "./api/auth";
-import { Button } from "./components";
-import { AppShell } from "./components";
-import { AppState } from "./components";
-import { FormError } from "./components";
-import { FormField } from "./components";
+import { AppShell, AppState, Button, FormError, FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource, type CreatedUserCredential } from "./data/consoleDataSource";
 import { watchRun } from "./data/watchRun";
 import type { LoadRunArtifacts } from "./data/runArtifacts";
-import type { Cell, NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
-import type { NewUser, RoleBindingRole, User, UserStatus } from "./domain/console";
-import { canDeleteMockNamespace, nextMockRunID, scopeMockConsoleData, type MockConsoleData } from "./mocks/consoleData";
+import type {
+  Cell,
+  Job,
+  NewJob,
+  NewNamespace,
+  NewUser,
+  RoleBindingRole,
+  UpdateJob,
+  UpdateNamespace,
+  User,
+  UserStatus
+} from "./domain/console";
+import { canDeleteMockNamespace, nextMockRunID, type MockConsoleData } from "./mocks/consoleData";
 import { DashboardPage } from "./pages/DashboardPage";
+import { RepositoriesPage } from "./pages/RepositoriesPage";
 import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
 import { NamespacesPage } from "./pages/NamespacesPage";
@@ -86,13 +101,18 @@ export function App() {
   const [healthCells, setHealthCells] = useState<Cell[] | null>(null);
   const [healthError, setHealthError] = useState("");
   const [missingRunID, setMissingRunID] = useState<string | null>(null);
-  const [jobDefinitionError, setJobDefinitionError] = useState<{ id: string; message: string } | null>(null);
+  const [jobDefinitionError, setJobDefinitionError] = useState<{
+    id: string;
+    repository: string;
+    message: string;
+  } | null>(null);
+
   const definitionJobID =
     route.kind === "jobs"
       ? (route.jobID ?? (route.jobEditor?.kind === "edit" ? route.jobEditor.jobID : undefined))
       : undefined;
-  const definitionJob = consoleData?.jobs.find((job) => job.id === definitionJobID);
-  const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
+  const definitionJob = consoleData?.jobs.find((job) => job.id === definitionJobID && jobMatchesRoute(job, route));
+  const [selectedNamespacePath, setSelectedNamespacePath] = useState(route.workspaceNamespace ?? "/");
   const runJobs = consoleData?.jobs;
   const runCacheRef = useRef<MockConsoleData["runs"]>([]);
 
@@ -100,9 +120,54 @@ export function App() {
     runCacheRef.current = consoleData?.runs ?? [];
   }, [consoleData?.runs]);
 
+  const workspaceNamespaces = access?.namespaces["*"]
+    ? (consoleData?.namespaces ?? consoleDataSource.initialNamespaces ?? []).map((row) => row.path)
+    : Object.entries(access?.namespaces ?? {})
+        .filter(([, actions]) => actions.includes("job:read") || actions.includes("run:read"))
+        .map(([path]) => path)
+        .sort();
+
+  const workspaceActive = isWorkspaceRoute(route.kind) && !route.repositoryManagement;
+  const activeWorkspace = workspaceNamespaces.includes(selectedNamespacePath)
+    ? selectedNamespacePath
+    : (workspaceNamespaces[0] ?? selectedNamespacePath);
+
+  function changeWorkspace(namespace: string) {
+    setSelectedNamespacePath(namespace);
+    const index = route.kind === "repositories" ? "/repositories" : route.kind === "runs" ? "/runs" : "/jobs";
+    const target =
+      route.runID || route.jobID || route.jobEditor || route.repositoryID
+        ? index
+        : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    navigateTo(workspacePath(target, namespace), { namespace, scroll: { top: 0, left: 0 } });
+  }
+
   const shellActive = route.kind !== "login" && route.kind !== "setup";
   const consoleActive =
-    route.kind !== "login" && route.kind !== "setup" && route.kind !== "health" && route.kind !== "profile";
+    route.kind !== "login" &&
+    route.kind !== "setup" &&
+    route.kind !== "health" &&
+    route.kind !== "profile" &&
+    route.kind !== "repositories";
+
+  useLayoutEffect(() => {
+    if (
+      workspaceActive &&
+      access &&
+      workspaceNamespaces.length &&
+      !route.workspaceNamespace &&
+      !route.jobID &&
+      !route.jobEditor &&
+      !route.runID &&
+      !route.repositoryID
+    ) {
+      navigateTo(
+        workspacePath(`${window.location.pathname}${window.location.search}${window.location.hash}`, activeWorkspace),
+        { replace: true, namespace: activeWorkspace }
+      );
+    }
+  }, [workspaceActive, access, workspaceNamespaces.length, route, activeWorkspace]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -111,6 +176,8 @@ export function App() {
       setFormError("");
       setSubmitting(false);
       setRoute(nextRoute);
+
+      if (nextRoute.workspaceNamespace) setSelectedNamespacePath(nextRoute.workspaceNamespace);
 
       if (consoleData) {
         const routeNamespacePath = namespacePathForRoute(consoleData, nextRoute);
@@ -251,6 +318,7 @@ export function App() {
         if (!ignore)
           setJobDefinitionError({
             id: definitionJob.id,
+            repository: definitionJob.repository,
             message: errorMessage(error, "Unable to load job definition.")
           });
       });
@@ -286,6 +354,7 @@ export function App() {
           };
         });
 
+        if (run.namespacePath) setSelectedNamespacePath(run.namespacePath);
         setMissingRunID(null);
         setConsoleError("");
       },
@@ -464,7 +533,8 @@ export function App() {
 
   async function handleDeleteNamespace(namespaceID: number) {
     const namespacePath = consoleData?.namespaces.find((namespace) => namespace.id === namespaceID)?.path;
-    const shouldReturnToNamespaces = route.kind === "namespaces" && route.namespaceID === namespaceID;
+    const shouldReturnToNamespaces =
+      route.kind === "namespaces" && (route.namespaceID === namespaceID || route.workspaceNamespace === namespacePath);
 
     try {
       setConsoleData(await consoleDataSourceRef.current.deleteNamespace(namespaceID));
@@ -504,14 +574,21 @@ export function App() {
 
   async function handleTriggerRun(jobID: string) {
     try {
-      const repositoryID = consoleData?.jobs.find((job) => job.id === jobID)?.repository;
-      const runID = await consoleDataSourceRef.current.triggerRun(jobID, repositoryID);
+      const repositoryID = consoleData?.jobs.find((job) => job.id === jobID && jobMatchesRoute(job, route))?.repository;
+      const runID = await consoleDataSourceRef.current.triggerRun(
+        jobID,
+        repositoryID,
+        route.workspaceNamespace ?? selectedNamespacePath
+      );
+
       setConsoleData(
         (data) =>
           data && {
             ...data,
             jobs: data.jobs.map((job) =>
-              job.id === jobID ? { ...job, lastRunStatus: "queued", nextRun: "Queued" } : job
+              job.id === jobID && jobMatchesRoute(job, route)
+                ? { ...job, lastRunStatus: "queued", nextRun: "Queued" }
+                : job
             )
           }
       );
@@ -605,7 +682,8 @@ export function App() {
 
     event.preventDefault();
 
-    if (href === "/runs" && route.kind === "runs" && route.runID) returnToRunList();
+    if (new URL(href, window.location.origin).pathname === "/runs" && route.kind === "runs" && route.runID)
+      returnToRunList();
     else navigateTo(href);
   }
 
@@ -676,7 +754,30 @@ export function App() {
         accountName={accountName}
         brand="Vectis"
         docsURL={docsURL}
-        navItems={primaryNavItems}
+        homeHref={workspacePath("/jobs", activeWorkspace)}
+        contextLabel={workspaceActive ? activeWorkspace : route.kind === "profile" ? "My account" : "Instance"}
+        workspaceControl={
+          <WorkspacePicker
+            namespaces={workspaceNamespaces}
+            accessLabel={namespaceAccessLabel(access, activeWorkspace)}
+            namespaceHref={
+              hasAccess(access, "job:read", activeWorkspace) ? workspacePath("/namespaces", activeWorkspace) : undefined
+            }
+            namespaceManagementHref={
+              hasAccess(access, "admin:*") ||
+              Object.values(access?.namespaces ?? {}).some((actions) => actions.includes("admin:*"))
+                ? "/namespaces"
+                : undefined
+            }
+            onNavigate={handleShellNavigate}
+            value={activeWorkspace}
+            disabled={!access}
+            onChange={changeWorkspace}
+          />
+        }
+        navItems={primaryNavItems.map((item) =>
+          "href" in item ? { ...item, href: workspacePath(item.href, activeWorkspace) } : item
+        )}
         onNavigate={handleShellNavigate}
         onSignOut={authEnabled ? signOut : undefined}
         utilityNavItems={managementNavItems
@@ -685,7 +786,7 @@ export function App() {
               ? {
                   ...group,
                   items: group.items.filter((item) =>
-                    item.href === "/health"
+                    item.href === "/health" || item.href === "/manage/repositories"
                       ? hasAccess(access, "admin:*")
                       : item.href === "/users"
                         ? hasAccess(access, "user:admin")
@@ -702,13 +803,17 @@ export function App() {
           consoleData={consoleData}
           consoleError={consoleError}
           jobDefinitionError={
-            jobDefinitionError && jobDefinitionError.id === definitionJobID ? jobDefinitionError.message : ""
+            jobDefinitionError &&
+            jobDefinitionError.id === definitionJobID &&
+            jobDefinitionError.repository === definitionJob?.repository
+              ? jobDefinitionError.message
+              : ""
           }
           healthCells={healthCells}
           healthError={healthError}
           loadingHealthCells={route.kind === "health" && healthCells === null && !healthError}
           missingRunID={missingRunID}
-          namespacePath={selectedNamespacePath}
+          namespacePath={activeWorkspace}
           onChangePassword={authEnabled ? handleChangePassword : undefined}
           onCreateJob={handleCreateJob}
           onCreateNamespace={handleCreateNamespace}
@@ -928,7 +1033,7 @@ function RouteContent({
     missingRunID !== route.runID;
 
   const scrollReady =
-    route.kind === "profile"
+    route.kind === "profile" || route.kind === "repositories"
       ? true
       : (accessReady || Boolean(accessError)) &&
         (route.kind === "health"
@@ -1012,6 +1117,17 @@ function RouteContent({
     );
   }
 
+  if (route.kind === "repositories")
+    return (
+      <RepositoriesPage
+        repositoryID={route.repositoryID}
+        namespacePath={route.workspaceNamespace ?? route.repositoryNamespace ?? namespacePath}
+        management={route.repositoryManagement}
+        sharedWorkspace
+        onNamespaceChange={route.repositoryManagement ? undefined : onSelectNamespace}
+      />
+    );
+
   if (route.kind === "profile") return <ProfilePage onChangePassword={onChangePassword} />;
 
   if (consoleError && !consoleData) {
@@ -1049,7 +1165,11 @@ function RouteContent({
     );
   }
 
-  const scopedConsoleData = scopeMockConsoleData(consoleData, namespacePath);
+  const scopedConsoleData = {
+    ...consoleData,
+    jobs: consoleData.jobs.filter((job) => job.namespacePath === namespacePath),
+    runs: consoleData.runs.filter((run) => run.namespacePath === namespacePath)
+  };
 
   switch (route.kind) {
     case "runs":
@@ -1065,6 +1185,7 @@ function RouteContent({
 
         return withActionAlert(
           <RunDetailPage
+            sharedWorkspace
             investigation={route.runInvestigation}
             onInvestigationChange={(context) => {
               const { pathname, search, hash } = window.location;
@@ -1076,7 +1197,9 @@ function RouteContent({
             onReplay={onReplayRun}
             onOpenRun={onOpenRun}
             onBack={returnToRunList}
-            onOpenJob={(jobName) => navigateTo(jobPathForRunJob(consoleData, jobName))}
+            onOpenJob={(jobName) =>
+              navigateTo(jobPathForRunJob(consoleData, jobName, run?.namespacePath, run?.repositoryID))
+            }
             run={run}
             originalRun={consoleData.runs.find((candidate) => candidate.id === run?.replayOfRunID)}
             runID={route.runID}
@@ -1087,6 +1210,7 @@ function RouteContent({
       return withActionAlert(
         <RunsPage
           filters={route.runFilters}
+          sharedWorkspace
           onFiltersChange={(filters, options) => {
             const { search, hash } = window.location;
             const path = runListFiltersPath(search, hash, filters);
@@ -1110,8 +1234,9 @@ function RouteContent({
       );
     case "jobs": {
       const targetID = route.jobID ?? (route.jobEditor?.kind === "edit" ? route.jobEditor.jobID : undefined);
-      const targetJob = consoleData.jobs.find((job) => job.id === targetID);
-      if (route.jobEditor && !can("job:write", targetJob?.namespacePath ?? namespacePath)) {
+      const targetJob = consoleData.jobs.find((job) => job.id === targetID && jobMatchesRoute(job, route));
+
+      if (route.jobEditor && (!can("admin:*") || !can("job:write", targetJob?.namespacePath ?? namespacePath))) {
         return (
           <PageStateRail>
             <AppState
@@ -1135,18 +1260,33 @@ function RouteContent({
       }
       return withActionAlert(
         <JobsPage
+          sharedWorkspace
           detailJobID={route.jobID}
-          repositories={consoleData.repositories.filter((repository) => can("job:write", repository.namespacePath))}
+          repositories={consoleData.repositories.filter(
+            (repository) => repository.namespacePath === namespacePath && can("job:write", repository.namespacePath)
+          )}
           editorMode={route.jobEditor ?? null}
-          allJobs={consoleData.jobs}
+          allJobs={consoleData.jobs.filter((job) => jobMatchesRoute(job, route))}
           jobs={scopedConsoleData.jobs}
           namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
           onCloseEditor={() => navigateTo(safeReturnPath() ?? "/jobs")}
           onCreateJob={onCreateJob}
-          onOpenCreate={() => navigateTo("/jobs/create")}
+          onOpenCreate={() => navigateTo(workspacePath("/jobs/create", namespacePath))}
           onOpenEditor={(jobID) => navigateTo(jobConfigPath(jobID, route))}
-          onOpenJob={(jobID) => navigateTo(jobID ? `/jobs/${encodeURIComponent(jobID)}` : "/jobs")}
+          onOpenJob={(jobID, repositoryID) => {
+            const selectedJob = consoleData.jobs.find(
+              (job) =>
+                job.id === jobID &&
+                job.namespacePath === namespacePath &&
+                (!repositoryID || job.repository === repositoryID)
+            );
+            const target = workspacePath(
+              jobID ? `/jobs/${encodeURIComponent(jobID)}` : "/jobs",
+              selectedJob?.namespacePath ?? namespacePath
+            );
+            navigateTo(repositoryID ? `${target}&repository=${encodeURIComponent(repositoryID)}` : target);
+          }}
           onOpenJobRuns={(jobName) => navigateTo(`/runs?job=${encodeURIComponent(jobName)}`)}
           onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSelectNamespace={onSelectNamespace}
@@ -1171,7 +1311,11 @@ function RouteContent({
           users={consoleData.users}
         />
       );
-    case "namespaces":
+    case "namespaces": {
+      const namespaceByPath = route.workspaceNamespace
+        ? consoleData.namespaces.find((row) => row.path === route.workspaceNamespace)
+        : undefined;
+
       return withActionAlert(
         <NamespacesPage
           unavailableBindings={consoleData.denied?.bindings}
@@ -1183,7 +1327,7 @@ function RouteContent({
           onDeleteNamespace={onDeleteNamespace}
           onOpenJobs={(namespacePath) => {
             onSelectNamespace(namespacePath);
-            navigateTo("/jobs");
+            navigateTo(workspacePath("/jobs", namespacePath));
           }}
           onCloseEditor={() => navigateTo(`/namespaces/${route.namespaceID ?? ""}`)}
           onConfigureNamespace={(namespaceID) => navigateTo(`/namespaces/${namespaceID}/config`)}
@@ -1193,11 +1337,14 @@ function RouteContent({
           onRevokeRoleBinding={onRevokeRoleBinding}
           onUpdateNamespace={onUpdateNamespace}
           editorMode={route.namespaceEditor ?? null}
-          selectedNamespaceMissing={route.namespaceMissing}
-          selectedNamespaceID={route.namespaceID}
+          selectedNamespaceMissing={
+            route.namespaceMissing || Boolean(!route.namespaceID && route.workspaceNamespace && !namespaceByPath)
+          }
+          selectedNamespaceID={route.namespaceID ?? namespaceByPath?.id}
           users={consoleData.users}
         />
       );
+    }
     default:
       return (
         <PageStateRail>
@@ -1233,16 +1380,42 @@ function errorMessage(error: unknown, fallback: string) {
 
 function jobConfigPath(jobID: string, route: AppRoute) {
   const jobPath = `/jobs/${encodeURIComponent(jobID)}`;
-  const returnTo = route.jobID === jobID ? jobPath : route.pathname;
-  return `${jobPath}/config?returnTo=${encodeURIComponent(returnTo)}`;
+  const context = new URLSearchParams();
+  if (route.jobRepository) context.set("repository", route.jobRepository);
+  if (route.jobNamespace) context.set("namespace", route.jobNamespace);
+
+  const returnTo = route.jobID === jobID ? `${jobPath}${context.size ? `?${context}` : ""}` : route.pathname;
+  context.set("returnTo", returnTo);
+
+  return `${jobPath}/config?${context}`;
 }
 
-function jobPathForRunJob(consoleData: MockConsoleData, jobName: string) {
-  const job = consoleData.jobs.find((candidate) => candidate.name === jobName);
-  return job ? `/jobs/${encodeURIComponent(job.id)}` : `/runs?job=${encodeURIComponent(jobName)}`;
+function jobMatchesRoute(job: Job, route: AppRoute) {
+  return (
+    (!route.jobRepository || job.repository === route.jobRepository) &&
+    (!(route.jobNamespace ?? route.workspaceNamespace) ||
+      job.namespacePath === (route.jobNamespace ?? route.workspaceNamespace))
+  );
+}
+
+function jobPathForRunJob(consoleData: MockConsoleData, jobName: string, namespace?: string, repository?: string) {
+  const job = consoleData.jobs.find(
+    (candidate) =>
+      candidate.name === jobName &&
+      (!namespace || candidate.namespacePath === namespace) &&
+      (!repository || candidate.repository === repository)
+  );
+
+  return job
+    ? `${workspacePath(`/jobs/${encodeURIComponent(job.id)}`, job.namespacePath)}&repository=${encodeURIComponent(job.repository)}`
+    : `/runs?job=${encodeURIComponent(jobName)}`;
 }
 
 function namespacePathForRoute(consoleData: MockConsoleData, route: AppRoute) {
+  if (route.kind === "runs" && route.runID)
+    return consoleData.runs.find((run) => run.id === route.runID)?.namespacePath ?? route.workspaceNamespace ?? null;
+
+  if (route.workspaceNamespace) return route.workspaceNamespace;
   if (route.kind === "runs" && !route.runID) {
     const saved = runListNamespace();
     if (consoleData.namespaces.some((namespace) => namespace.path === saved)) return saved ?? null;
@@ -1261,5 +1434,5 @@ function namespacePathForRoute(consoleData: MockConsoleData, route: AppRoute) {
     return null;
   }
 
-  return consoleData.jobs.find((job) => job.id === jobID)?.namespacePath ?? null;
+  return consoleData.jobs.find((job) => job.id === jobID && jobMatchesRoute(job, route))?.namespacePath ?? null;
 }

@@ -1,3 +1,4 @@
+import { openNavigation, navigatePrimary, expectNamespace } from "./navigationHelpers";
 import { expect, test } from "@playwright/test";
 
 for (const [theme, width] of [
@@ -6,13 +7,14 @@ for (const [theme, width] of [
 ] as const) {
   test(`run list filters and panel position survive investigation ${theme} ${width}px`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });
-    await page.setViewportSize({ width, height: 420 });
+    await page.setViewportSize({ width, height: width >= 900 ? 320 : 420 });
     await page.goto("/runs?keep=yes");
     const job = page.getByRole("textbox", { name: "Job", exact: true });
     await expect(job).toBeVisible();
 
-    await page.getByLabel("Namespace", { exact: true }).click();
-    await page.getByRole("button", { name: "/prod", exact: true }).click();
+    await openNavigation(page);
+    await page.getByLabel("Namespace: Root", { exact: true }).click();
+    await page.getByRole("treeitem", { name: "/prod", exact: true }).click();
     await page.getByLabel("Status: All", { exact: true }).click();
     await page.getByRole("listbox").getByRole("option", { name: "Succeeded", exact: true }).click();
     await page.getByLabel("Source: All", { exact: true }).click();
@@ -34,19 +36,23 @@ for (const [theme, width] of [
 
     await page.reload();
     await expect(job).toHaveValue("worker");
-    await expect(page.getByLabel("Namespace", { exact: true })).toContainText("/prod");
+    await expectNamespace(page, "/prod");
     await expect(page.getByLabel("Status: Succeeded", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Source: Saved", { exact: true })).toBeVisible();
 
     const main = page.getByRole("main");
-    const listPosition = await main.evaluate((element) => {
+    await page.evaluate(() => document.fonts.ready);
+    await main.evaluate((element) => {
       element.scrollTop = element.scrollHeight - element.clientHeight;
       return element.scrollTop;
     });
 
+    const selectedRun = page.getByRole("button", { name: "Open run worker-image #1238", exact: true });
+    await selectedRun.scrollIntoViewIfNeeded();
+    const listPosition = await main.evaluate((element) => element.scrollTop);
     expect(listPosition).toBeGreaterThan(0);
 
-    await page.getByRole("button", { name: "Open run worker-image #1238", exact: true }).click();
+    await selectedRun.click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("worker-image (#1238)");
     await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBe(0);
     const detailPosition = await main.evaluate(
@@ -77,26 +83,23 @@ for (const [theme, width] of [
       .getByRole("button", { name: "Runs", exact: true })
       .click();
     await expect(job).toHaveValue("worker");
-    await expect(page.getByLabel("Namespace", { exact: true })).toContainText("/prod");
+    await expectNamespace(page, "/prod");
     await expect(page.getByLabel("Status: Succeeded", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Source: Saved", { exact: true })).toBeVisible();
     await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeCloseTo(listPosition, 0);
 
     await page.getByRole("button", { name: "Open run worker-image #1238", exact: true }).click();
-    await page
-      .getByRole("navigation", { name: "Primary", exact: true })
-      .getByRole("link", { name: "Runs", exact: true })
-      .click();
+    await navigatePrimary(page, "Runs");
 
     await expect(job).toHaveValue("worker");
     await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeCloseTo(listPosition, 0);
 
     await page.getByRole("button", { name: "Clear", exact: true }).click();
-    await expect(page).toHaveURL(/\/runs\?keep=yes$/);
+    await expect(page).toHaveURL(/\/runs\?keep=yes&namespace=%2Fprod$/);
 
     await page.goBack();
     await expect(job).toHaveValue("worker");
-    await expect(page.getByLabel("Namespace", { exact: true })).toContainText("/prod");
+    await expectNamespace(page, "/prod");
     await expect(page.getByLabel("Status: Succeeded", { exact: true })).toBeVisible();
   });
 }

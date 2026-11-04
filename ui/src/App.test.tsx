@@ -52,7 +52,7 @@ describe("App", () => {
     expect(await screen.findByText("team-build")).toBeInTheDocument();
     expect(screen.queryByText("Unable to Load Console")).not.toBeInTheDocument();
     expect(document.querySelector('a[href="/users"]')).toBeNull();
-    expect(screen.getByLabelText("Namespace")).toHaveTextContent("/team");
+    expect(screen.getByLabelText("Namespace: /team")).toBeInTheDocument();
   });
 
   it("lets operators open Run Once while hiding job creation and administrative navigation", async () => {
@@ -192,7 +192,7 @@ describe("App", () => {
     window.history.replaceState({ vectisNavigation: { key: "restricted-run-list", namespace: "/" } }, "", "/runs");
     render(<App />);
 
-    await waitFor(() => expect(screen.getByLabelText("Namespace")).toHaveTextContent("/team"));
+    await waitFor(() => expect(screen.getByLabelText("Namespace: /team")).toBeInTheDocument());
   });
 
   it("shows an access message for a forbidden Users deep link", async () => {
@@ -579,7 +579,7 @@ describe("App", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/jobs?limit=200&repository_id=vectis-local&ref=main",
+      "/api/v1/jobs?limit=200&repository_id=vectis-local&namespace=%2F&ref=main",
       expect.objectContaining({ credentials: "same-origin" })
     );
   });
@@ -922,7 +922,7 @@ describe("App", () => {
   });
 
   it("opens the newly triggered job run directly", async () => {
-    window.history.replaceState(null, "", "/jobs");
+    window.history.replaceState(null, "", "/jobs?namespace=%2Fteam-a%2Fedge");
 
     render(<App />);
 
@@ -1189,7 +1189,7 @@ describe("App", () => {
   });
 
   it("opens a job detail page from the jobs list", async () => {
-    window.history.replaceState(null, "", "/jobs");
+    window.history.replaceState(null, "", "/jobs?namespace=%2Fteam-a%2Fedge");
 
     render(<App />);
 
@@ -1244,7 +1244,7 @@ describe("App", () => {
   });
 
   it("opens a run detail page from the runs list", async () => {
-    window.history.replaceState(null, "", "/runs");
+    window.history.replaceState(null, "", "/runs?namespace=%2Fteam-a");
 
     render(<App />);
 
@@ -1339,7 +1339,7 @@ describe("App", () => {
       expect(navigate).toHaveBeenCalledWith(
         expect.objectContaining({
           vectisNavigation: expect.objectContaining({
-            runList: expect.objectContaining({ href: "/runs?job=filtered-job" })
+            runList: expect.objectContaining({ href: "/runs?job=filtered-job&namespace=%2F" })
           })
         }),
         "",
@@ -1425,8 +1425,8 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Jobs" });
 
-    fireEvent.click(screen.getByLabelText("Namespace"));
-    fireEvent.click(screen.getByRole("button", { name: "/prod" }));
+    fireEvent.click(screen.getByLabelText("Namespace: Root"));
+    fireEvent.click(screen.getByRole("treeitem", { name: "/prod" }));
 
     expect(screen.getByText("worker-image")).toBeInTheDocument();
     expect(screen.queryByText("api-test-suite")).not.toBeInTheDocument();
@@ -1520,6 +1520,86 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Administrative Access Required" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/v1/cells/status")).toBe(false);
+    expect(screen.queryByRole("link", { name: "Namespaces" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Namespace: /team"));
+    expect(screen.getByRole("link", { name: "Manage namespaces" })).toHaveAttribute("href", "/namespaces");
+  });
+
+  it("loads repository diagnostics directly without console fan-out", async () => {
+    scopedAPI(unrestrictedAccess);
+    const original = fetchMock.getMockImplementation()!;
+
+    fetchMock.mockImplementation((path: string, options: RequestInit) => {
+      const json = (value: unknown) => Promise.resolve(new Response(JSON.stringify(value), { status: 200 }));
+      if (path === "/api/v1/source-repositories/builds?namespace=%2Fteam")
+        return json({
+          repository_id: "builds",
+          namespace: "/team",
+          enabled: true,
+          source_kind: "local_checkout",
+          declared: true,
+          default_ref: "main",
+          sync: { status: "never" }
+        });
+
+      if (path === "/api/v1/source-repositories/builds/status?namespace=%2Fteam")
+        return json({ status: "ok", default_ref_resolved: true, git_repository: true });
+
+      if (path === "/api/v1/source-repositories/builds/jobs?limit=100&namespace=%2Fteam")
+        return json({ jobs: [], resolved_commit: "abc", requested_ref: "main", truncated: false });
+
+      return original(path, options);
+    });
+
+    window.history.replaceState(null, "", "/repositories/builds?namespace=%2Fteam");
+    render(<App />);
+
+    expect(await screen.findByText("No valid job definitions discovered.")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([path]) => path).sort()).toEqual(
+      [
+        "/ui/api/context",
+        "/api/v1/access",
+        "/api/v1/source-repositories/builds?namespace=%2Fteam",
+        "/api/v1/source-repositories/builds/status?namespace=%2Fteam",
+        "/api/v1/source-repositories/builds/jobs?limit=100&namespace=%2Fteam"
+      ].sort()
+    );
+  });
+
+  it("opens and triggers the repository-qualified job when IDs match in different repositories", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const snapshot = await source.loadConsole();
+    const first = {
+      ...snapshot.jobs[0],
+      id: "build",
+      name: "build",
+      repository: "first",
+      namespacePath: "/",
+      definition: "{}"
+    };
+
+    const second = { ...first, repository: "second", sourceDetail: ".vectis/second.json" };
+    source.loadConsole = async () => ({ ...snapshot, jobs: [first, second] });
+    source.triggerRun = vi.fn().mockResolvedValue("new-run");
+
+    const factory = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ auth_enabled: true, principal: { username: "admin" } }), { status: 200 })
+    );
+
+    window.history.replaceState(null, "", "/jobs/build?repository=second&namespace=%2F");
+    try {
+      render(<App />);
+
+      await screen.findByRole("button", { name: "View repository" });
+      expect(screen.getAllByText(".vectis/second.json")).toHaveLength(2);
+
+      fireEvent.click(screen.getByRole("button", { name: "Run build" }));
+      await waitFor(() => expect(source.triggerRun).toHaveBeenCalledWith("build", "second", "/"));
+    } finally {
+      factory.mockRestore();
+    }
   });
 
   it("logs out and returns to login", async () => {
@@ -1607,5 +1687,160 @@ describe("App", () => {
     } finally {
       create.mockRestore();
     }
+  });
+
+  it("uses one workspace selector across jobs, runs, and repositories with browser history", async () => {
+    window.history.replaceState(null, "", "/jobs?namespace=%2Fteam-a");
+    render(<App />);
+
+    await screen.findByText("api-test-suite");
+    expect(screen.getAllByRole("button", { name: /^Namespace:/ })).toHaveLength(1);
+
+    const runs = screen.getByRole("link", { name: "Runs" });
+    expect(runs).toHaveAttribute("href", "/runs?namespace=%2Fteam-a");
+
+    fireEvent.click(runs);
+    await screen.findByRole("heading", { name: "Runs" });
+    expect(screen.getByLabelText("Namespace: /team-a")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Repositories" }));
+    await screen.findByRole("button", { name: "Inspect github.com/vectis/api" });
+    expect(screen.getByLabelText("Namespace: /team-a")).toBeInTheDocument();
+
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.pathname).toBe("/runs"));
+    expect(screen.getByLabelText("Namespace: /team-a")).toBeInTheDocument();
+  });
+
+  it("treats Root as its own workspace and keeps instance administration separate", async () => {
+    window.history.replaceState(null, "", "/jobs?namespace=%2F");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Jobs" });
+    expect(screen.queryByText("api-test-suite")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Repository connections" }));
+    await screen.findByRole("heading", { name: "Repository connections" });
+    expect(screen.queryByText("Instance administration")).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Administration" })).toBeInTheDocument();
+  });
+
+  it("opens a shared job in the selected workspace and offers only its repositories for creation", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const snapshot = await source.loadConsole();
+    const shared = {
+      ...snapshot.jobs[0],
+      id: "shared-build",
+      name: "shared-build",
+      repository: "shared",
+      namespacePath: "/",
+      definition: "{}"
+    };
+
+    source.loadConsole = async () => ({
+      ...snapshot,
+      jobs: [shared, { ...shared, namespacePath: "/team-a" }],
+      repositories: [
+        { id: "shared", namespacePath: "/", canAuthor: true },
+        { id: "shared", namespacePath: "/team-a", canAuthor: true },
+        { id: "other", namespacePath: "/prod", canAuthor: true }
+      ]
+    });
+
+    const factory = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    window.history.replaceState(null, "", "/jobs?namespace=%2Fteam-a");
+
+    try {
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "View shared-build" }));
+      expect(new URLSearchParams(window.location.search).get("namespace")).toBe("/team-a");
+
+      fireEvent.click(screen.getByRole("navigation", { name: "Primary" }).querySelector('a[href^="/jobs"]')!);
+      fireEvent.click(await screen.findByRole("button", { name: "Create" }));
+      expect(screen.getByLabelText("Repository ID")).toHaveValue("shared");
+      expect(screen.queryByRole("option", { name: "other" })).not.toBeInTheDocument();
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it("updates effective access and opens the selected namespace without another workspace control", async () => {
+    const source = dataSource.createConsoleDataSource();
+    source.loadAccess = async () => ({
+      actions: unrestrictedAccess.actions,
+      namespaces: { "/": unrestrictedAccess.actions, "/team-a": ["job:read", "run:read"] }
+    });
+
+    const factory = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    window.history.replaceState(null, "", "/jobs?namespace=%2F");
+    try {
+      render(<App />);
+
+      fireEvent.click(await screen.findByLabelText("Namespace: Root"));
+      fireEvent.click(screen.getByRole("treeitem", { name: "/team-a" }));
+      fireEvent.click(screen.getByLabelText("Namespace: /team-a"));
+      expect(screen.getByLabelText("Effective access: Viewer")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Manage namespaces" })).toHaveAttribute("href", "/namespaces");
+
+      const details = screen.getByRole("link", { name: "View namespace" });
+      expect(details).toHaveAttribute("href", "/namespaces?namespace=%2Fteam-a");
+
+      fireEvent.click(details);
+      await screen.findByRole("heading", { name: "/team-a" });
+      expect(screen.getByText("Application delivery jobs owned by Team A.")).toBeInTheDocument();
+      expect(screen.getByRole("navigation", { name: "Administration" })).toBeInTheDocument();
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it("keeps namespace management out of a viewer's navigation", async () => {
+    const source = dataSource.createConsoleDataSource();
+    source.loadAccess = async () => ({
+      actions: ["job:read", "run:read"],
+      namespaces: { "/team-a": ["job:read", "run:read"] }
+    });
+
+    const factory = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    window.history.replaceState(null, "", "/jobs?namespace=%2Fteam-a");
+
+    try {
+      render(<App />);
+
+      fireEvent.click(await screen.findByLabelText("Namespace: /team-a"));
+      expect(screen.getByRole("link", { name: "View namespace" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Manage namespaces" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("navigation", { name: "Administration" })).not.toBeInTheDocument();
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it("does not offer namespace details when a scoped session only permits reading runs", async () => {
+    const source = dataSource.createConsoleDataSource();
+    source.loadAccess = async () => ({ actions: ["run:read"], namespaces: { "/team-a": ["run:read"] } });
+
+    const factory = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    window.history.replaceState(null, "", "/runs?namespace=%2Fteam-a");
+
+    try {
+      render(<App />);
+
+      fireEvent.click(await screen.findByLabelText("Namespace: /team-a"));
+      expect(screen.queryByRole("link", { name: "Manage namespaces" })).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Effective access: Custom")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "View namespace" })).not.toBeInTheDocument();
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it("shows a missing namespace for an unknown details link instead of an unrelated namespace", async () => {
+    window.history.replaceState(null, "", "/namespaces?namespace=%2Fmissing");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Namespace Not Found" });
+    expect(screen.queryByRole("heading", { name: "Namespaces" })).not.toBeInTheDocument();
   });
 });

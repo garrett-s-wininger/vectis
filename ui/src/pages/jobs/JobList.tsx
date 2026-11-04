@@ -7,7 +7,7 @@ import styles from "./JobsPage.module.css";
 
 type JobListProps = {
   jobs: Job[];
-  onOpen: (jobID: string) => void;
+  onOpen: (jobID: string, repositoryID?: string) => void;
   runs: RunListItem[];
 };
 
@@ -52,8 +52,8 @@ export function JobList({ jobs, onOpen, runs }: JobListProps) {
         columns={columns}
         emptyMessage="No jobs loaded."
         getRowActionLabel={(job) => `View ${job.name}`}
-        getRowKey={(job) => job.id}
-        onRowClick={(job) => onOpen(job.id)}
+        getRowKey={(job) => `${job.repository}:${job.id}`}
+        onRowClick={(job) => onOpen(job.id, job.repository)}
         rows={jobs}
         showRowIndicator={false}
       />

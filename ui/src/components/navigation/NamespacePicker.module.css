@@ -1,5 +1,6 @@
 .root {
-  align-items: center;
+  align-items: start;
+  flex-direction: column;
   color: var(--text-muted);
   display: flex;
   gap: var(--space-sm);
@@ -12,12 +13,13 @@
 
 .compact {
   display: block;
-  height: var(--control-height-md);
+  min-height: 56px;
   width: 172px;
   position: relative;
 }
 
 .summary {
+  align-content: center;
   align-items: center;
   background: var(--dropdown-control-bg);
   border: 1px solid var(--dropdown-control-border);
@@ -26,9 +28,9 @@
   box-sizing: border-box;
   color: var(--text-navigation);
   cursor: pointer;
-  display: flex;
-  gap: var(--space-xs);
-  height: var(--control-height-md);
+  display: grid;
+  gap: var(--space-3xs);
+  min-height: 56px;
   list-style: none;
   padding: 0 var(--space-lg) 0 var(--space-md);
   position: relative;
@@ -56,13 +58,13 @@
 }
 
 .summary span {
+  grid-row: 2;
   color: var(--text-subtle);
   font-size: var(--font-size-xs);
-  letter-spacing: var(--letter-spacing-eyebrow);
-  text-transform: uppercase;
 }
 
 .summary strong {
+  grid-row: 1;
   color: var(--text-primary);
   flex: 1;
   font-size: var(--font-size-sm);
@@ -133,18 +135,6 @@
   background: var(--dropdown-menu-item-bg);
   box-shadow: var(--dropdown-menu-item-shadow);
   color: var(--color-primary-hover);
-}
-
-@media (max-width: 860px) {
-  .summary span {
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    height: 1px;
-    overflow: hidden;
-    position: absolute;
-    white-space: nowrap;
-    width: 1px;
-  }
 }
 
 @media (max-width: 680px) {

@@ -83,6 +83,7 @@ type APIRun = {
   definition_version?: number;
   finished_at?: string;
   job_id?: string;
+  source_repository_id?: string;
   namespace?: string;
   owning_cell?: string;
   run_id: string;
@@ -162,6 +163,7 @@ export type CreateUserResult = {
 export type ConsoleDataSource = {
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
   initialAccess?: ConsoleAccess;
+  initialNamespaces?: Namespace[];
   loadAccess(): Promise<ConsoleAccess>;
   loadRunArtifacts: LoadRunArtifacts;
   cancelRun(runID: string): Promise<void>;
@@ -183,7 +185,7 @@ export type ConsoleDataSource = {
   loadJob(job: Job): Promise<Job>;
   revokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
-  triggerRun(jobID: string, repositoryID?: string): Promise<string>;
+  triggerRun(jobID: string, repositoryID?: string, namespace?: string): Promise<string>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
   updateNamespace(namespaceID: number, input: UpdateNamespace): Promise<ConsoleData>;
   updateUserStatus(userID: string, status: UserStatus): Promise<User[]>;
@@ -193,7 +195,7 @@ export function createConsoleDataSource(): ConsoleDataSource {
   return shouldUseMockDataSource() ? createMockConsoleDataSource() : createAPIConsoleDataSource();
 }
 
-function shouldUseMockDataSource() {
+export function shouldUseMockDataSource() {
   const configuredSource = import.meta.env.VITE_CONSOLE_DATA_SOURCE;
 
   if (configuredSource === "api") {
@@ -214,6 +216,7 @@ function createMockConsoleDataSource(): ConsoleDataSource {
   return {
     async changePassword() {},
     initialAccess: unrestrictedAccess,
+    initialNamespaces: data.namespaces,
     async loadAccess() {
       return unrestrictedAccess;
     },
@@ -462,14 +465,20 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     loadConsole: loadAPIConsoleData,
     loadCells: loadAPICells,
     async loadJob(job) {
-      const params = new URLSearchParams({ repository_id: job.repository });
+      const params = new URLSearchParams({ repository_id: job.repository, namespace: job.namespacePath });
+
       if (job.branch) params.set("ref", job.branch);
       if (job.sourceDetail) params.set("path", job.sourceDetail);
-      const response = await requestJSON<{ definition: unknown }>(
+      const response = await requestJSON<{ definition: unknown; source?: { resolved_commit?: string } }>(
         `/api/v1/jobs/${encodeURIComponent(job.id)}?${params}`
       );
+
       const definition = sourceDefinition(response.definition);
-      return { ...job, definition: JSON.stringify(definition, null, 2) };
+      return {
+        ...job,
+        sourceCommit: response.source?.resolved_commit,
+        definition: JSON.stringify(definition, null, 2)
+      };
     },
     async loadRun(runID, knownJobs) {
       const [run, jobs, tasks] = await Promise.all([
@@ -478,7 +487,13 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
         loadAPIRunTasks(runID)
       ]);
 
-      const job = jobs.find((candidate) => candidate.id === run.job_id);
+      const job = jobs.find(
+        (candidate) =>
+          candidate.id === run.job_id &&
+          (!run.namespace || candidate.namespacePath === run.namespace) &&
+          (!run.source_repository_id || candidate.repository === run.source_repository_id)
+      );
+
       return {
         ...apiRunToConsoleRun(run, runDetailJob(run, job)),
         tasks
@@ -521,10 +536,10 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
       return loadAPIConsoleData();
     },
-    async triggerRun(jobID, repositoryID) {
+    async triggerRun(jobID, repositoryID, namespace) {
       const repository = repositoryID?.trim() ?? "";
       const response = await requestJSON<{ run_id?: string; runs?: { run_id: string }[] }>(
-        `/api/v1/jobs/trigger/${encodeURIComponent(jobID)}`,
+        `/api/v1/jobs/trigger/${encodeURIComponent(jobID)}${namespace ? `?${new URLSearchParams({ namespace })}` : ""}`,
         {
           method: "POST",
           ...(repository ? { body: JSON.stringify({ repository_id: repository }) } : {})
@@ -617,7 +632,12 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
     denied: { users: users === null, bindings: deniedBindings },
     jobs: jobs.map((job) => ({
       ...job,
-      lastRunStatus: runs.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)?.status
+      lastRunStatus: runs.find(
+        (run) =>
+          run.jobName === job.name &&
+          run.namespacePath === job.namespacePath &&
+          (!run.repositoryID || run.repositoryID === job.repository)
+      )?.status
     })),
     namespaces,
     roleBindings,
@@ -667,7 +687,8 @@ async function loadAPIJobs(namespacePath = "/", allowForbidden = false) {
 async function loadAPISourceJobs(repository: APISourceRepository) {
   const params = new URLSearchParams({
     limit: "200",
-    repository_id: repository.repository_id
+    repository_id: repository.repository_id,
+    namespace: repository.namespace || "/"
   });
 
   if (repository.default_ref?.trim()) {
@@ -688,7 +709,13 @@ async function loadAPIRuns(jobs: Job[]) {
   const runs = await requestJSON<PaginatedResponse<APIRun>>("/api/v1/runs?limit=200");
 
   return runs.data.map((run) => {
-    const job = jobs.find((candidate) => candidate.id === run.job_id);
+    const job = jobs.find(
+      (candidate) =>
+        candidate.id === run.job_id &&
+        (!run.namespace || candidate.namespacePath === run.namespace) &&
+        (!run.source_repository_id || candidate.repository === run.source_repository_id)
+    );
+
     return apiRunToConsoleRun(run, runDetailJob(run, job));
   });
 }
@@ -1001,6 +1028,7 @@ function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
     cancelRequested: run.cancel_requested,
     replayOfRunID: run.replay_of_run_id,
     id: run.run_id,
+    repositoryID: run.source_repository_id,
     jobName: job.name,
     jobID: run.job_id,
     namespacePath: job.namespacePath,

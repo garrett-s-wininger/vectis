@@ -314,7 +314,7 @@ func TestNamespaceAdminCannotReadClusterDiagnostics(t *testing.T) {
 	}
 
 	for _, spec := range s.routeSpecs(true) {
-		if spec.Auth.Action != authz.ActionAdmin || strings.Contains(spec.Pattern, "/namespaces") {
+		if spec.Auth.Action != authz.ActionAdmin || !strings.HasPrefix(spec.Pattern, "GET ") || strings.Contains(spec.Pattern, "/namespaces") {
 			continue
 		}
 

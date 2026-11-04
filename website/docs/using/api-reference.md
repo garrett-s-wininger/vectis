@@ -385,11 +385,11 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | PUT | `/api/v1/source-schedules/{schedule_id}/override` | Set a temporary source ref or path override for a source-backed cron schedule | `job:write` | general | `200` JSON schedule |
 | DELETE | `/api/v1/source-schedules/{schedule_id}/override` | Clear a source-backed cron schedule override and return to configured ref/path resolution | `job:write` | general | `200` JSON schedule |
 | GET | `/api/v1/source-repositories` | List registered source repositories in a namespace | `job:read` | general | `200` JSON list |
-| POST | `/api/v1/source-repositories` | Register a source repository checkout | `job:write` | general | `201` JSON repository |
+| POST | `/api/v1/source-repositories` | Register a source repository checkout | `admin:*` | general | `201` JSON repository |
 | GET | `/api/v1/source-repositories/{id}` | Get one source repository registration | `job:read` | general | `200` JSON repository |
-| PUT | `/api/v1/source-repositories/{id}` | Update a source repository checkout registration | `job:write` | general | `200` JSON repository |
-| DELETE | `/api/v1/source-repositories/{id}` | Delete an unused source repository registration without removing checkout files | `job:write` | general | `204` empty; `409` when the repository is still declared, or when source schedules or source provenance reference the repository |
-| POST | `/api/v1/source-repositories/{id}/sync` | Probe or refresh a source repository checkout and persist sync status/evidence | `job:write` | general | `200` JSON repository; `202` JSON repository when already running |
+| PUT | `/api/v1/source-repositories/{id}` | Update a source repository checkout registration | `admin:*` | general | `200` JSON repository |
+| DELETE | `/api/v1/source-repositories/{id}` | Delete an unused source repository registration without removing checkout files | `admin:*` | general | `204` empty; `409` when the repository is still declared, or when source schedules or source provenance reference the repository |
+| POST | `/api/v1/source-repositories/{id}/sync` | Probe or refresh a source repository checkout and persist sync status/evidence | `admin:*` | general | `200` JSON repository; `202` JSON repository when already running |
 | GET | `/api/v1/source-repositories/{id}/status` | Check whether a source repository checkout is usable and whether its default ref resolves | `job:read` | general | `200` JSON status |
 | GET | `/api/v1/source-repositories/{id}/schedules` | List source-backed cron schedules for one repository | `job:read` | general | `200` JSON schedule list |
 | GET | `/api/v1/source-repositories/{id}/refs/branches` | List branch refs from the repository checkout with optional `prefix` and `limit` query parameters | `job:read` | general | `200` JSON branches |
@@ -398,7 +398,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/source-repositories/{id}/jobs` | List triggerable config-as-code jobs derived from repository definition paths | `job:read` | general | `200` JSON source jobs |
 | POST | `/api/v1/source-repositories/{id}/definitions/resolve` | Resolve and validate one job definition from a repository ref and path without storing it | `job:read` | general | `200` JSON definition |
 | GET | `/api/v1/source-repositories/{id}/jobs/{job_id}/definition` | Resolve and validate one source repository job definition by job id, optional ref, and optional path override | `job:read` | general | `200` JSON definition |
-| PUT | `/api/v1/source-repositories/{id}/jobs/{job_id}/definition` | Commit a source job definition into a managed checkout | `job:write` | general | `200` JSON definition |
+| PUT | `/api/v1/source-repositories/{id}/jobs/{job_id}/definition` | Commit a source job definition into a managed checkout | `admin:*` | general | `200` JSON definition |
 | GET | `/api/v1/source-repositories/{id}/jobs/{job_id}/runs` | List runs for a source repository job, scoped by recorded source provenance | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs` | Stream logs for a source repository job run, scoped by recorded source provenance | `run:read` | general | `200` `text/event-stream` |
 | POST | `/api/v1/source-repositories/{id}/jobs/{job_id}/trigger` | Start a run directly from a repository definition | `run:trigger` | general | `202` JSON run |
@@ -481,3 +481,26 @@ The console uses `GET /api/v1/access` to show controls that match effective perm
 Cluster diagnostic endpoints require root-namespace administration, including the Health cell status API. The access response advertises global `admin:*` only for root administrators; namespace-specific administration remains in the `namespaces` map.
 
 In the console, local users can change their password on Profile by entering their current password and confirming the new password. A successful change revokes existing sessions and API tokens, then returns the user to sign-in.
+
+### Shared repository connections
+
+Repository registrations are global. `GET /api/v1/source-repositories?namespace=/team` lists connections explicitly granted to that workspace. Root administrators can use `scope=all` for the global inventory and connection inspection. Registration creates an initial grant for its `namespace` (Root by default), rather than an owner.
+
+- `GET /api/v1/source-repositories/{id}/namespaces` lists namespace grants.
+- `PUT /api/v1/source-repositories/{id}/namespaces/{namespace_id}` grants use idempotently.
+- `DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}` revokes use idempotently.
+
+These routes, connection synchronization, settings changes, deletion, and definition authoring require root administration. Namespace roles still control reading, triggering, and operating jobs within an explicitly granted namespace. Pass `namespace` on repository job operations and triggers; ambiguous shared triggers return `namespace_required`. Revocation blocks future triggers without reassigning historical runs. Runs retain their own namespace for authorization, execution, logs, artifacts, and replay.
+
+| Method | Path | Scope |
+| --- | --- | --- |
+| GET | `/api/v1/source-repositories/{id}/namespaces` | Root administration |
+| PUT, DELETE | `/api/v1/source-repositories/{id}/namespaces/{namespace_id}` | Root administration |
+
+## Shared repository namespace access
+
+Repository connections are global. `GET /api/v1/source-repositories?namespace=/teams/build` lists connections granted to that exact namespace. Root administrators use `scope=all` for the global inventory and connection inspection; inventory rows include `namespaces` listing their grants. Registration's `namespace` sets the initial grant (Root when omitted). Namespace consumers do not receive private checkout paths or credential references.
+
+Root administration is required for `GET /api/v1/source-repositories/{id}/namespaces`, `PUT /api/v1/source-repositories/{id}/namespaces/{namespace_id}`, and `DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}`. The response is an array of `{namespace_id, namespace}` grants. PUT and DELETE are idempotent. Connection settings, sync, and source definition mutations also require Admin on Root.
+
+Pass `namespace` to source job and facade requests to select execution context. Triggering a repository with multiple grants without context returns `400 namespace_required`. Run-event subscriptions require one namespace and do not support global `scope=all`. Source job history filters by the selected namespace before pagination. Run detail and run-list responses include `source_repository_id` for source-backed runs. Each run's namespace remains fixed after grants change; revoking source use does not revoke historical run permissions.

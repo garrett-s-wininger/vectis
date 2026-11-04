@@ -13,6 +13,7 @@ export type DataTableColumn<TRow> = {
 
 type DataTableProps<TRow> = {
   columns: DataTableColumn<TRow>[];
+  variant?: "default" | "inset";
   emptyMessage?: string;
   getRowActionLabel?: (row: TRow) => string;
   getRowKey: (row: TRow) => string;
@@ -28,6 +29,7 @@ function columnStyle(width: CSSProperties["width"] | undefined): CSSProperties |
 
 export function DataTable<TRow>({
   columns,
+  variant = "default",
   emptyMessage = "No records to show.",
   getRowActionLabel,
   getRowKey,
@@ -54,7 +56,7 @@ export function DataTable<TRow>({
   }
 
   return (
-    <div className={styles.root}>
+    <div className={`${styles.root} ${variant === "inset" ? styles.inset : ""}`}>
       <table>
         <thead>
           <tr>

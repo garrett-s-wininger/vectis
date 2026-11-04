@@ -25,11 +25,12 @@ type JobsPageProps = {
   jobs: Job[];
   namespaces: Namespace[];
   namespacePath: string;
+  sharedWorkspace?: boolean;
   onCloseEditor: () => void;
   onCreateJob: (input: NewJob) => Promise<void> | void;
   onOpenCreate: () => void;
   onOpenEditor: (jobID: string) => void;
-  onOpenJob: (jobID: string) => void;
+  onOpenJob: (jobID: string, repositoryID?: string) => void;
   onOpenJobRuns?: (jobName: string) => void;
   onSelectRun: (runID: string) => void;
   onSelectNamespace: (namespacePath: string) => void;
@@ -46,6 +47,7 @@ export function JobsPage({
   jobs,
   namespaces,
   namespacePath,
+  sharedWorkspace = false,
   onCloseEditor,
   onCreateJob,
   onOpenCreate,
@@ -59,7 +61,7 @@ export function JobsPage({
   runs
 }: JobsPageProps) {
   const { can } = useConsoleAccess();
-  const canWrite = can("job:write", namespacePath);
+  const canWrite = can("admin:*") && can("job:write", namespacePath);
   const routableJobs = allJobs ?? jobs;
   const detailJob = detailJobID ? routableJobs.find((job) => job.id === detailJobID) : null;
   const editorJob =
@@ -103,6 +105,7 @@ export function JobsPage({
     return (
       <JobDetailPage
         job={detailJob}
+        sharedWorkspace={sharedWorkspace}
         lastRun={latestRun}
         runs={jobRuns}
         onBack={() => onOpenJob("")}
@@ -137,18 +140,21 @@ export function JobsPage({
 
                   onCloseEditor();
                 },
+                hideNamespace: sharedWorkspace,
                 onJobs: onCloseEditor
               })}
               label="Job editor location"
             />
           ) : (
-            <BreadcrumbTrail items={jobsIndexBreadcrumbItems(namespacePath)} label="Jobs location" />
+            <BreadcrumbTrail items={jobsIndexBreadcrumbItems(namespacePath, sharedWorkspace)} label="Jobs location" />
           )
         }
         actions={
           !editorMode ? (
             <>
-              <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
+              {!sharedWorkspace ? (
+                <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
+              ) : null}
               {canWrite && jobs.length > 0 ? (
                 <Button aria-expanded={false} onClick={onOpenCreate}>
                   Create

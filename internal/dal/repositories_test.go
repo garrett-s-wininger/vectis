@@ -7550,6 +7550,7 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 	nextRun := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
 	sourceRec, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
 		ScheduleID:         "stale-source",
+		NamespaceID:        1,
 		JobID:              "build",
 		CronSpec:           "0 * * * *",
 		NextRunAt:          nextRun,
@@ -7931,5 +7932,51 @@ func TestServiceLeasesRepository_TryAcquireRenewAndExpire(t *testing.T) {
 
 	if !acquired {
 		t.Fatal("expected owner-a to acquire after owner-b release")
+	}
+}
+
+func TestSharedSourceScheduleKeepsNamespaceAndHonorsRevocation(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	team, err := repos.Namespaces().Create(ctx, "scheduled-team", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{RepositoryID: "shared-schedule", CheckoutPath: "/workspace/shared", SourceKind: dal.SourceKindLocalCheckout, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repos.Sources().GrantRepositoryNamespace(ctx, "shared-schedule", team.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	tick := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	schedule, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{NamespaceID: team.ID, ScheduleID: "shared-team-schedule", JobID: "shared-build", SourceRepositoryID: "shared-schedule", CronSpec: "* * * * *", NextRunAt: tick, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	source := dal.JobDefinitionSourceRecord{RepositoryID: "shared-schedule", RequestedRef: "main", ResolvedCommit: "abc", DefinitionPath: ".vectis/jobs/shared-build.json", BlobSHA: "blob"}
+	runID, _, _, created, err := repos.Runs().CreateScheduledSourceDefinitionRun(ctx, schedule.ID, tick, "shared-build", `{"root":{"id":"root"}}`, source, dal.RunAuditMetadata{})
+	if err != nil || !created {
+		t.Fatalf("create scheduled run: %t %v", created, err)
+	}
+
+	if path, err := repos.Runs().GetRunNamespacePath(ctx, runID); err != nil || path != team.Path {
+		t.Fatalf("run namespace: %q %v", path, err)
+	}
+
+	if err := repos.Sources().RevokeRepositoryNamespace(ctx, "shared-schedule", team.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, _, created, err := repos.Runs().CreateScheduledSourceDefinitionRun(ctx, schedule.ID, tick.Add(time.Minute), "shared-build", `{"root":{"id":"root"}}`, source, dal.RunAuditMetadata{}); err == nil || created {
+		t.Fatalf("revoked schedule dispatched: %t %v", created, err)
+	}
+
+	if has, err := repos.Namespaces().HasJobs(ctx, team.ID); err != nil || !has {
+		t.Fatalf("namespace with historical run can be deleted: %t %v", has, err)
 	}
 }

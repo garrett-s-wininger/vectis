@@ -650,12 +650,32 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
+          }
+        ]
       },
       "post": {
         "operationId": "createSourceRepository",
         "summary": "Register a source repository",
-        "description": "Requires job:write in the target namespace and admin:* on the root namespace. Repository registration grants server filesystem, credential, and remote access.",
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection.",
         "tags": [
           "Source"
         ],
@@ -664,7 +684,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "job:write",
+        "x-vectis-auth-action": "admin:*",
         "responses": {
           "201": {
             "description": "Source repository created",
@@ -680,7 +700,27 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
+          }
+        ]
       }
     },
     "/api/v1/source-repositories/{id}": {
@@ -707,13 +747,31 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       },
       "put": {
         "operationId": "updateSourceRepository",
         "summary": "Update a source repository",
-        "description": "Requires job:write in the repository namespace and admin:* on the root namespace. Namespace users may operate approved repositories but cannot change their deployment bindings.",
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection.",
         "tags": [
           "Source"
         ],
@@ -722,7 +780,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "job:write",
+        "x-vectis-auth-action": "admin:*",
         "responses": {
           "200": {
             "$ref": "#/components/responses/JSONOK"
@@ -734,6 +792,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       },
@@ -748,7 +824,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "job:write",
+        "x-vectis-auth-action": "admin:*",
         "responses": {
           "204": {
             "description": "No content"
@@ -760,8 +836,27 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection."
       }
     },
     "/api/v1/source-repositories/{id}/sync": {
@@ -776,7 +871,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "job:write",
+        "x-vectis-auth-action": "admin:*",
         "responses": {
           "200": {
             "$ref": "#/components/responses/JSONOK"
@@ -799,8 +894,27 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection."
       }
     },
     "/api/v1/source-repositories/{id}/status": {
@@ -827,6 +941,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -855,6 +987,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -883,6 +1033,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -911,6 +1079,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -939,6 +1125,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -967,6 +1171,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -983,7 +1205,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "job:read",
+        "x-vectis-auth-action": "admin:*",
         "responses": {
           "200": {
             "$ref": "#/components/responses/JSONOK"
@@ -995,8 +1217,27 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection."
       }
     },
     "/api/v1/source-repositories/{id}/jobs/{job_id}/definition": {
@@ -1026,6 +1267,24 @@
           },
           {
             "$ref": "#/components/parameters/SourceJobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       },
@@ -1040,7 +1299,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "job:write",
+        "x-vectis-auth-action": "admin:*",
         "responses": {
           "200": {
             "$ref": "#/components/responses/JSONOK"
@@ -1055,8 +1314,27 @@
           },
           {
             "$ref": "#/components/parameters/SourceJobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection."
       }
     },
     "/api/v1/source-repositories/{id}/jobs/{job_id}/runs": {
@@ -1107,6 +1385,24 @@
           },
           {
             "$ref": "#/components/parameters/SourceJobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -1148,6 +1444,24 @@
           },
           {
             "$ref": "#/components/parameters/SourceRunID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -1164,7 +1478,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "run:trigger",
+        "x-vectis-auth-action": "admin:*",
         "responses": {
           "202": {
             "description": "Run accepted",
@@ -1187,8 +1501,27 @@
           },
           {
             "$ref": "#/components/parameters/SourceJobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection."
       }
     },
     "/api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs": {
@@ -1218,6 +1551,24 @@
           },
           {
             "$ref": "#/components/parameters/SourceJobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ]
       }
@@ -1296,6 +1647,24 @@
           },
           {
             "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ],
         "responses": {
@@ -1351,6 +1720,24 @@
           },
           {
             "$ref": "#/components/parameters/Version"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ],
         "responses": {
@@ -1377,6 +1764,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/JobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ],
         "requestBody": {
@@ -1406,6 +1811,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/JobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ],
         "responses": {
@@ -1470,6 +1893,24 @@
           },
           {
             "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ],
         "requestBody": {
@@ -1519,6 +1960,24 @@
           },
           {
             "$ref": "#/components/parameters/Since"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Execution workspace namespace."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use all for root-administrator connection inventory and inspection."
           }
         ],
         "responses": {
@@ -1568,6 +2027,22 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/JobID"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace for this source job subscription. Required for an unambiguous shared connection context."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Global subscriptions are not supported; use an explicit namespace."
           }
         ],
         "responses": {
@@ -3099,6 +3574,180 @@
           }
         }
       }
+    },
+    "/api/v1/source-repositories/{id}/namespaces": {
+      "get": {
+        "operationId": "listRepositoryNamespaceAccess",
+        "summary": "List namespace access to a shared repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "description": "Requires root-namespace administration. Namespace roles govern use after a grant; granting use does not delegate connection administration.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace grants for this global connection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "namespace_id",
+                      "namespace"
+                    ],
+                    "properties": {
+                      "namespace_id": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/namespaces/{namespace_id}": {
+      "put": {
+        "operationId": "grantRepositoryNamespaceAccess",
+        "summary": "Grant a namespace permission to use a repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "description": "Requires root-namespace administration. Namespace roles govern use after a grant; granting use does not delegate connection administration.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace grants for this global connection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "namespace_id",
+                      "namespace"
+                    ],
+                    "properties": {
+                      "namespace_id": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "revokeRepositoryNamespaceAccess",
+        "summary": "Revoke namespace permission to use a repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "description": "Requires root-namespace administration. Namespace roles govern use after a grant; granting use does not delegate connection administration.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SourceRepositoryID"
+          },
+          {
+            "name": "namespace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace grants for this global connection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "namespace_id",
+                      "namespace"
+                    ],
+                    "properties": {
+                      "namespace_id": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4174,6 +4823,10 @@
           "submitted_by": {
             "type": "string",
             "description": "Authenticated submitter captured when the run was accepted; anonymous for auth-disabled API submissions, system for automatic triggers. Omitted when attribution is unknown. Independent of the current viewer."
+          },
+          "source_repository_id": {
+            "type": "string",
+            "description": "Global source connection ID for source-backed runs. The run namespace is immutable."
           }
         },
         "additionalProperties": true

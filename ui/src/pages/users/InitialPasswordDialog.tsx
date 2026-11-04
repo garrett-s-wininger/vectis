@@ -20,7 +20,6 @@ export function InitialPasswordDialog({ credential, onDismissCredential, returnF
     return () => {
       if (previous instanceof HTMLElement && previous !== document.body && previous.isConnected)
         previous.focus({ preventScroll: true });
-
       else if (fallback?.isConnected) fallback.focus({ preventScroll: true });
     };
   }, [credential, returnFocusRef]);

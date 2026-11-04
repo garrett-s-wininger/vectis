@@ -69,7 +69,7 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Utility" })).toBeInTheDocument();
-    expect(screen.getByText("Manage")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Administration" })).toBeInTheDocument();
     expect(screen.getByText("admin")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("admin"));
@@ -107,14 +107,8 @@ describe("AppShell", () => {
       </AppShell>
     );
 
-    fireEvent.click(screen.getByText("Manage"));
-    const adminMenu = screen.getByText("Manage").closest("details");
-    expect(adminMenu).toHaveAttribute("open");
-
     fireEvent.click(screen.getByRole("link", { name: "Health" }));
-
     expect(onNavigate).toHaveBeenCalledWith("/health", expect.any(Object));
-    expect(adminMenu).not.toHaveAttribute("open");
   });
 
   it("can sign out from the account menu", () => {
@@ -183,8 +177,8 @@ describe("AppShell", () => {
       </AppShell>
     );
 
-    fireEvent.click(screen.getByText("Manage"));
-    const adminMenu = screen.getByText("Manage").closest("details");
+    fireEvent.click(screen.getByText("Help"));
+    const adminMenu = screen.getByText("Help").closest("details");
     expect(adminMenu).toHaveAttribute("open");
 
     fireEvent.click(screen.getByText("admin"));
@@ -212,8 +206,8 @@ describe("AppShell", () => {
 
     expect(namespaceMenu).toHaveAttribute("open");
 
-    fireEvent.click(screen.getByText("Manage"));
-    const adminMenu = screen.getByText("Manage").closest("details");
+    fireEvent.click(screen.getByText("Help"));
+    const adminMenu = screen.getByText("Help").closest("details");
     expect(adminMenu).toHaveAttribute("open");
     expect(namespaceMenu).not.toHaveAttribute("open");
 
@@ -287,8 +281,8 @@ it("shows decorative icons beside the primary and admin navigation labels", () =
     expect(link.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   }
 
-  fireEvent.click(screen.getByText("Manage", { exact: true }));
-  for (const name of ["Health", "Users", "Namespaces"]) {
+  fireEvent.click(screen.getByText("Help", { exact: true }));
+  for (const name of ["Health", "Users", "Repository connections"]) {
     const link = screen.getByRole("link", { name });
     expect(link.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   }

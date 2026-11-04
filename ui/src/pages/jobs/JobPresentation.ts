@@ -60,7 +60,12 @@ export function getLatestRunForJob(job: Job, runs: RunListItem[]) {
 
 export function getRunsForJob(job: Job, runs: RunListItem[]) {
   return runs
-    .filter((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)
+    .filter(
+      (run) =>
+        run.jobName === job.name &&
+        run.namespacePath === job.namespacePath &&
+        (!run.repositoryID || run.repositoryID === job.repository)
+    )
     .sort((left, right) => right.runNumber - left.runNumber);
 }
 

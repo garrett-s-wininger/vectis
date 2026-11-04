@@ -38,6 +38,7 @@ export type Job = {
   repository: string;
   branch: string;
   sourceDetail: string;
+  sourceCommit?: string;
   sourceKind: JobSourceKind;
   definition?: string;
   namespacePath: string;

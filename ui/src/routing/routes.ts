@@ -1,10 +1,12 @@
-import { Briefcase, FolderTree, HeartPulse, Play, Settings2, Users } from "lucide-react";
+import { Briefcase, GitBranch, HeartPulse, Play, Plug, Settings2, Users } from "lucide-react";
 import { runListFiltersFromSearch, type RunListFilters } from "./runListFilters";
-export { navigateTo } from "./navigation";
 import { runInvestigationFromSearch, type RunInvestigationContext } from "./runInvestigation";
 import type { NavEntry } from "../components";
 
+export { navigateTo } from "./navigation";
+
 export type AppRouteKind =
+  | "repositories"
   | "dashboard"
   | "health"
   | "runs"
@@ -17,6 +19,12 @@ export type AppRouteKind =
   | "notFound";
 
 export type AppRoute = {
+  workspaceNamespace?: string;
+  repositoryManagement?: boolean;
+  repositoryID?: string;
+  repositoryNamespace?: string;
+  jobRepository?: string;
+  jobNamespace?: string;
   cellID?: string;
   kind: AppRouteKind;
   activeHref: string;
@@ -35,7 +43,8 @@ export type AppRoute = {
 
 export const primaryNavItems: NavEntry[] = [
   { href: "/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/runs", label: "Runs", icon: Play }
+  { href: "/runs", label: "Runs", icon: Play },
+  { href: "/repositories", label: "Repositories", icon: GitBranch }
 ];
 
 export const managementNavItems: NavEntry[] = [
@@ -44,13 +53,20 @@ export const managementNavItems: NavEntry[] = [
     icon: Settings2,
     items: [
       { href: "/health", label: "Health", icon: HeartPulse },
-      { href: "/users", label: "Users", icon: Users },
-      { href: "/namespaces", label: "Namespaces", icon: FolderTree }
+      { href: "/manage/repositories", label: "Repository connections", shortLabel: "Connections", icon: Plug },
+      { href: "/users", label: "Users", icon: Users }
     ]
   }
 ];
 
 export function routeFromPath(pathname: string, search = ""): AppRoute {
+  return {
+    ...parseRoute(pathname, search),
+    workspaceNamespace: new URLSearchParams(search).get("namespace") || undefined
+  };
+}
+
+function parseRoute(pathname: string, search = ""): AppRoute {
   if (pathname === "/setup") {
     return { kind: "setup", activeHref: "", pathname };
   }
@@ -60,6 +76,34 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
   }
 
   if (pathname === "/" || pathname === "") return { kind: "jobs", activeHref: "/jobs", pathname };
+
+  if (pathname === "/manage/repositories" || pathname.startsWith("/manage/repositories/"))
+    return {
+      kind: "repositories",
+      repositoryManagement: true,
+      activeHref: "/manage/repositories",
+      pathname,
+      repositoryID:
+        pathname === "/manage/repositories"
+          ? undefined
+          : decodeRouteSegment(pathname.slice("/manage/repositories/".length))
+    };
+
+  if (pathname === "/repositories" || pathname.startsWith("/repositories/")) {
+    return {
+      kind: "repositories",
+      activeHref: "/repositories",
+      pathname,
+      repositoryID:
+        pathname === "/repositories" ? undefined : decodeRouteSegment(pathname.slice("/repositories/".length)),
+      repositoryNamespace: new URLSearchParams(search).get("namespace") || undefined
+    };
+  }
+
+  const jobContext = {
+    jobRepository: new URLSearchParams(search).get("repository") || undefined,
+    jobNamespace: new URLSearchParams(search).get("namespace") || undefined
+  };
 
   if (pathname === "/health") {
     return { kind: "health", activeHref: "/health", pathname };
@@ -97,7 +141,13 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
     const jobID = pathname.slice("/jobs/".length, -"/config".length);
 
     if (jobID) {
-      return { kind: "jobs", activeHref: "/jobs", jobEditor: { kind: "edit", jobID }, pathname };
+      return {
+        ...jobContext,
+        kind: "jobs",
+        activeHref: "/jobs",
+        jobEditor: { kind: "edit", jobID: decodeRouteSegment(jobID) },
+        pathname
+      };
     }
   }
 
@@ -105,7 +155,7 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
     const jobID = pathname.slice("/jobs/".length);
 
     if (jobID) {
-      return { kind: "jobs", activeHref: "/jobs", jobID, pathname };
+      return { ...jobContext, kind: "jobs", activeHref: "/jobs", jobID: decodeRouteSegment(jobID), pathname };
     }
   }
 

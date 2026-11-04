@@ -26,6 +26,10 @@
   min-width: 0;
 }
 
+.navigation:empty {
+  display: none;
+}
+
 .navigation button {
   background: transparent;
   border: 0;

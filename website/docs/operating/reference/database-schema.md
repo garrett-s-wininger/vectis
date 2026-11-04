@@ -672,3 +672,9 @@ Retention and repair routines rely on foreign-key relationships and status index
 | Retention behavior | [Retention](../reliability/retention.md) |
 | Migration development | [Migrations](../../developing/migrations.md) |
 | API schema status endpoint | [API Reference](../../using/api-reference.md#check-whether-the-system-is-ready) |
+
+### `source_repository_namespaces`
+
+Grants namespaces use of a global `source_repositories` registration. Connections have no namespace ownership column. The composite primary key `(repository_id, namespace_id)` prevents duplicate grants; both references cascade on deletion, and `namespace_id` is indexed. Grants are distinct from user role bindings.
+
+`job_triggers.namespace_id` fixes the execution namespace for scheduled runs. `job_runs.namespace_path` records immutable run attribution, so source sharing and grant revocation cannot move historical runs between namespaces.

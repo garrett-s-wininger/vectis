@@ -1,4 +1,5 @@
 .root {
+  align-content: start;
   background: var(--surface-panel);
   border: 1px solid rgb(151 168 177 / 54%);
   border-radius: var(--panel-radius);
@@ -23,6 +24,7 @@
 }
 
 .label {
+  grid-row: 2;
   color: var(--text-navigation);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -30,6 +32,7 @@
 }
 
 .value {
+  grid-row: 1;
   color: var(--text-primary);
   font-size: var(--font-size-3xl);
   line-height: var(--line-height-heading);
@@ -40,6 +43,7 @@
 }
 
 .detail {
+  grid-row: 3;
   color: var(--text-subtle);
   font-size: var(--font-size-md);
   line-height: var(--line-height-compact);

@@ -9,7 +9,9 @@ import {
   StatusBadge,
   type RunListItem
 } from "../../components";
-import { Fingerprint } from "lucide-react";
+import { navigateTo } from "../../routing/navigation";
+import { repositoryPath } from "../../routing/repositories";
+import { FolderGit2, GitBranch, GitCommitHorizontal, FileCode, Fingerprint } from "lucide-react";
 import type { Job } from "../../domain/console";
 import { JobTriggers } from "./JobTriggers";
 import { jobDetailBreadcrumbItems } from "./JobBreadcrumbs";
@@ -26,6 +28,7 @@ import styles from "./JobDetailPage.module.css";
 
 type JobDetailPageProps = {
   job: Job;
+  sharedWorkspace?: boolean;
   lastRun?: RunListItem;
   runs: RunListItem[];
   onBack: () => void;
@@ -37,6 +40,7 @@ type JobDetailPageProps = {
 
 export function JobDetailPage({
   job,
+  sharedWorkspace = false,
   lastRun,
   runs,
   onBack,
@@ -53,7 +57,12 @@ export function JobDetailPage({
       <PageHeader
         navigation={
           <BreadcrumbTrail
-            items={jobDetailBreadcrumbItems({ jobName: job.name, namespacePath: job.namespacePath, onJobs: onBack })}
+            items={jobDetailBreadcrumbItems({
+              jobName: job.name,
+              namespacePath: job.namespacePath,
+              onJobs: onBack,
+              hideNamespace: sharedWorkspace
+            })}
             label="Job location"
           />
         }
@@ -130,6 +139,41 @@ export function JobDetailPage({
         </section>
       </div>
 
+      {job.repository ? (
+        <section
+          className={`${styles.panel} polished-panel polished-panel--accent-top`}
+          aria-labelledby="job-source-title"
+        >
+          <div className={styles.definitionHeader}>
+            <div className={styles.panelHeader}>
+              <h3 id="job-source-title">Source</h3>
+              <p>Repository and definition used by this job.</p>
+            </div>
+            <Button variant="quiet" onClick={() => navigateTo(repositoryPath(job.repository, job.namespacePath))}>
+              View repository
+            </Button>
+          </div>
+          <dl className={styles.identity}>
+            <OperationalFact icon={FolderGit2} label="Repository" value={job.repository} layout="detail" wrap />
+            <OperationalFact icon={GitBranch} label="Ref" value={job.branch || "HEAD"} layout="detail" wrap />
+            <OperationalFact icon={FileCode} label="Definition file" value={job.sourceDetail} layout="detail" wrap />
+            {job.sourceCommit ? (
+              <OperationalFact
+                icon={GitCommitHorizontal}
+                label="Resolved commit"
+                layout="detail"
+                wrap
+                value={
+                  <CopyValue appearance="field" label="Resolved commit" value={job.sourceCommit}>
+                    <code>{job.sourceCommit}</code>
+                  </CopyValue>
+                }
+              />
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
+
       <section
         className={`${styles.panel} polished-panel polished-panel--accent-top`}
         aria-labelledby="job-definition-title"
@@ -139,7 +183,7 @@ export function JobDetailPage({
             <h3 id="job-definition-title">Definition</h3>
             <p>{getJobPathDetail(job)}</p>
           </div>
-          {can("job:write", job.namespacePath) ? (
+          {can("admin:*") && can("job:write", job.namespacePath) ? (
             <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onConfigure} variant="quiet">
               {jobConfigurationActionLabel}
             </Button>

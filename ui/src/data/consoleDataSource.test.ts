@@ -223,9 +223,10 @@ describe("console data source", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/users", expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      "/api/v1/jobs?limit=200&repository_id=vectis-local&ref=main",
+      "/api/v1/jobs?limit=200&repository_id=vectis-local&namespace=%2F&ref=main",
       expect.any(Object)
     );
+
     expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/v1/namespaces/1/bindings", expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/v1/runs?limit=200", expect.any(Object));
   });

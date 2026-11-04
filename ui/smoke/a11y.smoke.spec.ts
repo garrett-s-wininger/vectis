@@ -199,8 +199,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 
     await page.goto("/users/user-mira");
     await page.getByRole("button", { name: "Remove User", exact: true }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Remove User", exact: true }).hover();
-    await check("danger-dialog-hover");
+    await page.getByRole("button", { name: "Confirm removal", exact: true }).hover();
+    await check("danger-confirm-hover");
 
     await page.goto("/profile");
     await page.getByLabel(/^Theme: /).click();
