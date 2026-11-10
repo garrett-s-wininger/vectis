@@ -209,8 +209,10 @@ Most API failures use this JSON envelope:
 | `source_not_found` | `404` | Source ref, tree entry, or definition path was not found. |
 | `source_ref_hydration_in_flight` | `202` | Requested source ref is being hydrated by another API replica; retry after the `Retry-After` delay. |
 | `source_repositories_not_configured` | `503` | Source repository storage is not configured. |
+| `source_credentials_unavailable` | `503` | The configured source credential inventory could not be loaded. Provider details and values are not exposed. |
+| `source_connection_validation_failed` | `422` | Proposed Git connection or default ref failed validation; no registration or settings were saved. |
 | `source_repository_conflict` | `409` | Source repository registration conflicts with an existing checkout path or repository. |
-| `source_repository_declared` | `409` | Source repository is still declared in current config and cannot be deleted directly. |
+| `source_repository_declared` | `409` | Source repository is still declared in current config; edit its connection settings there rather than updating or deleting the registration directly. |
 | `source_repository_disabled` | `409` | Source repository is disabled for the requested operation. |
 | `source_repository_in_use` | `409` | Source repository still has schedules or recorded source provenance. |
 | `source_repository_not_found` | `404` | Source repository does not exist or is hidden by namespace authorization. |
@@ -241,6 +243,17 @@ Most API failures use this JSON envelope:
 | `missing_payload` | `400` | Cell catalog event omitted `payload`. |
 | `queue_not_ready` | `503` | Queue is unavailable during readiness or dispatch. |
 | `server_shutting_down` | `503` | API is draining and no longer ready for protected traffic. |
+
+
+## Source job ownership and emergency changes
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `source_job_unregistered` | `409` | Assign an owning namespace before activating a hotfix. |
+| `source_job_not_found` | `404` | The job is unavailable in the caller's authorized namespace. |
+| `invalid_hotfix_reason` | `400` | Supply a nonempty reason of at most 512 bytes. |
+| `source_repository_access_denied` | `403` | The owning namespace no longer has a repository grant. |
+| `source_impact_review_required` | `409` | Review the current disable inventory and send its revision before disabling. |
 
 ## Related Docs
 

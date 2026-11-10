@@ -5,6 +5,7 @@ import { SelectControl } from "./SelectControl";
 
 export type SelectOption = {
   disabled?: boolean;
+  description?: string;
   label: string;
   value: string;
 };
@@ -14,6 +15,7 @@ type SelectFieldProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "children"
   label: string;
   options: SelectOption[];
   wide?: boolean;
+  searchable?: boolean;
 };
 
 export function SelectField({ error, id, label, options, wide, ...props }: SelectFieldProps) {

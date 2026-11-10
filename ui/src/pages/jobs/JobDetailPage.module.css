@@ -1,7 +1,12 @@
 .detailPage {
   display: grid;
   gap: var(--space-xl);
-  width: min(var(--layout-panel-max), 100%);
+  width: min(1440px, 100%);
+  container-type: inline-size;
+}
+
+.detailPage > header {
+  width: 100%;
 }
 
 .panel {
@@ -10,15 +15,160 @@
   padding: var(--space-xl);
 }
 
-.commandPanel {
-  align-content: space-between;
+.pageActions,
+.activityHeader {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
 }
 
-.summaryGrid {
-  align-items: stretch;
+.activityHeader {
+  justify-content: space-between;
+  min-height: var(--control-height-md);
+}
+
+.iconAction {
+  gap: var(--space-sm);
+}
+
+.iconAction svg {
+  height: var(--space-lg);
+  width: var(--space-lg);
+  flex-shrink: 0;
+}
+
+.summaryDetail {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.workspaceLayout {
+  display: grid;
+  align-items: start;
+  gap: var(--space-xl);
+  min-width: 0;
+}
+
+.definitionColumn,
+.contextColumn {
+  min-width: 0;
+}
+
+.contextColumn {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.contextTitle {
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-compact);
+  margin: 0;
+}
+
+.recentRuns {
+  display: grid;
+  gap: var(--space-sm);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.runLink {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--surface-subtle);
+  text-align: left;
+}
+
+.runHeading,
+.triggerHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.runHeading > svg {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: var(--space-lg);
+  height: var(--space-lg);
+}
+
+.runMetadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-subtle);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.runDuration {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+@container (min-width: 960px) {
+  .workspaceLayout {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+}
+
+.triggerSection {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md) var(--space-xl);
+}
+
+.triggerHeading h3 {
+  font-size: var(--font-size-lg);
+  margin: 0;
+}
+
+.sourceFacts {
+  align-items: start;
   display: grid;
   gap: var(--space-lg);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+}
+
+.sourceContext .sourceFacts > div {
+  row-gap: var(--space-xs);
+}
+
+.sourceContext .sourceFacts dd {
+  min-height: 0;
+  display: block;
+}
+
+.sourceFacts .sourceCommit code {
+  font-size: var(--font-size-sm);
+}
+
+.sourceContext {
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.jobIdentifier {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
 }
 
 .panelHeader {
@@ -26,7 +176,8 @@
   gap: var(--space-xs);
 }
 
-.panelHeader h3 {
+.panelHeader h3,
+.activityHeader h3 {
   color: var(--text-primary);
   font-size: var(--font-size-lg);
   line-height: var(--line-height-compact);
@@ -40,36 +191,6 @@
   margin: 0;
 }
 
-.commandStack {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-}
-
-.executionSummary {
-  display: grid;
-  gap: var(--space-lg);
-}
-
-.healthSummary {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-}
-
-.latestRunSummary {
-  color: var(--text-subtle);
-  font-size: var(--font-size-sm);
-}
-
-.executionActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-}
-
 .definitionHeader {
   align-items: start;
   display: grid;
@@ -77,22 +198,21 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-@media (max-width: 1000px) {
-  .summaryGrid {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 640px) {
+  .pageActions {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .pageActions > button {
+    flex: 1 1 auto;
+  }
+
   .detailPage {
     gap: var(--space-lg);
   }
 
   .definitionHeader {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
-}
-
-.identity {
-  margin: 0;
 }

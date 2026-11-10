@@ -638,7 +638,12 @@ func updateSourceWithOutput(cmd *cobra.Command, out io.Writer, repositoryID stri
 		payload["enabled"] = true
 	}
 	if disableChanged {
+		if strings.TrimSpace(sourceUpdateImpactRevision) == "" {
+			return fmt.Errorf("review `sources impact %s` and pass --impact-revision before disabling", repositoryID)
+		}
+
 		payload["enabled"] = false
+		payload["impact_revision"] = strings.TrimSpace(sourceUpdateImpactRevision)
 	}
 	if len(payload) == 0 {
 		return fmt.Errorf("at least one source repository update flag is required")
@@ -2435,6 +2440,7 @@ func configureSourcesRegisterFlags(cmd *cobra.Command) {
 }
 
 func configureSourcesUpdateFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceUpdateImpactRevision, "impact-revision", "", "Reviewed revision from sources impact; required with --disable")
 	cmd.Flags().StringVar(&sourceUpdateSourceKind, "source-kind", "", "Source kind, currently local_checkout")
 	cmd.Flags().StringVar(&sourceUpdateCheckoutPath, "checkout-path", "", "Checkout path for external repositories")
 	cmd.Flags().StringVar(&sourceUpdateCheckoutMode, "checkout-mode", "", "Checkout mode: external or managed")
@@ -2534,4 +2540,35 @@ func configureSourcesTriggerFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceTriggerCellID, "cell", "", "Target execution cell")
 	cmd.Flags().
 		StringVar(&sourceTriggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
+}
+
+var sourcesImpactCmd = &cobra.Command{
+	Use:   "impact [repository-id]",
+	Short: "Review the jobs and automation affected by disabling a connection",
+	Args:  cobra.ExactArgs(1),
+	Run:   func(_ *cobra.Command, args []string) { runCLIError(sourceImpactWithOutput(os.Stdout, args[0])) },
+}
+
+func sourceImpactWithOutput(out io.Writer, repositoryID string) error {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/impact", nil)
+	if err != nil {
+		return err
+	}
+
+	response, err := doAPIRequest(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("unable to review source impact: %s", response.Status)
+	}
+
+	var impact json.RawMessage
+	if err = json.NewDecoder(response.Body).Decode(&impact); err != nil {
+		return err
+	}
+
+	return writeJSON(out, impact)
 }

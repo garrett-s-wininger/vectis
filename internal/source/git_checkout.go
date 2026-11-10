@@ -909,6 +909,10 @@ func (g *GitCheckout) ListDefinitionFiles(
 	}
 
 	treePath := strings.TrimSpace(opts.Path)
+	if treePath == "" && opts.Conventional {
+		return g.listConventionalJobDefinitions(ctx, ref, revision, opts)
+	}
+
 	if treePath == "" {
 		treePath = DefaultDefinitionPath
 	}

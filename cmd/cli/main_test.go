@@ -1404,8 +1404,10 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	oldWarmRefspecs := sourceUpdateWarmRefspecs
 	oldDefaultRef := sourceUpdateDefaultRef
 	oldCredentialRef := sourceUpdateCredentialRef
+	oldImpact := sourceUpdateImpactRevision
 	oldEnable := sourceUpdateEnable
 	oldDisable := sourceUpdateDisable
+
 	t.Cleanup(func() {
 		sourceUpdateSourceKind = oldSourceKind
 		sourceUpdateCheckoutPath = oldCheckoutPath
@@ -1417,6 +1419,7 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 		sourceUpdateWarmRefspecs = oldWarmRefspecs
 		sourceUpdateDefaultRef = oldDefaultRef
 		sourceUpdateCredentialRef = oldCredentialRef
+		sourceUpdateImpactRevision = oldImpact
 		sourceUpdateEnable = oldEnable
 		sourceUpdateDisable = oldDisable
 	})
@@ -1433,6 +1436,7 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 		"default-ref":               "main",
 		"credential-ref":            "git-creds",
 		"disable":                   "true",
+		"impact-revision":           "reviewed",
 	} {
 		if err := cmd.Flags().Set(name, value); err != nil {
 			t.Fatalf("set %s: %v", name, err)
@@ -1464,6 +1468,7 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 			"canonical_url":     "https://git.example.com/acme/vectis.git",
 			"default_ref":       "main",
 			"credential_ref":    "git-creds",
+			"impact_revision":   "reviewed",
 			"enabled":           false,
 		}
 

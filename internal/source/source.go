@@ -80,13 +80,15 @@ type TreeEntry struct {
 }
 
 type ListDefinitionFilesOptions struct {
-	Ref    string
-	Path   string
-	Limit  int
-	Cursor string
+	Conventional bool // Discover primary, named, and legacy layouts when Path is empty.
+	Ref          string
+	Path         string
+	Limit        int
+	Cursor       string
 }
 
 type DefinitionFileListing struct {
+	Conventional bool
 	RequestedRef string
 	Revision     Revision
 	Path         string

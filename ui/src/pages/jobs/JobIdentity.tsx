@@ -8,6 +8,11 @@ export function JobIdentity({ job }: { job: Job }) {
     <div className={styles.identity}>
       <div className={styles.identityTitle}>
         <strong>{job.name}</strong>
+        {job.hotfix ? (
+          <ResourceStatus className={styles.hotfixPill} tone="warning">
+            Hotfix
+          </ResourceStatus>
+        ) : null}
       </div>
       <small>{getJobSourceDetail(job)}</small>
       <span className={styles.identityStatus}>

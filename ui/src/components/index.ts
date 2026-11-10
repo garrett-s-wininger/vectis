@@ -37,3 +37,5 @@ export { StatusBadge, statusBadgeLabel } from "./status/StatusBadge";
 export type { RunStatus } from "./status/StatusBadge";
 
 export { CopyValue } from "./primitives/CopyValue";
+
+export { ResourceLink } from "./primitives/ResourceLink";

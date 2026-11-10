@@ -762,9 +762,9 @@ func (r *SQLSourcesRepository) RecordDefinitionSource(ctx context.Context, rec J
 			requested_ref,
 			resolved_commit,
 			definition_path,
-			blob_sha
+			blob_sha, hotfix_json
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`),
 		rec.JobID,
 		rec.Version,
@@ -773,6 +773,7 @@ func (r *SQLSourcesRepository) RecordDefinitionSource(ctx context.Context, rec J
 		rec.ResolvedCommit,
 		rec.DefinitionPath,
 		rec.BlobSHA,
+		rec.HotfixJSON,
 	)
 
 	return normalizeSQLError(err)
@@ -833,7 +834,9 @@ func (r *SQLSourcesRepository) sourceRepositoryHasReferences(ctx context.Context
 	var exists int
 	if err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx(`
-			SELECT 1
+			SELECT 1 FROM source_jobs WHERE repository_id = ?
+ UNION ALL
+ SELECT 1
 			FROM job_definition_sources
 			WHERE repository_id = ?
 			UNION ALL
@@ -842,6 +845,7 @@ func (r *SQLSourcesRepository) sourceRepositoryHasReferences(ctx context.Context
 			WHERE source_repository_id = ?
 			LIMIT 1
 		`),
+		repositoryID,
 		repositoryID,
 		repositoryID,
 	).Scan(&exists); err != nil {
@@ -898,9 +902,9 @@ func insertDefinitionSourceTx(ctx context.Context, tx *sql.Tx, rec JobDefinition
 			requested_ref,
 			resolved_commit,
 			definition_path,
-			blob_sha
+			blob_sha, hotfix_json
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`),
 		rec.JobID,
 		rec.Version,
@@ -909,6 +913,7 @@ func insertDefinitionSourceTx(ctx context.Context, tx *sql.Tx, rec JobDefinition
 		rec.ResolvedCommit,
 		rec.DefinitionPath,
 		rec.BlobSHA,
+		rec.HotfixJSON,
 	)
 
 	return normalizeSQLError(err)
@@ -966,7 +971,7 @@ func (r *SQLSourcesRepository) GetDefinitionSource(
 			requested_ref,
 			resolved_commit,
 			definition_path,
-			blob_sha
+			blob_sha, hotfix_json
 		FROM job_definition_sources
 		WHERE job_id = ? AND version = ?
 	`), jobID, version).Scan(
@@ -977,6 +982,7 @@ func (r *SQLSourcesRepository) GetDefinitionSource(
 		&rec.ResolvedCommit,
 		&rec.DefinitionPath,
 		&rec.BlobSHA,
+		&rec.HotfixJSON,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return JobDefinitionSourceRecord{}, fmt.Errorf("%w: job %s version %d source", ErrNotFound, jobID, version)
@@ -1029,7 +1035,7 @@ func (r *SQLSourcesRepository) GetDefinitionSources(
 			requested_ref,
 			resolved_commit,
 			definition_path,
-			blob_sha
+			blob_sha, hotfix_json
 		FROM job_definition_sources
 		WHERE job_id = ? AND version IN (`+strings.Join(placeholders, ",")+`)
 	`), args...)
@@ -1050,6 +1056,7 @@ func (r *SQLSourcesRepository) GetDefinitionSources(
 			&rec.ResolvedCommit,
 			&rec.DefinitionPath,
 			&rec.BlobSHA,
+			&rec.HotfixJSON,
 		); err != nil {
 			return nil, normalizeSQLError(err)
 		}

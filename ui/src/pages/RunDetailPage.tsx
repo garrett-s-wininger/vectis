@@ -1,19 +1,16 @@
 import { useConsoleAccess } from "../domain/access";
 import { useState } from "react";
+import { ArrowUpRight, Clock, Code2, FileText, Fingerprint, Hash, History, Server, User, Zap } from "lucide-react";
 import {
-  ArrowUpRight,
-  ChevronDown,
-  Clock,
-  Code2,
-  FileText,
-  Fingerprint,
-  Hash,
-  History,
-  Server,
-  User,
-  Zap
-} from "lucide-react";
-import { BreadcrumbTrail, CopyValue, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
+  BreadcrumbTrail,
+  CopyValue,
+  OperationalFact,
+  PageHeader,
+  ResourceStatus,
+  ResourceLink,
+  StatusBadge,
+  type RunListItem
+} from "../components";
 import { SelectControl } from "../components/primitives/SelectControl";
 import type { RunInvestigationContext } from "../routing/runInvestigation";
 import { runAttemptNumbers, runForAttempt } from "./RunAttemptPresentation";
@@ -27,13 +24,13 @@ import {
 import { RunLogs } from "./RunLogs";
 import { RunArtifacts } from "./RunArtifacts";
 import type { LoadRunArtifacts } from "../data/runArtifacts";
+import type { LoadRunDefinition } from "../data/runDefinition";
+import { repositoryJobPath } from "../routing/repositories";
+import { RunDefinition } from "./RunDefinition";
 import { RunControls, type RunControlActions } from "./RunControls";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import {
-  formatRunDefinition,
   referenceLabel,
-  runDefinitionDescription,
-  runDefinitionTitle,
   runDetailDescription,
   runTasksForDisplay,
   runTimelineEvents,
@@ -52,6 +49,7 @@ type RunDetailPageProps = RunControlActions & {
   runID: string;
   originalRun?: RunListItem;
   loadArtifacts?: LoadRunArtifacts;
+  loadDefinition?: LoadRunDefinition;
   investigation?: RunInvestigationContext;
   onInvestigationChange?: (context: RunInvestigationContext) => void;
 };
@@ -67,6 +65,7 @@ export function RunDetailPage({
   runID,
   originalRun,
   loadArtifacts,
+  loadDefinition,
   investigation,
   onInvestigationChange
 }: RunDetailPageProps) {
@@ -101,6 +100,7 @@ export function RunDetailPage({
       run={run}
       originalRun={originalRun}
       loadArtifacts={loadArtifacts}
+      loadDefinition={loadDefinition}
       investigation={investigation}
       onInvestigationChange={onInvestigationChange}
     />
@@ -116,6 +116,7 @@ function RunDetailContent({
   onReplay,
   originalRun,
   loadArtifacts,
+  loadDefinition,
   investigation,
   onInvestigationChange,
   run
@@ -127,6 +128,7 @@ function RunDetailContent({
   run: RunListItem;
   originalRun?: RunListItem;
   loadArtifacts?: LoadRunArtifacts;
+  loadDefinition?: LoadRunDefinition;
   investigation?: RunInvestigationContext;
   onInvestigationChange?: (context: RunInvestigationContext) => void;
 }) {
@@ -152,13 +154,22 @@ function RunDetailContent({
         tasks[0].status === "succeeded"));
 
   const [openingOriginal, setOpeningOriginal] = useState(false);
+  const [definitionOpen, setDefinitionOpen] = useState(() => window.location.hash === "#run-definition-title");
   const selectedTask =
     tasks.find((task) => task.taskKey === context.task) ?? tasks.find((task) => task.taskID === context.task);
+
   const selectTask = (taskID: string) => {
     const task = tasks.find((candidate) => candidate.taskID === taskID);
     updateInvestigation({ ...context, task: selectedTask?.taskID === taskID ? undefined : task?.taskKey });
   };
+
   const runOnceID = run.source === "ephemeral" && run.jobID ? run.jobID.split("-").at(-1) : runFamilyIdentifier(run);
+  const jobDefinitionHref =
+    run.source === "ephemeral"
+      ? "#run-definition-title"
+      : run.repositoryID && run.jobID
+        ? `${repositoryJobPath({ repository_id: run.repositoryID, namespace: run.namespacePath ?? "/" }, run.jobID)}#job-definition-title`
+        : `/jobs/${encodeURIComponent(run.jobID ?? run.jobName)}?${new URLSearchParams({ namespace: run.namespacePath ?? "/" })}#job-definition-title`;
 
   return (
     <>
@@ -188,8 +199,9 @@ function RunDetailContent({
 
       <section className={`${styles.hero} polished-panel polished-panel--accent-top`} aria-label="Run summary">
         <div className={styles.heroHeader}>
-          <div>
+          <div className={styles.summaryTitle}>
             <h2>Run summary</h2>
+            {run.hotfix ? <ResourceStatus tone="warning">Hotfix</ResourceStatus> : null}
           </div>
           <div className={styles.overallStatus}>
             <span>Overall run</span>
@@ -231,9 +243,17 @@ function RunDetailContent({
               icon={Hash}
               label="Job ID"
               value={
-                <CopyValue appearance="field" label="Job ID" value={run.jobID}>
+                <ResourceLink
+                  href={jobDefinitionHref}
+                  aria-label={
+                    run.source === "ephemeral"
+                      ? `View captured definition for ${run.jobID}`
+                      : `View job definition for ${run.jobID}`
+                  }
+                  onNavigate={run.source === "ephemeral" ? () => setDefinitionOpen(true) : undefined}
+                >
                   <code>{run.jobID}</code>
-                </CopyValue>
+                </ResourceLink>
               }
               wrap
             />
@@ -279,6 +299,12 @@ function RunDetailContent({
             />
           ) : null}
         </dl>
+        {run.hotfix ? (
+          <section className={styles.definitionChangeReason} aria-label="Reason for changes">
+            <h3>Reason for changes</h3>
+            <p>{run.hotfix.reason}</p>
+          </section>
+        ) : null}
       </section>
 
       <section className={styles.layout} aria-label="Run investigation">
@@ -324,7 +350,13 @@ function RunDetailContent({
           <RunArtifacts run={run} selectedTask={selectedTask} loadArtifacts={loadArtifacts} attempt={selectedAttempt} />
         ) : null}
         <RunTimeline run={run} />
-        <RunDefinition run={run} />
+        <RunDefinition
+          key={run.id}
+          run={run}
+          load={loadDefinition}
+          open={definitionOpen}
+          onOpenChange={setDefinitionOpen}
+        />
       </section>
     </>
   );
@@ -361,31 +393,6 @@ function RunTimeline({ run }: { run: RunListItem }) {
           </li>
         ))}
       </ol>
-    </section>
-  );
-}
-
-function RunDefinition({ run }: { run: RunListItem }) {
-  return (
-    <section
-      className={`${styles.panel} ${styles.definitionPanel} polished-panel polished-panel--accent-top`}
-      aria-labelledby="run-definition-title"
-    >
-      <details className={styles.definitionDetails}>
-        <summary className={styles.definitionSummary}>
-          <span className={styles.definitionIcon}>
-            <FileText aria-hidden="true" />
-          </span>
-          <div>
-            <h2 id="run-definition-title">{runDefinitionTitle(run)}</h2>
-            <p>{runDefinitionDescription(run)}</p>
-          </div>
-          <span className={styles.definitionDisclosure} aria-hidden="true">
-            <ChevronDown />
-          </span>
-        </summary>
-        <pre className={`definition-preview ${styles.definitionPreview}`}>{formatRunDefinition(run)}</pre>
-      </details>
     </section>
   );
 }

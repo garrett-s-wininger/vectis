@@ -36,8 +36,14 @@ import styles from "./RepositoriesPage.module.css";
 
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import { InlineEmptyState } from "./shared/InlineEmptyState";
+import { RepositoryConnectionEditor } from "./repositories/RepositoryConnectionEditor";
 import { RepositoryAccess } from "./repositories/RepositoryAccess";
-import { repositoryConnectionPath, repositoryPath, repositoryJobPath } from "../routing/repositories";
+import {
+  repositoryConnectionEditorPath,
+  repositoryConnectionPath,
+  repositoryPath,
+  repositoryJobPath
+} from "../routing/repositories";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Unable to load repository information.");
 const timestamp = (value?: number) =>
@@ -47,6 +53,7 @@ const timestamp = (value?: number) =>
 
 export function RepositoriesPage({
   repositoryID,
+  editor,
   namespacePath = "/",
   source: providedSource,
   onNamespaceChange,
@@ -54,6 +61,7 @@ export function RepositoriesPage({
   sharedWorkspace = false
 }: {
   repositoryID?: string;
+  editor?: "create" | "edit";
   namespacePath?: string;
   source?: RepositorySource;
   onNamespaceChange?: (namespace: string) => void;
@@ -91,6 +99,16 @@ export function RepositoriesPage({
         title="Repository Access Required"
         description="Your account cannot inspect source repositories."
         tone="error"
+      />
+    );
+
+  if (management && editor)
+    return (
+      <RepositoryConnectionEditor
+        key={repositoryID ?? "create"}
+        id={editor === "edit" ? repositoryID : undefined}
+        namespacePath={namespacePath}
+        source={source}
       />
     );
 
@@ -222,6 +240,9 @@ function RepositoryIndex({
         }
         actions={
           <>
+            {management && can("admin:*") ? (
+              <Button onClick={() => navigateTo(repositoryConnectionEditorPath())}>Add connection</Button>
+            ) : null}
             {!management && !sharedWorkspace && allowed.length > 0 ? (
               <NamespacePicker
                 compact
@@ -314,7 +335,7 @@ function RepositoryIndex({
                   header: "Source",
                   width: "132px",
                   hideOnMobile: true,
-                  cell: (row) => sourceLabel(row.source_kind, row.checkout_mode)
+                  cell: (row) => sourceLabel(row)
                 },
                 {
                   header: "State",
@@ -365,6 +386,9 @@ function RepositoryDetail({
   const [missing, setMissing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteLock = useRef(false);
   const [notice, setNotice] = useState("");
   const [more, setMore] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -476,7 +500,7 @@ function RepositoryDetail({
   }, [repository, source, id]);
 
   async function sync() {
-    if (syncLock.current || !repository || !can("admin:*")) return;
+    if (syncLock.current || deleteLock.current || !repository || !can("admin:*")) return;
 
     syncLock.current = true;
     setSyncing(true);
@@ -489,10 +513,16 @@ function RepositoryDetail({
       setRepository(row);
       setNotice(
         row.sync?.status === "running"
-          ? "Sync is in progress."
+          ? row.checkout_mode === "managed"
+            ? "Sync is in progress."
+            : "Checkout check is in progress."
           : row.sync?.status === "failed"
-            ? "Sync failed. Inspect the sync error below."
-            : "Sync completed."
+            ? row.checkout_mode === "managed"
+              ? "Sync failed. Inspect the sync error below."
+              : "Checkout check failed. Inspect the error below."
+            : row.checkout_mode === "managed"
+              ? "Sync completed."
+              : "Checkout check completed."
       );
     } catch (cause) {
       setSyncError(message(cause));
@@ -552,6 +582,30 @@ function RepositoryDetail({
         : `/repositories${repository ? `?${new URLSearchParams({ namespace: repository.namespace })}` : ""}`
     );
 
+  async function remove() {
+    if (deleteLock.current || syncLock.current || !management || !repository || repository.declared || !can("admin:*"))
+      return;
+
+    deleteLock.current = true;
+    setDeleting(true);
+    setError("");
+
+    try {
+      await source.remove(id);
+      navigateTo("/manage/repositories");
+    } catch (cause) {
+      setError(
+        cause instanceof VectisAPIError && cause.code === "source_repository_in_use"
+          ? "This connection has recorded source references and cannot be deleted. Disable it in Edit connection to prevent further use."
+          : message(cause)
+      );
+    } finally {
+      deleteLock.current = false;
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -577,9 +631,18 @@ function RepositoryDetail({
         }
         actions={
           <>
+            {management && repository && !repository.declared && can("admin:*") ? (
+              <Button
+                variant="quiet"
+                disabled={deleting}
+                onClick={() => navigateTo(repositoryConnectionEditorPath(id))}
+              >
+                Edit connection
+              </Button>
+            ) : null}
             <Button
               variant="quiet"
-              disabled={syncing || more}
+              disabled={syncing || more || deleting}
               pending={refreshing}
               pendingLabel="Refreshing…"
               onClick={() => {
@@ -594,15 +657,36 @@ function RepositoryDetail({
             </Button>
             {repository && can("admin:*") ? (
               <Button
-                disabled={refreshing || more || repository.sync?.status === "running"}
+                disabled={refreshing || more || deleting || repository.sync?.status === "running"}
                 pending={syncing}
-                pendingLabel="Syncing…"
+                pendingLabel={repository.checkout_mode === "managed" ? "Syncing…" : "Checking…"}
                 onClick={() => void sync()}
               >
                 <span className={styles.controlLabel}>
                   <RefreshCw aria-hidden="true" />
-                  Sync now
+                  {repository.checkout_mode === "managed" ? "Sync now" : "Check checkout"}
                 </span>
+              </Button>
+            ) : null}
+            {management && repository && !repository.declared && can("admin:*") ? (
+              <Button
+                variant="danger"
+                disabled={syncing || refreshing || more || repository.sync?.status === "running"}
+                pending={deleting}
+                pendingLabel="Deleting…"
+                onBlur={() => {
+                  if (!deleteLock.current) setConfirmDelete(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setConfirmDelete(false);
+                }}
+                title={confirmDelete ? `Click again to delete ${id}. Escape keeps the connection.` : undefined}
+                onClick={() => {
+                  if (confirmDelete) void remove();
+                  else setConfirmDelete(true);
+                }}
+              >
+                {confirmDelete ? "Confirm deletion" : "Delete connection"}
               </Button>
             ) : null}
           </>
@@ -646,11 +730,7 @@ function RepositoryDetail({
             <dl className={`${styles.facts} ${styles.sourceFacts}`}>
               <Fact icon={FolderGit2} label="Repository ID" value={id} copy />
               <Fact icon={GitBranch} label="Ref" value={currentRef} />
-              <Fact
-                icon={FileCode}
-                label="Checkout"
-                value={sourceLabel(repository.source_kind, repository.checkout_mode)}
-              />
+              <Fact icon={FileCode} label="Source type" value={sourceLabel(repository)} />
               <Fact
                 icon={GitCommitHorizontal}
                 label="Revision"
@@ -671,7 +751,7 @@ function RepositoryDetail({
                 <span>Started {timestamp(repository.sync.last_started_at_unix)}</span>
               ) : null}
               <span className={styles.registration}>
-                {repository.declared ? "Configuration file" : "API registration"}
+                {repository.declared ? "Configuration file" : "Saved connection"}
               </span>
               {notice ? <span role="status">{notice}</span> : null}
             </div>
@@ -700,7 +780,15 @@ function RepositoryDetail({
               </p>
             ) : null}
             {repository.checkout_mode !== "managed" ? (
-              <p className={styles.hint}>Local checkout: update it on disk before syncing.</p>
+              <p className={styles.hint}>External checkout: update it on disk before checking it here.</p>
+            ) : null}
+            {!repository.enabled && can("admin:*") ? (
+              <p className={styles.hint}>
+                An explicit sync or checkout check leaves this connection disabled and preserves active hotfixes.
+              </p>
+            ) : null}
+            {management && repository.declared ? (
+              <p className={styles.hint}>Remove this connection from server configuration to delete it.</p>
             ) : null}
           </section>
           {management ? (
@@ -725,6 +813,7 @@ function RepositoryDetail({
                   ) : null}
                 </div>
                 <ErrorAlert title="Unable to Load Definitions" message={jobsError} />
+                <ErrorAlert title="Upstream Discovery Unavailable" message={jobs?.discovery_error} />
                 {!repository.enabled ? (
                   <p>Job discovery is unavailable while this repository is disabled.</p>
                 ) : jobs ? (
@@ -815,9 +904,10 @@ function CompletedAt({ value }: { value?: number }) {
   );
 }
 
-function sourceLabel(kind: string, checkoutMode?: string) {
-  if (checkoutMode === "managed") return "Managed Git";
-  return kind === "local_checkout" ? "Local checkout" : kind === "managed_git" ? "Managed Git" : kind;
+function sourceLabel(repository: Repository) {
+  if (repository.checkout_mode === "managed" || repository.source_kind === "managed_git")
+    return repository.canonical_url ? "Remote Git repository" : "Local Git repository";
+  return repository.source_kind === "local_checkout" ? "Local checkout" : repository.source_kind;
 }
 function SyncStatus({ sync }: { sync?: RepositorySync }) {
   const status = sync?.status || "never";

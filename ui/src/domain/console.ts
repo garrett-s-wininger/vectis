@@ -32,6 +32,8 @@ export type JobTrigger = {
 };
 
 export type Job = {
+  hotfix?: import("../data/sourceJobs").SourceHotfix;
+  canAuthor?: boolean;
   id: string;
   name: string;
   description?: string;

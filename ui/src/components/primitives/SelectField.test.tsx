@@ -3,6 +3,59 @@ import { useState } from "react";
 import { SelectField } from "./SelectField";
 
 describe("SelectField", () => {
+  it("searches labels, full references and provider descriptions with keyboard selection", async () => {
+    const onChange = vi.fn();
+    render(
+      <SelectField
+        searchable
+        label="Credential"
+        name="credential"
+        value=""
+        onChange={onChange}
+        options={[
+          { value: "", label: "None — Public access" },
+          { value: "encryptedfs://git/build", label: "git/build", description: "Encrypted filesystem" },
+          { value: "other://deploy", label: "Deploy", description: "Other provider" }
+        ]}
+      />
+    );
+
+    const trigger = screen.getByLabelText("Credential: None — Public access");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const search = screen.getByRole("searchbox", { name: "Search credential" });
+    await waitFor(() => expect(search).toHaveFocus());
+    fireEvent.change(search, { target: { value: "encryptedfs" } });
+    const option = within(screen.getByRole("listbox")).getByRole("option", { name: /git\/build/ });
+    expect(within(screen.getByRole("listbox")).queryByRole("option", { name: /Deploy/ })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    await waitFor(() => expect(option).toHaveFocus());
+    fireEvent.click(option);
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { name: "credential", value: "encryptedfs://git/build" } })
+    );
+
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    fireEvent.change(search, { target: { value: "Other provider" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ target: { name: "credential", value: "other://deploy" } })
+    );
+
+    fireEvent.click(trigger);
+    fireEvent.change(search, { target: { value: "no-match" } });
+    expect(within(screen.getByRole("listbox")).getByRole("option", { name: "No matching options." })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(trigger.closest("details")).not.toHaveAttribute("open");
+    expect(trigger).toHaveFocus();
+  });
+
   it("renders a labelled select", () => {
     render(
       <SelectField

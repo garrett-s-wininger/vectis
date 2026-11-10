@@ -1,0 +1,319 @@
+.panel {
+  display: grid;
+  gap: var(--space-lg);
+  min-width: 0;
+  padding: var(--space-xl);
+}
+
+.panel > p[role="status"] {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.retryAction {
+  justify-self: start;
+}
+
+.panel h3,
+.panel h4,
+.panel p {
+  margin: 0;
+}
+
+.panel p {
+  overflow-wrap: anywhere;
+}
+
+.hotfixIntroduction p,
+.reviewIntroduction p {
+  color: var(--text-subtle);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  min-height: var(--control-height-md);
+}
+
+.headerSummary {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.workspace,
+.definitionWorkspace {
+  display: grid;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.ownership {
+  margin: 0;
+  padding: var(--space-lg);
+  background: var(--surface-subtle);
+  border-radius: var(--control-radius);
+}
+
+.ownerControls {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+  width: 100%;
+}
+
+.ownerName {
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+}
+
+.hotfix {
+  container: active-hotfix / inline-size;
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border-radius: var(--control-radius);
+  background: var(--surface-subtle);
+  border-left: var(--space-2xs) solid var(--status-warning-accent);
+}
+
+.hotfixHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-lg);
+}
+
+.hotfixIntroduction {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.hotfixIntroduction h4,
+.hotfixAction,
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.hotfixIntroduction h4 {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-compact);
+}
+
+.hotfixIntroduction h4 svg {
+  color: var(--status-warning-accent);
+}
+
+.hotfixIntroduction p {
+  font-size: var(--font-size-sm);
+}
+
+.panel .hotfixReason {
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-strong);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+
+.hotfixMetadata {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--space-lg);
+  margin: 0;
+  border-top: 1px solid var(--color-border-metal);
+  padding-top: var(--space-lg);
+}
+
+.hotfixMetadata > div {
+  display: grid;
+  align-content: start;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.hotfixMetadata dt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.hotfixMetadata dd {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.hotfixMetadata dd code {
+  font-size: var(--font-size-xs);
+}
+
+.hotfixAction svg,
+.hotfixIntroduction h4 svg,
+.notice svg,
+.hotfixMetadata dt svg {
+  flex-shrink: 0;
+  height: var(--space-lg);
+  width: var(--space-lg);
+}
+
+.notice {
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--control-radius);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+  font-size: var(--font-size-sm);
+}
+
+.panel .notice p {
+  color: inherit;
+}
+
+.definitionFrame {
+  height: 440px;
+  min-width: 0;
+}
+
+.panel .definitionPreview {
+  box-sizing: border-box;
+  height: 100%;
+  max-height: none;
+}
+
+.headingTitle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.headingTitle h3 {
+  font-size: var(--font-size-lg);
+}
+
+.viewControls {
+  margin-left: auto;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  justify-content: end;
+}
+
+.viewActions {
+  display: contents;
+}
+
+.compareControl {
+  justify-self: end;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.workspaceActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  justify-content: end;
+  min-height: var(--control-height-md);
+}
+
+.confirmRevert {
+  min-width: 160px;
+}
+
+.editingFields,
+.reviewContent {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  gap: var(--space-lg);
+  grid-template-rows: max-content minmax(0, 1fr);
+}
+
+.editingFields > :last-child {
+  min-height: 0;
+  grid-template-rows: max-content minmax(0, 1fr);
+}
+
+.editingFields > :last-child > div {
+  min-height: 0;
+}
+
+.editingFields textarea {
+  height: 100%;
+  min-height: 0;
+}
+
+.reviewIntroduction {
+  display: grid;
+  gap: var(--space-xs);
+  max-height: 140px;
+  overflow: auto;
+}
+
+.reviewIntroduction p {
+  font-size: var(--font-size-sm);
+}
+
+.reviewIntroduction:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: -2px;
+}
+
+@container active-hotfix (max-width: 520px) {
+  .hotfixHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hotfixActions {
+    justify-self: start;
+  }
+
+  .hotfixMetadata {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hotfixMetadata > div:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+.hotfixActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.provenance {
+  border-top: 1px solid var(--color-border-metal);
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+  padding-top: var(--space-lg);
+}
+
+.provenance h4 {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+}

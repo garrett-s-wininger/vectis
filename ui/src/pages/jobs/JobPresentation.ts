@@ -69,68 +69,6 @@ export function getRunsForJob(job: Job, runs: RunListItem[]) {
     .sort((left, right) => right.runNumber - left.runNumber);
 }
 
-export function getRunHealthSummary(runs: RunListItem[]) {
-  const recentRuns = runs.slice(0, 5);
-  const failedRuns = recentRuns.filter((run) => run.status === "failed").length;
-  const activeRuns = recentRuns.filter((run) => run.status === "queued" || run.status === "running").length;
-  const succeededRuns = recentRuns.filter((run) => run.status === "succeeded").length;
-
-  if (recentRuns.length === 0) {
-    return {
-      detail: "No run history yet.",
-      label: "No runs",
-      tone: "empty" as const
-    };
-  }
-
-  if (failedRuns === recentRuns.length) {
-    return {
-      detail: failedRuns === 1 ? "The latest run failed." : `The last ${failedRuns} runs failed.`,
-      label: "All failing",
-      tone: "failed" as const
-    };
-  }
-
-  if (failedRuns > 0) {
-    return {
-      detail:
-        activeRuns > 0
-          ? `Recent runs are mixed, with ${failedRuns} failed and ${activeRuns} still active.`
-          : `Recent runs are mixed, with ${failedRuns} failed and ${succeededRuns} successful.`,
-      label: "Mixed",
-      tone: "queued" as const
-    };
-  }
-
-  if (activeRuns > 0) {
-    return {
-      detail:
-        succeededRuns > 0
-          ? `${activeRuns} active now; recent completed runs passed.`
-          : `${activeRuns} ${activeRuns === 1 ? "run is" : "runs are"} active now.`,
-      label: "In progress",
-      tone: "running" as const
-    };
-  }
-
-  return {
-    detail:
-      recentRuns.length === 1
-        ? "The latest run completed successfully."
-        : `The last ${recentRuns.length} runs completed successfully.`,
-    label: "Passing",
-    tone: "succeeded" as const
-  };
-}
-
-export function getManualTriggerDetail(job: Job) {
-  if (!canManuallyRunJob(job)) {
-    return "Manual runs are not enabled for this job.";
-  }
-
-  return job.status === "enabled" ? "Ready to run on demand." : "Enable the job before starting a manual run.";
-}
-
 export function getScheduleDetail(job: Job) {
   const scheduledTrigger = job.triggers.find((trigger) => trigger.kind === "schedule");
 

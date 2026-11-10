@@ -42,9 +42,15 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"PUT /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
 		{"DELETE /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
 		{"GET /api/v1/source-repositories", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/impact", string(authz.ActionAdmin)},
+		{"GET /api/v1/source-repositories/{id}/jobs/{job_id}/lifecycle", string(authz.ActionJobRead)},
+		{"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/ownership", string(authz.ActionAdmin)},
+		{"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix", string(authz.ActionJobWrite)},
+		{"DELETE /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix", string(authz.ActionJobWrite)},
 		{"GET /api/v1/source-repositories/{id}/namespaces", string(authz.ActionAdmin)},
 		{"PUT /api/v1/source-repositories/{id}/namespaces/{namespace_id}", string(authz.ActionAdmin)},
 		{"DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}", string(authz.ActionAdmin)},
+		{"GET /api/v1/source-credentials", string(authz.ActionAdmin)},
 		{"POST /api/v1/source-repositories", string(authz.ActionAdmin)},
 		{"GET /api/v1/source-repositories/{id}", string(authz.ActionJobRead)},
 		{"PUT /api/v1/source-repositories/{id}", string(authz.ActionAdmin)},
@@ -182,6 +188,9 @@ func TestAPIRouteInventory_mutationAuditCoverage(t *testing.T) {
 	s := &APIServer{}
 
 	audited := map[string][]string{
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/ownership":      {audit.EventJobUpdated},
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix":         {audit.EventJobUpdated},
+		"DELETE /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix":      {audit.EventJobUpdated},
 		"PUT /api/v1/source-repositories/{id}/namespaces/{namespace_id}":    {audit.EventSourceRepositoryUpdated},
 		"DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}": {audit.EventSourceRepositoryUpdated},
 		"POST /api/v1/source-repositories":                                  {audit.EventSourceRepositoryCreated},
@@ -298,6 +307,9 @@ func TestAPIRouteInventory_mutationAuditCoverage(t *testing.T) {
 func TestAPIRouteInventory_bodyPolicies(t *testing.T) {
 	s := &APIServer{}
 	want := map[string]routeBodyPolicy{
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/ownership":  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix":     routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"DELETE /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix":  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 		"PATCH /api/v1/source-schedules/{schedule_id}":                  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 		"PUT /api/v1/source-schedules/{schedule_id}/override":           routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 		"POST /api/v1/source-repositories":                              routeBodyJSONPolicy(maxJSONDocumentBodyBytes),

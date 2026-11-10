@@ -1,3 +1,4 @@
+import { updateSourceJobCatalog, type SourceHotfixInput, type SourceJobChange } from "./data/sourceJobs";
 import { WorkspacePicker } from "./components/navigation/WorkspacePicker";
 import { workspacePath, isWorkspaceRoute } from "./routing/workspace";
 import {
@@ -18,6 +19,7 @@ import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource, type CreatedUserCredential } from "./data/consoleDataSource";
 import { watchRun } from "./data/watchRun";
 import type { LoadRunArtifacts } from "./data/runArtifacts";
+import type { LoadRunDefinition } from "./data/runDefinition";
 import type {
   Cell,
   Job,
@@ -94,6 +96,8 @@ export function App() {
     (runID, query) => consoleDataSourceRef.current.loadRunArtifacts(runID, query),
     []
   );
+
+  const loadDefinition = useCallback((runID: string) => consoleDataSourceRef.current.loadRunDefinition(runID), []);
 
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
@@ -572,14 +576,13 @@ export function App() {
     }
   }
 
-  async function handleTriggerRun(jobID: string) {
+  async function handleTriggerRun(jobID: string, changes?: SourceHotfixInput) {
     try {
       const repositoryID = consoleData?.jobs.find((job) => job.id === jobID && jobMatchesRoute(job, route))?.repository;
-      const runID = await consoleDataSourceRef.current.triggerRun(
-        jobID,
-        repositoryID,
-        route.workspaceNamespace ?? selectedNamespacePath
-      );
+      const namespace = route.workspaceNamespace ?? selectedNamespacePath;
+      const runID = changes
+        ? await consoleDataSourceRef.current.triggerRun(jobID, repositoryID, namespace, changes)
+        : await consoleDataSourceRef.current.triggerRun(jobID, repositoryID, namespace);
 
       setConsoleData(
         (data) =>
@@ -597,6 +600,7 @@ export function App() {
       setActionError("");
       navigateTo(`/runs/${encodeURIComponent(runID)}`);
     } catch (error) {
+      if (changes) throw error;
       setActionError(errorMessage(error, "Unable to trigger job."));
     }
   }
@@ -799,6 +803,7 @@ export function App() {
       >
         <RouteContent
           loadArtifacts={loadArtifacts}
+          loadDefinition={loadDefinition}
           actionError={actionError}
           consoleData={consoleData}
           consoleError={consoleError}
@@ -824,6 +829,15 @@ export function App() {
           onRevokeRoleBinding={handleRevokeRoleBinding}
           onSubmitEphemeralRun={handleSubmitEphemeralRun}
           onTriggerRun={handleTriggerRun}
+          onSourceJobChanged={(job, change) =>
+            setConsoleData(
+              (data) =>
+                data && {
+                  ...data,
+                  jobs: updateSourceJobCatalog(data.jobs, job, change)
+                }
+            )
+          }
           onCancelRun={handleCancelRun}
           onReplayRun={handleReplayRun}
           onOpenRun={handleOpenRun}
@@ -964,6 +978,7 @@ function AuthHeader({ subtitle, title, titleID }: { subtitle: string; title: str
 function RouteContent({
   onChangePassword,
   loadArtifacts,
+  loadDefinition,
   actionError,
   jobDefinitionError,
   consoleData,
@@ -982,6 +997,7 @@ function RouteContent({
   onRevokeRoleBinding,
   onSubmitEphemeralRun,
   onTriggerRun,
+  onSourceJobChanged,
   onCancelRun,
   onReplayRun,
   onOpenRun,
@@ -993,6 +1009,7 @@ function RouteContent({
 }: {
   onChangePassword?: (currentPassword: string, newPassword: string) => Promise<void>;
   loadArtifacts: LoadRunArtifacts;
+  loadDefinition: LoadRunDefinition;
   actionError: string;
   jobDefinitionError: string;
   consoleData: MockConsoleData | null;
@@ -1015,7 +1032,8 @@ function RouteContent({
   ) => Promise<void> | void;
   onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
-  onTriggerRun: (jobID: string) => void;
+  onTriggerRun: (jobID: string, changes?: SourceHotfixInput) => Promise<void> | void;
+  onSourceJobChanged: (job: Job, change: SourceJobChange) => void;
   onCancelRun: (runID: string) => Promise<void>;
   onReplayRun: (runID: string, idempotencyKey: string) => Promise<void>;
   onOpenRun: (runID: string) => Promise<void>;
@@ -1123,6 +1141,7 @@ function RouteContent({
         repositoryID={route.repositoryID}
         namespacePath={route.workspaceNamespace ?? route.repositoryNamespace ?? namespacePath}
         management={route.repositoryManagement}
+        editor={route.repositoryEditor}
         sharedWorkspace
         onNamespaceChange={route.repositoryManagement ? undefined : onSelectNamespace}
       />
@@ -1193,6 +1212,7 @@ function RouteContent({
               if (path !== `${pathname}${search}${hash}`) navigateTo(path);
             }}
             loadArtifacts={loadArtifacts}
+            loadDefinition={loadDefinition}
             onCancel={onCancelRun}
             onReplay={onReplayRun}
             onOpenRun={onOpenRun}
@@ -1291,6 +1311,7 @@ function RouteContent({
           onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSelectNamespace={onSelectNamespace}
           onTriggerRun={onTriggerRun}
+          onSourceJobChanged={onSourceJobChanged}
           onUpdateJob={onUpdateJob}
           runs={consoleData.runs}
         />

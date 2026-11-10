@@ -1,4 +1,5 @@
-import { requestJSON, VectisAPIError } from "../api/client";
+import { mockSourceJobs, type RepositoryImpact } from "./sourceJobs";
+import { requestJSON, requestNoContent, VectisAPIError } from "../api/client";
 import type { Namespace } from "../domain/console";
 import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
 import { shouldUseMockDataSource } from "./consoleDataSource";
@@ -23,6 +24,7 @@ export type Repository = {
   default_ref?: string;
   checkout_path?: string;
   checkout_mode?: string;
+  credential_ref?: string;
   authoring?: { write_definitions: boolean; reason?: string };
   sync: RepositorySync;
 };
@@ -41,6 +43,7 @@ export type RepositoryStatus = {
 
 export type RepositoryJob = { job_id: string; path: string; name: string; blob_sha: string };
 export type RepositoryJobs = {
+  discovery_error?: string;
   jobs: RepositoryJob[];
   invalid?: { path: string; error: string }[];
   resolved_commit: string;
@@ -49,8 +52,32 @@ export type RepositoryJobs = {
   next_cursor?: string;
 };
 
+export type RepositorySettings = {
+  validate_connection?: boolean;
+  impact_revision?: string;
+  canonical_url: string;
+  default_ref: string;
+  credential_ref: string;
+  enabled: boolean;
+};
+
+export type NewRepository = RepositorySettings & {
+  repository_id: string;
+  namespace: string;
+  source_kind: "local_checkout";
+  checkout_mode: "managed";
+  authoring_mode: "read_only";
+};
+
 export type RepositoryGrant = { namespace_id: number; namespace: string };
+export type RepositoryValidation = { requested_ref: string; resolved_commit: string };
 export type RepositorySource = {
+  credentials(): Promise<string[]>;
+  validate(input: RepositorySettings | NewRepository, id?: string): Promise<RepositoryValidation>;
+  create(input: NewRepository): Promise<Repository>;
+  update(id: string, input: RepositorySettings): Promise<Repository>;
+  remove(id: string): Promise<void>;
+  impact(id: string): Promise<RepositoryImpact>;
   access(id: string): Promise<RepositoryGrant[]>;
   grant(id: string, namespaceID: number): Promise<RepositoryGrant[]>;
   revoke(id: string, namespaceID: number): Promise<RepositoryGrant[]>;
@@ -81,6 +108,16 @@ export function createRepositorySource(namespace?: string, management = false): 
   };
 
   return {
+    credentials: () => requestJSON("/api/v1/source-credentials"),
+    validate: (input, id) =>
+      requestJSON(id ? `${base(id)}?scope=all` : "/api/v1/source-repositories", {
+        method: id ? "PUT" : "POST",
+        body: JSON.stringify({ ...input, validate_only: true })
+      }),
+    create: (input) => requestJSON("/api/v1/source-repositories", { method: "POST", body: JSON.stringify(input) }),
+    update: (id, input) => requestJSON(`${base(id)}?scope=all`, { method: "PUT", body: JSON.stringify(input) }),
+    impact: (id) => requestJSON(`${base(id)}/impact`),
+    remove: (id) => requestNoContent(`${base(id)}?scope=all`, { method: "DELETE" }),
     access: (id) => requestJSON(`${base(id)}/namespaces`),
     grant: (id, namespaceID) => requestJSON(`${base(id)}/namespaces/${namespaceID}`, { method: "PUT" }),
     revoke: (id, namespaceID) => requestJSON(`${base(id)}/namespaces/${namespaceID}`, { method: "DELETE" }),
@@ -120,7 +157,7 @@ export function createRepositorySource(namespace?: string, management = false): 
 
 function createMockRepositoryStore() {
   const data = createMockConsoleDataSnapshot();
-  const repositories = Array.from(
+  const repositories: Repository[] = Array.from(
     new Map(
       data.repositories.map((row) => [
         row.id,
@@ -179,6 +216,50 @@ export function createMockRepositorySource(
   };
 
   return {
+    credentials: async () => ["encryptedfs://git/example"],
+    validate: async (input, id) => {
+      if (id) await get(id);
+      return { requested_ref: input.default_ref, resolved_commit: "b28a74c41946e6952910ddab7e5bd791d5bd0194" };
+    },
+    impact: async (id) => {
+      await get(id);
+      const jobs = [...mockSourceJobs.values()].flatMap((row) =>
+        row.registration?.repository_id === id ? [row.registration] : []
+      );
+      const namespaces = [...(grants.get(id) || [])];
+      return {
+        jobs,
+        automations: [],
+        namespaces,
+        unregistered_jobs: jobs.length ? [] : [{ job_id: "ci", path: ".vectis.json" }],
+        revision: JSON.stringify(jobs) + JSON.stringify(namespaces)
+      };
+    },
+    create: async (input) => {
+      if (repositories.some((row) => row.repository_id === input.repository_id))
+        throw new VectisAPIError(409, "source_repository_conflict", "Repository ID already exists.");
+      if (!data.namespaces.some((row) => row.path === input.namespace)) throw new Error("Namespace not found.");
+      const row: Repository = { ...input, declared: false, sync: { status: "never" } };
+      repositories.push(row);
+      grants.set(row.repository_id, new Set([input.namespace]));
+      return { ...row };
+    },
+    update: async (id, input) => {
+      const row = await get(id);
+      if (row.declared) throw new Error("This connection is managed by configuration.");
+      const updated = { ...repositories.find((item) => item.repository_id === id)!, ...input };
+      repositories[repositories.findIndex((item) => item.repository_id === id)] = updated;
+      return get(id);
+    },
+    remove: async (id) => {
+      const row = await get(id);
+      if (row.declared) throw new Error("This connection is managed by configuration.");
+      repositories.splice(
+        repositories.findIndex((item) => item.repository_id === id),
+        1
+      );
+      grants.delete(id);
+    },
     access,
     grant: async (id, namespaceID) => {
       await get(id);
@@ -217,11 +298,13 @@ export function createMockRepositorySource(
       };
     },
     jobs: async (id) => {
-      await get(id);
+      const row = await get(id);
       return {
-        jobs: data.jobs
-          .filter((job) => job.repository === id)
-          .map((job) => ({ job_id: job.id, path: job.sourceDetail, name: job.name, blob_sha: "b28a74c4" })),
+        jobs: !row.declared
+          ? [{ job_id: "ci", name: ".vectis.json", path: ".vectis.json", blob_sha: "b28a74c4" }]
+          : data.jobs
+              .filter((job) => job.repository === id)
+              .map((job) => ({ job_id: job.id, path: job.sourceDetail, name: job.name, blob_sha: "b28a74c4" })),
         resolved_commit: "b28a74c41946e6952910ddab7e5bd791d5bd0194",
         requested_ref: "main",
         truncated: false

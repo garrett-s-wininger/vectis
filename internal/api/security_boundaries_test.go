@@ -341,3 +341,127 @@ func TestNamespaceAdminCannotBindSourceCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceJobOwnerControlsHotfixMutation(t *testing.T) {
+	s, rootToken, _ := securityBoundaryServer(t)
+	s.SetSourceCheckoutRoot(t.TempDir())
+	ctx := t.Context()
+	root, err := s.namespaces.GetByPath(ctx, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	owner, err := s.namespaces.Create(ctx, "job-owner", &root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	other, err := s.namespaces.Create(ctx, "other-team", &root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkout := gittest.InitRepository(t)
+	if err := os.MkdirAll(filepath.Join(checkout, ".vectis"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	definition := `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`
+	if err := os.WriteFile(filepath.Join(checkout, ".vectis", "build.json"), []byte(definition), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	commit := gittest.CommitAll(t, checkout, "source job")
+	rec, err := s.sources.CreateRepository(ctx, dal.SourceRepositoryRecord{RepositoryID: "shared-monorepo", NamespaceID: owner.ID, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: checkout, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = s.sources.GrantRepositoryNamespace(ctx, rec.RepositoryID, other.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	registration, err := s.sources.RegisterSourceJob(ctx, dal.SourceJobRecord{RepositoryID: rec.RepositoryID, JobID: "build", NamespaceID: owner.ID, Path: ".vectis/build.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tokenFor := func(name string, ns int64, role string) string {
+		t.Helper()
+		uid, err := s.authRepo.CreateLocalUser(ctx, name, dummyBcryptHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err = s.roleBindings.Create(ctx, uid, ns, role); err != nil {
+			t.Fatal(err)
+		}
+
+		token := "synthetic-" + name
+		if _, err = s.authRepo.CreateAPIToken(ctx, uid, hashAPIToken(token), "test", nil); err != nil {
+			t.Fatal(err)
+		}
+
+		return token
+	}
+
+	otherAdmin := tokenFor("other-source-admin", other.ID, authz.RoleAdmin)
+	operator := tokenFor("source-operator", owner.ID, authz.RoleOperator)
+	viewer := tokenFor("source-viewer", owner.ID, authz.RoleViewer)
+	ownerAdmin := tokenFor("owner-source-admin", owner.ID, authz.RoleAdmin)
+	h := s.Handler()
+	base := "/api/v1/source-repositories/" + rec.RepositoryID + "/jobs/build"
+	payload := map[string]any{"definition": map[string]any{"root": map[string]string{"id": "root", "uses": "builtins/script"}}, "reason": "unauthorized", "expected_revision": registration.Revision, "expected_source_commit": "1111111111111111111111111111111111111111"}
+
+	for _, tc := range []struct{ token, namespace string }{{otherAdmin, other.Path}, {operator, owner.Path}, {viewer, owner.Path}} {
+		for _, method := range []string{"PUT", "DELETE"} {
+			res := securityBoundaryRequest(t, h, method, base+"/hotfix?namespace="+tc.namespace, tc.token, payload)
+			if res.Code != 403 {
+				t.Fatalf("%s namespace=%s: %d %s", method, tc.namespace, res.Code, res.Body.String())
+			}
+		}
+	}
+
+	forbiddenOwner := securityBoundaryRequest(t, h, "PUT", base+"/ownership", otherAdmin, map[string]string{"namespace": other.Path})
+	if forbiddenOwner.Code != 403 {
+		t.Fatalf("non-root ownership assignment: %d %s", forbiddenOwner.Code, forbiddenOwner.Body.String())
+	}
+
+	deniedRead := securityBoundaryRequest(t, h, "GET", base+"/lifecycle?namespace="+other.Path, otherAdmin, nil)
+	if deniedRead.Code != 404 {
+		t.Fatalf("other team's lifecycle: %d %s", deniedRead.Code, deniedRead.Body.String())
+	}
+
+	for _, token := range []string{otherAdmin, operator, viewer} {
+		res := securityBoundaryRequest(t, h, "GET", "/api/v1/source-repositories/"+rec.RepositoryID+"/impact", token, nil)
+		if res.Code != 403 {
+			t.Fatalf("non-root impact inventory: %d %s", res.Code, res.Body.String())
+		}
+	}
+
+	saved, err := s.sources.GetSourceJob(ctx, rec.RepositoryID, "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if saved.Revision != registration.Revision || saved.Hotfix != nil {
+		t.Fatal("denied operation mutated hotfix")
+	}
+
+	allowed := securityBoundaryRequest(t, h, "PUT", base+"/hotfix?namespace="+owner.Path, ownerAdmin, map[string]any{
+		"definition": json.RawMessage(definition), "reason": "owner repairs production", "expected_revision": registration.Revision, "expected_source_commit": commit,
+	})
+
+	if allowed.Code != 200 {
+		t.Fatalf("owner activation: %d %s", allowed.Code, allowed.Body.String())
+	}
+
+	if !strings.Contains(allowed.Body.String(), "owner-source-admin") || strings.Contains(allowed.Body.String(), s.sourceCheckoutRootPath()) {
+		t.Fatal("incorrect actor or private storage path in response")
+	}
+
+	rootRead := securityBoundaryRequest(t, h, "GET", "/api/v1/source-repositories/"+rec.RepositoryID+"/impact", rootToken, nil)
+	if rootRead.Code != 200 {
+		t.Fatalf("root inventory: %d %s", rootRead.Code, rootRead.Body.String())
+	}
+}

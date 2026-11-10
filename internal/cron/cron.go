@@ -28,6 +28,8 @@ import (
 )
 
 type CronSchedule struct {
+	NamespaceID int64
+
 	ID                          int64
 	TriggerID                   int64
 	ScheduleID                  string
@@ -277,6 +279,7 @@ func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, er
 	schedules := make([]CronSchedule, 0, len(ready))
 	for _, sched := range ready {
 		schedules = append(schedules, CronSchedule{
+			NamespaceID:                 sched.NamespaceID,
 			ID:                          sched.ID,
 			TriggerID:                   sched.TriggerID,
 			ScheduleID:                  sched.ScheduleID,
@@ -435,10 +438,29 @@ func (s *CronService) loadSourceScheduleDefinition(
 		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
 	}
 
-	loaded, err := resolver.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
-		Ref:  ref,
-		Path: definitionPath,
-	})
+	lookupJobID := ""
+	if strings.TrimSpace(schedule.effectiveSourcePath()) == "" {
+		lookupJobID = jobID
+	}
+
+	req := sourcepkg.DefinitionRequest{
+		JobID: lookupJobID,
+		Ref:   ref,
+		Path:  definitionPath,
+	}
+
+	loaded, handled, err := sourcepkg.EffectiveSourceJob(ctx, s.sources, repoRec, jobID, schedule.NamespaceID, req)
+	if !handled && err == nil {
+		if registration, regErr := s.sources.GetSourceJob(ctx, repoRec.RepositoryID, jobID); regErr == nil {
+			req.JobID = ""
+			req.Path = registration.Path
+		} else if !dal.IsNotFound(regErr) {
+			return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, regErr
+		}
+
+		loaded, err = resolver.ResolveDefinition(ctx, req)
+	}
+
 	if err != nil {
 		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
 	}

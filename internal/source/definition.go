@@ -12,8 +12,9 @@ import (
 )
 
 type DefinitionRequest struct {
-	Ref  string
-	Path string
+	JobID string // Resolve a job convention instead of an explicit Path when set.
+	Ref   string
+	Path  string
 
 	Validation jobvalidation.Options
 }
@@ -25,6 +26,8 @@ type Definition struct {
 }
 
 type DefinitionSource struct {
+	Hotfix *dal.SourceJobHotfix
+
 	RequestedRef string
 	Commit       string
 	Path         string
@@ -32,7 +35,14 @@ type DefinitionSource struct {
 }
 
 func NewJobDefinitionSourceRecord(jobID, repositoryID string, definition Definition) dal.JobDefinitionSourceRecord {
+	hotfixJSON := ""
+	if definition.Source.Hotfix != nil {
+		b, _ := json.Marshal(definition.Source.Hotfix)
+		hotfixJSON = string(b)
+	}
+
 	return dal.JobDefinitionSourceRecord{
+		HotfixJSON:     hotfixJSON,
 		JobID:          strings.TrimSpace(jobID),
 		RepositoryID:   strings.TrimSpace(repositoryID),
 		RequestedRef:   definition.Source.RequestedRef,
@@ -50,6 +60,15 @@ func LoadDefinition(ctx context.Context, repo Repository, req DefinitionRequest)
 	ref, err := normalizeRef(req.Ref)
 	if err != nil {
 		return Definition{}, err
+	}
+
+	if req.JobID != "" {
+		revision, err := repo.ResolveRevision(ctx, ref)
+		if err != nil {
+			return Definition{}, err
+		}
+
+		return loadJobDefinition(ctx, repo, revision, ref, req)
 	}
 
 	filePath, err := normalizeTreePath(req.Path)

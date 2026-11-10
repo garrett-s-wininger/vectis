@@ -16,6 +16,7 @@ import (
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	jobdef "vectis/internal/job"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/trigger"
 	"vectis/sdk/scm"
 )
@@ -125,7 +126,7 @@ func (p Processor) dispatchEventRun(
 	spec dal.SCMPollTriggerSpec,
 	event scm.Event,
 ) (string, bool, error) {
-	job, definitionVersion, definitionHash, err := p.getJobDefinitionWithVersion(ctx, spec.JobID)
+	job, definitionVersion, definitionHash, err := p.eventJobDefinition(ctx, spec)
 	if err != nil {
 		return "", false, err
 	}
@@ -274,4 +275,63 @@ func (p Processor) clock() interfaces.Clock {
 	}
 
 	return interfaces.SystemClock{}
+}
+
+func (p Processor) eventJobDefinition(ctx context.Context, spec dal.SCMPollTriggerSpec) (*api.Job, int, string, error) {
+	if spec.SourceRepositoryID == "" {
+		return p.getJobDefinitionWithVersion(ctx, spec.JobID)
+	}
+
+	backend, ok := p.Jobs.(interface {
+		SourceRepositories() dal.SourcesRepository
+		SnapshotSourceDefinition(context.Context, string, string, dal.JobDefinitionSourceRecord) (int, error)
+	})
+
+	if !ok {
+		return nil, 0, "", fmt.Errorf("source snapshot storage is not configured")
+	}
+
+	sources := backend.SourceRepositories()
+	rec, err := sources.GetRepository(ctx, spec.SourceRepositoryID)
+	if err != nil {
+		return nil, 0, "", err
+	}
+
+	if !rec.Enabled {
+		return nil, 0, "", fmt.Errorf("source repository is disabled")
+	}
+
+	ref := rec.DefaultRef
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	req := sourcepkg.DefinitionRequest{JobID: spec.JobID, Ref: ref}
+	loaded, handled, err := sourcepkg.EffectiveSourceJob(ctx, sources, rec, spec.JobID, spec.NamespaceID, req)
+	if !handled && err == nil {
+		if registration, regErr := sources.GetSourceJob(ctx, rec.RepositoryID, spec.JobID); regErr == nil {
+			req.JobID = ""
+			req.Path = registration.Path
+		} else if !dal.IsNotFound(regErr) {
+			return nil, 0, "", regErr
+		}
+
+		resolver, resolveErr := sourcepkg.NewDefinitionResolverFromRecord(rec)
+		if resolveErr != nil {
+			return nil, 0, "", resolveErr
+		}
+
+		loaded, err = resolver.ResolveDefinition(ctx, req)
+	}
+
+	if err != nil {
+		return nil, 0, "", err
+	}
+
+	version, err := backend.SnapshotSourceDefinition(ctx, spec.JobID, loaded.DefinitionJSON, sourcepkg.NewJobDefinitionSourceRecord(spec.JobID, rec.RepositoryID, loaded))
+	if err != nil {
+		return nil, 0, "", err
+	}
+
+	return loaded.Job, version, dal.DefinitionHash(loaded.DefinitionJSON), nil
 }

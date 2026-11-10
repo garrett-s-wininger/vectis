@@ -24,4 +24,4 @@ git worktree add --detach "$worktree" HEAD
 added=1
 
 cd "$worktree"
-go run ./cmd/worker run-local .vectis/ci.json --workspace .
+go run ./cmd/worker run-local .vectis.json --workspace .

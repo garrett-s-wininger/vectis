@@ -1,0 +1,39 @@
+.root:any-link {
+  align-items: center;
+  background: var(--dropdown-control-bg);
+  border: 1px solid var(--dropdown-control-border);
+  box-shadow: var(--dropdown-control-shadow);
+  border-radius: var(--control-radius);
+  box-sizing: border-box;
+  color: inherit;
+  display: inline-flex;
+  gap: var(--space-sm);
+  justify-content: space-between;
+  min-height: var(--control-height-md);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  text-decoration: none;
+}
+
+.root > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.root svg {
+  flex-shrink: 0;
+  height: var(--space-lg);
+  width: var(--space-lg);
+}
+
+.root:any-link:hover {
+  background: var(--dropdown-control-hover-bg);
+  border-color: var(--color-primary-hover);
+  box-shadow: var(--dropdown-control-hover-shadow);
+  color: var(--color-primary-hover);
+}
+
+.root:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
+}

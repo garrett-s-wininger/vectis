@@ -278,7 +278,9 @@ Inspect or update the repository registration:
 ```sh
 ./bin/vectis-cli sources get vectis-local
 ./bin/vectis-cli sources update vectis-local --default-ref main --authoring-mode local_commit
-./bin/vectis-cli sources update vectis-local --disable
+./bin/vectis-cli sources impact vectis-local
+# Review the inventory, then copy its revision into the disable request.
+./bin/vectis-cli sources update vectis-local --disable --impact-revision <reviewed-revision>
 ./bin/vectis-cli sources update vectis-local --enable
 ```
 

@@ -1,0 +1,9 @@
+{
+  "root": {
+    "id": "root",
+    "uses": "builtins/script",
+    "with": {
+      "script": "printf 'Starting the source hotfix demo\\n'\nsleep 5\nprintf 'This is the original failing definition\\n'\nexit 7"
+    }
+  }
+}

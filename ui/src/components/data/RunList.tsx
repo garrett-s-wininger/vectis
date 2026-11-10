@@ -1,3 +1,4 @@
+import type { SourceHotfix } from "../../data/sourceJobs";
 import { Clock, Server, User, Zap } from "lucide-react";
 import { OperationalFact } from "../primitives/OperationalFact";
 import { StatusBadge, type RunStatus } from "../status/StatusBadge";
@@ -19,6 +20,7 @@ import {
 } from "./RunPresentation";
 
 export type RunListItem = {
+  hotfix?: SourceHotfix;
   id: string;
   jobName: string;
   jobID?: string;

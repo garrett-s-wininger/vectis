@@ -65,12 +65,12 @@ func (r *SQLSourcesRepository) ListAllRepositories(ctx context.Context) ([]Sourc
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
+	defer func() { _ = rows.Close() }()
 
 	out := []SourceRepositoryRecord{}
 	for rows.Next() {
 		row, err := r.scanRepositoryRows(rows)
 		if err != nil {
-			_ = rows.Close()
 			return nil, err
 		}
 

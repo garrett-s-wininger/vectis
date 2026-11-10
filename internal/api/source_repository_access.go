@@ -36,7 +36,7 @@ func (s *APIServer) SourceRepositoryNamespaceAccess(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if r.Method != "GET" {
+	if r.Method != http.MethodGet {
 		namespaceID, err := strconv.ParseInt(r.PathValue("namespace_id"), 10, 64)
 		if err != nil || namespaceID <= 0 {
 			writeAPIErrorCode(w, 400, apiErrInvalidNamespaceID)
@@ -55,7 +55,7 @@ func (s *APIServer) SourceRepositoryNamespaceAccess(w http.ResponseWriter, r *ht
 		}
 
 		operation := "namespace_granted"
-		if r.Method == "PUT" {
+		if r.Method == http.MethodPut {
 			err = s.sources.GrantRepositoryNamespace(ctx, repositoryID, namespaceID)
 		} else {
 			operation = "namespace_revoked"

@@ -6,6 +6,20 @@ afterEach(() => {
   delete (document as unknown as { execCommand?: unknown }).execCommand;
 });
 
+it("offers an icon-only copy action with a name, tooltip and success feedback", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
+  render(<CopyValue iconOnly label="effective JSON" value='{"root":{}}' />);
+
+  const button = screen.getByRole("button", { name: "Copy effective JSON" });
+  expect(button).toHaveAttribute("title", "Copy effective JSON");
+  expect(screen.queryByText('{"root":{}}')).not.toBeInTheDocument();
+
+  fireEvent.click(button);
+  await screen.findByText("effective JSON copied.");
+  expect(writeText).toHaveBeenCalledWith('{"root":{}}');
+});
+
 it.each(["inline", "field"] as const)(
   "copies the full value rather than its shortened display and reports success (%s)",
   async (appearance) => {

@@ -140,13 +140,13 @@ func TestRunLocalCIJob(t *testing.T) {
 				}
 			}
 
-			for _, file := range []string{"ci.json", "ci.sh"} {
-				raw, err := os.ReadFile(filepath.Join("..", "..", ".vectis", file))
+			for _, file := range []string{".vectis.json", ".vectis/ci.sh"} {
+				raw, err := os.ReadFile(filepath.Join("..", "..", file))
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				if err := os.WriteFile(filepath.Join(ciDir, file), raw, 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(workspace, file), raw, 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -181,7 +181,7 @@ fi
 			}
 
 			var stdout, stderr bytes.Buffer
-			err := runLocalJob(context.Background(), filepath.Join(ciDir, "ci.json"), workspace, &stdout, &stderr)
+			err := runLocalJob(context.Background(), filepath.Join(workspace, ".vectis.json"), workspace, &stdout, &stderr)
 			if (err != nil) != (failAt >= 0) {
 				t.Fatalf("run CI job: %v\nstdout:\n%s\nstderr:\n%s", err, &stdout, &stderr)
 			}

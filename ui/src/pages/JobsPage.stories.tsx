@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
 import { JobsPageHarness, PageStoryFrame } from "../mocks/pageHarnesses";
+import { mockSourceJobs, sourceJobKey } from "../data/sourceJobs";
 import { JobsPage } from "./JobsPage";
 
 const data = createMockConsoleDataSnapshot();
@@ -143,7 +144,74 @@ export const Viewer: Story = {
 
 export const LongIdentifiers: Story = {
   render: (args) => {
-    const job = { ...data.jobs[0], id: "release-source-validation-".repeat(5), name: "release-validation" };
+    const job = {
+      ...data.jobs[0],
+      id: "release-source-validation-".repeat(5),
+      name: "release-validation",
+      sourceCommit: "0123456789abcdef".repeat(4)
+    };
+
     return <JobsPage {...args} jobs={[job]} detailJobID={job.id} />;
   }
+};
+
+const hotfixSource = { root: { id: "root", uses: "builtins/script", with: { script: "npm run test\nexit 7" } } };
+const hotfixDefinition = { root: { id: "root", uses: "builtins/script", with: { script: "npm run test\nexit 0" } } };
+const workspaceJob = {
+  ...data.jobs[0]!,
+  id: "hotfix-workspace",
+  name: "api-test-suite",
+  canAuthor: false,
+  sourceCommit: "0123456789abcdef".repeat(4),
+  definition: JSON.stringify(hotfixSource),
+  hotfix: {
+    commit: "2222222222222222222222222222222222222222",
+    reason: "Repair the release script",
+    actor: "admin",
+    base_commit: "1111111111111111111111111111111111111111",
+    base_ref: "main",
+    base_path: data.jobs[0]!.sourceDetail,
+    created_at: 1793664000
+  }
+};
+
+export const HotfixActive: Story = {
+  args: {
+    jobs: [workspaceJob],
+    detailJobID: workspaceJob.id,
+    runs: Array.from({ length: 5 }, (_, index) => ({
+      ...data.runs[0]!,
+      id: `workspace-run-${index}`,
+      jobID: workspaceJob.id,
+      jobName: workspaceJob.name,
+      namespacePath: workspaceJob.namespacePath,
+      repositoryID: workspaceJob.repository,
+      runNumber: 1240 - index,
+      status: (["running", "failed", "succeeded", "cancelled", "succeeded"] as const)[index]!,
+      duration: ["4m 12s", "2m 05s", "3m 11s", "1m 40s", "3m 02s"][index]!,
+      startedAt: new Date(Date.UTC(2026, 10, 5, 16 - index)).toISOString()
+    }))
+  },
+  loaders: [
+    () => {
+      mockSourceJobs.set(sourceJobKey(workspaceJob.repository, workspaceJob.id), {
+        registration: {
+          repository_id: workspaceJob.repository,
+          job_id: workspaceJob.id,
+          namespace_id: 2,
+          namespace: workspaceJob.namespacePath,
+          path: workspaceJob.sourceDetail,
+          ref: "main",
+          revision: 1,
+          hotfix: workspaceJob.hotfix
+        },
+        source_commit: workspaceJob.sourceCommit,
+        source_json: JSON.stringify(hotfixSource),
+        source_definition: hotfixSource,
+        effective_definition: hotfixDefinition
+      });
+
+      return {};
+    }
+  ]
 };

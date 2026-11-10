@@ -1,3 +1,4 @@
+import { mockSourceJobs, sourceJobKey, type SourceHotfixInput } from "./sourceJobs";
 import { unrestrictedAccess, type ConsoleAccess } from "../domain/access";
 import { sourceDefinition } from "../domain/sourceDefinition";
 import type { RunListItem, RunStatus, RunTaskAttemptItem, RunTaskItem, RunTaskStatus } from "../components";
@@ -19,6 +20,7 @@ import type {
 import { summarizeRoleBindings } from "../domain/roleBindings";
 import { VectisAPIError, requestJSON, requestNoContent } from "../api/client";
 import { loadRunArtifactPage, type LoadRunArtifacts } from "./runArtifacts";
+import { loadRunDefinition, type LoadRunDefinition } from "./runDefinition";
 import {
   createMockConsoleDataSnapshot,
   nextMockRunID,
@@ -54,6 +56,7 @@ type APISourceRepository = {
 };
 
 type APISourceJob = {
+  hotfix?: import("./sourceJobs").SourceHotfix;
   job_id: string;
   path: string;
 };
@@ -80,6 +83,7 @@ type APIRun = {
   submitted_by?: string;
   trigger_type?: string;
   definition?: unknown;
+  source?: { hotfix?: import("./sourceJobs").SourceHotfix };
   definition_version?: number;
   finished_at?: string;
   job_id?: string;
@@ -166,6 +170,7 @@ export type ConsoleDataSource = {
   initialNamespaces?: Namespace[];
   loadAccess(): Promise<ConsoleAccess>;
   loadRunArtifacts: LoadRunArtifacts;
+  loadRunDefinition: LoadRunDefinition;
   cancelRun(runID: string): Promise<void>;
   replayRun(runID: string, idempotencyKey: string): Promise<string>;
   createJob(input: NewJob): Promise<ConsoleData>;
@@ -185,7 +190,7 @@ export type ConsoleDataSource = {
   loadJob(job: Job): Promise<Job>;
   revokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
-  triggerRun(jobID: string, repositoryID?: string, namespace?: string): Promise<string>;
+  triggerRun(jobID: string, repositoryID?: string, namespace?: string, changes?: SourceHotfixInput): Promise<string>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
   updateNamespace(namespaceID: number, input: UpdateNamespace): Promise<ConsoleData>;
   updateUserStatus(userID: string, status: UserStatus): Promise<User[]>;
@@ -210,6 +215,7 @@ export function shouldUseMockDataSource() {
 }
 
 function createMockConsoleDataSource(): ConsoleDataSource {
+  mockSourceJobs.clear();
   let data = createMockConsoleDataSnapshot();
   const replays = new Map<string, string>();
 
@@ -222,6 +228,11 @@ function createMockConsoleDataSource(): ConsoleDataSource {
     },
     async loadRunArtifacts() {
       return { data: [] };
+    },
+    async loadRunDefinition(runID) {
+      const run = data.runs.find((row) => row.id === runID);
+      if (!run?.definition) throw new Error("The captured definition is unavailable.");
+      return { run_id: runID, definition_version: run.definitionVersion ?? 1, definition: JSON.parse(run.definition) };
     },
     async cancelRun(runID) {
       const run = data.runs.find((item) => item.id === runID);
@@ -343,12 +354,18 @@ function createMockConsoleDataSource(): ConsoleDataSource {
       data = submitMockEphemeralRun(data, input);
       return cloneConsoleData(data);
     },
-    async triggerRun(jobID) {
+    async triggerRun(jobID, repositoryID, _namespace, changes) {
       if (!data.jobs.some((job) => job.id === jobID)) {
         throw new Error("Job not found.");
       }
 
       data = triggerMockRun(data, jobID);
+      const job = data.jobs.find((row) => row.id === jobID)!;
+      const lifecycle = mockSourceJobs.get(sourceJobKey(repositoryID || job.repository, jobID));
+      if (changes?.definition || lifecycle?.registration?.hotfix) {
+        data.runs[0].definition = JSON.stringify(changes?.definition || lifecycle?.effective_definition, null, 2);
+      }
+
       return data.runs[0].id;
     },
     async updateJob(jobID, input) {
@@ -375,6 +392,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       }),
     loadAccess: () => requestJSON<ConsoleAccess>("/api/v1/access"),
     loadRunArtifacts: loadRunArtifactPage,
+    loadRunDefinition,
     async cancelRun(runID) {
       await requestNoContent(`/api/v1/runs/${encodeURIComponent(runID)}/cancel`, { method: "POST" });
     },
@@ -469,14 +487,15 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
       if (job.branch) params.set("ref", job.branch);
       if (job.sourceDetail) params.set("path", job.sourceDetail);
-      const response = await requestJSON<{ definition: unknown; source?: { resolved_commit?: string } }>(
-        `/api/v1/jobs/${encodeURIComponent(job.id)}?${params}`
-      );
+      const response = await requestJSON<{
+        definition: unknown;
+        source?: { resolved_commit?: string; hotfix?: import("./sourceJobs").SourceHotfix };
+      }>(`/api/v1/jobs/${encodeURIComponent(job.id)}?${params}`);
 
       const definition = sourceDefinition(response.definition);
       return {
         ...job,
-        sourceCommit: response.source?.resolved_commit,
+        sourceCommit: response.source?.hotfix?.base_commit ?? response.source?.resolved_commit,
         definition: JSON.stringify(definition, null, 2)
       };
     },
@@ -536,13 +555,14 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
       return loadAPIConsoleData();
     },
-    async triggerRun(jobID, repositoryID, namespace) {
+    async triggerRun(jobID, repositoryID, namespace, changes) {
       const repository = repositoryID?.trim() ?? "";
       const response = await requestJSON<{ run_id?: string; runs?: { run_id: string }[] }>(
         `/api/v1/jobs/trigger/${encodeURIComponent(jobID)}${namespace ? `?${new URLSearchParams({ namespace })}` : ""}`,
         {
           method: "POST",
-          ...(repository ? { body: JSON.stringify({ repository_id: repository }) } : {})
+          ...(repository ? { body: JSON.stringify({ repository_id: repository, ...changes }) } : {}),
+          ...(changes?.idempotency_key ? { headers: { "Idempotency-Key": changes.idempotency_key } } : {})
         }
       );
 
@@ -1004,6 +1024,10 @@ function apiSourceJobToConsoleJob(repository: APISourceRepository, job: APISourc
   const branch = repository.default_ref?.trim() || "main";
 
   return {
+    hotfix: job.hotfix,
+    canAuthor:
+      repository.authoring?.write_definitions ??
+      (repository.authoring_mode === "local_commit" && repository.checkout_mode === "managed"),
     id: job.job_id,
     name: job.job_id,
     repository: repository.repository_id,
@@ -1025,6 +1049,7 @@ function stringField(value: Record<string, unknown>, key: string) {
 
 function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
   return {
+    hotfix: run.source?.hotfix,
     cancelRequested: run.cancel_requested,
     replayOfRunID: run.replay_of_run_id,
     id: run.run_id,
@@ -1040,9 +1065,9 @@ function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
     duration: formatRunDuration(run),
     finishedAt: run.finished_at,
     cellName: run.owning_cell ?? "local",
-    source: job.sourceDetail === "Inline" ? "ephemeral" : "stored",
+    source: run.source_repository_id ? "stored" : job.sourceDetail === "Inline" ? "ephemeral" : "stored",
     startedAt: run.started_at,
-    definition: apiRunDefinition(run) ?? job.definition,
+    definition: apiRunDefinition(run),
     submittedBy:
       run.submitted_by || (run.trigger_type === "cron" || run.trigger_type === "scm_poll" ? "system" : undefined),
     trigger: "api"
@@ -1083,6 +1108,7 @@ function runDetailJob(run: APIRun, job?: Job): Job {
     ? normalizeJobDefinition(JSON.parse(definition), run.job_id ?? run.run_id)
     : null;
   const jobName =
+    (run.source_repository_id ? run.job_id : undefined) ??
     stringField(normalizedDefinition ?? {}, "name") ??
     stringField(normalizedDefinition ?? {}, "id") ??
     run.job_id ??
@@ -1091,10 +1117,10 @@ function runDetailJob(run: APIRun, job?: Job): Job {
   return {
     id: jobName,
     name: jobName,
-    repository: "",
+    repository: run.source_repository_id ?? "",
     branch: "",
-    sourceDetail: "Inline",
-    sourceKind: "db",
+    sourceDetail: run.source_repository_id ? "Captured source definition" : "Inline",
+    sourceKind: run.source_repository_id ? "repo" : "db",
     definition,
     namespacePath: run.namespace ?? "/",
     schedule: "Manual",

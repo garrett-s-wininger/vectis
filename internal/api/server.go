@@ -169,6 +169,7 @@ type APIServer struct {
 	sourceSyncMu                        sync.Mutex
 	sourceSyncRunning                   map[string]struct{}
 	sourceSyncCheckoutStatus            func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	sourceCredentialReferences          func(context.Context) ([]string, error)
 	sourceRefHydrator                   func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus
 	sourceRefHydrationMetrics           sourceRefHydrationMetrics
 	sourceRefHydrationMu                sync.Mutex

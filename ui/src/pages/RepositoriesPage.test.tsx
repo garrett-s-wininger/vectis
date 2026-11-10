@@ -26,6 +26,14 @@ const page = {
 
 function source(): RepositorySource {
   return {
+    credentials: vi.fn().mockResolvedValue([]),
+    validate: vi.fn().mockResolvedValue({ requested_ref: "main", resolved_commit: "commit-one" }),
+    create: vi.fn().mockResolvedValue({ ...repository, declared: false }),
+    update: vi.fn().mockResolvedValue({ ...repository, declared: false }),
+    remove: vi.fn().mockResolvedValue(undefined),
+    impact: vi
+      .fn()
+      .mockResolvedValue({ jobs: [], automations: [], namespaces: [], unregistered_jobs: [], revision: "preview" }),
     access: vi.fn().mockResolvedValue([]),
     grant: vi.fn().mockResolvedValue([]),
     revoke: vi.fn().mockResolvedValue([]),
@@ -123,6 +131,22 @@ it("locks duplicate sync requests, preserves known jobs, and refreshes diagnosti
   expect(await screen.findByText("Sync completed.")).toBeInTheDocument();
 
   await waitFor(() => expect(api.jobs).toHaveBeenCalledTimes(2));
+});
+
+it("allows an explicit check of a disabled external checkout without enabling it", async () => {
+  const api = source();
+  const disabled = { ...repository, enabled: false, checkout_mode: "external" as const, sync: { status: "succeeded" } };
+  vi.mocked(api.get).mockResolvedValue(disabled);
+  vi.mocked(api.sync).mockResolvedValue(disabled);
+  render(<RepositoriesPage source={api} repositoryID="builds" />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Check checkout" }));
+  expect(await screen.findByText("Checkout check completed.")).toBeInTheDocument();
+  expect(api.sync).toHaveBeenCalledExactlyOnceWith("builds");
+  expect(screen.getByText("Local checkout", { exact: true })).toBeInTheDocument();
+  expect(screen.getByText("Disabled", { exact: true })).toBeInTheDocument();
+  expect(screen.getByText(/leaves this connection disabled and preserves active hotfixes/)).toBeInTheDocument();
+  expect(api.update).not.toHaveBeenCalled();
 });
 
 it("reports a failed sync and unlocks the button for retry", async () => {
@@ -371,4 +395,100 @@ it("denies shared administration to namespace administrators before fetching dat
   expect(api.get).not.toHaveBeenCalled();
   expect(api.access).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
+});
+
+it.each([
+  ["viewer", ["job:read", "run:read"]],
+  ["operator", ["job:read", "run:read", "run:trigger", "run:operator"]],
+  ["namespace admin", ["job:read", "job:write", "run:read", "run:trigger", "run:operator"]]
+] as const)("rejects a %s's direct connection editor URL", async (_role, actions) => {
+  const api = source();
+  render(
+    <ConsoleAccessProvider access={{ actions: [...actions], namespaces: { "/team": [...actions, "admin:*"] } }}>
+      <RepositoriesPage management editor="create" source={api} />
+    </ConsoleAccessProvider>
+  );
+
+  expect(screen.getByRole("heading", { name: "Connection Administration Required" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("Repository URL")).not.toBeInTheDocument();
+  expect(api.create).not.toHaveBeenCalled();
+  expect(api.get).not.toHaveBeenCalled();
+});
+
+it("confirms connection deletion, supports Escape and blur, and returns to connections", async () => {
+  const api = source();
+  vi.mocked(api.get).mockResolvedValue({ ...repository, declared: false });
+  render(<RepositoriesPage source={api} repositoryID="builds" management />);
+
+  const button = await screen.findByRole("button", { name: "Delete connection" });
+  fireEvent.click(button);
+  expect(api.remove).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(screen.getByRole("button", { name: "Confirm deletion" }), { key: "Escape" });
+  expect(button).toHaveTextContent("Delete connection");
+
+  fireEvent.click(button);
+  fireEvent.blur(button);
+  expect(button).toHaveTextContent("Delete connection");
+
+  fireEvent.click(button);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
+  await waitFor(() => expect(api.remove).toHaveBeenCalledExactlyOnceWith("builds"));
+  await waitFor(() => expect(window.location.pathname).toBe("/manage/repositories"));
+});
+
+it("keeps a referenced connection visible and requires fresh confirmation after deletion fails", async () => {
+  const api = source();
+  vi.mocked(api.get).mockResolvedValue({ ...repository, declared: false });
+  vi.mocked(api.remove).mockRejectedValue(new VectisAPIError(409, "source_repository_in_use", "Recorded references"));
+  render(<RepositoriesPage source={api} repositoryID="builds" management />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Delete connection" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
+  expect(await screen.findByText(/Disable it in Edit connection/)).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Source" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Delete connection" }));
+  expect(api.remove).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Confirm deletion" })).toBeEnabled();
+});
+
+it("locks duplicate deletion and other source actions while deleting", async () => {
+  const api = source();
+  vi.mocked(api.get).mockResolvedValue({ ...repository, declared: false });
+  let finish!: () => void;
+  vi.mocked(api.remove).mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      })
+  );
+
+  render(<RepositoriesPage source={api} repositoryID="builds" management />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Delete connection" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
+  const pending = screen.getByRole("button", { name: "Deleting…" });
+  expect(pending).toBeDisabled();
+
+  fireEvent.click(pending);
+  expect(api.remove).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Sync now" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Edit connection" })).toBeDisabled();
+
+  await act(async () => finish());
+});
+
+it("explains configuration-owned deletion and never offers it outside instance management", async () => {
+  const api = source();
+  const { unmount } = render(<RepositoriesPage source={api} repositoryID="builds" management />);
+  expect(await screen.findByText(/Remove this connection from server configuration/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Delete connection" })).not.toBeInTheDocument();
+
+  unmount();
+  vi.mocked(api.get).mockResolvedValue({ ...repository, declared: false });
+  render(<RepositoriesPage source={api} repositoryID="builds" />);
+
+  await screen.findByRole("button", { name: "View build" });
+  expect(screen.queryByRole("button", { name: "Delete connection" })).not.toBeInTheDocument();
 });

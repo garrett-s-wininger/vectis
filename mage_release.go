@@ -40,7 +40,7 @@ func CiQuick() (err error) {
 		err = errors.Join(err, run("", nil, "git", "worktree", "remove", "--force", worktree))
 	}()
 
-	return run(worktree, nil, goCommand(), "run", "./cmd/worker", "run-local", ".vectis/ci.json", "--workspace", ".")
+	return run(worktree, nil, goCommand(), "run", "./cmd/worker", "run-local", ".vectis.json", "--workspace", ".")
 }
 
 func cleanCIWorktreeModuleCache(worktree string) error {

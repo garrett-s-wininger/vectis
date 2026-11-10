@@ -22,6 +22,7 @@ export type AppRoute = {
   workspaceNamespace?: string;
   repositoryManagement?: boolean;
   repositoryID?: string;
+  repositoryEditor?: "create" | "edit";
   repositoryNamespace?: string;
   jobRepository?: string;
   jobNamespace?: string;
@@ -81,6 +82,12 @@ function parseRoute(pathname: string, search = ""): AppRoute {
     return {
       kind: "repositories",
       repositoryManagement: true,
+      repositoryEditor:
+        new URLSearchParams(search).get("editor") === "create" && pathname === "/manage/repositories"
+          ? "create"
+          : new URLSearchParams(search).get("editor") === "edit" && pathname !== "/manage/repositories"
+            ? "edit"
+            : undefined,
       activeHref: "/manage/repositories",
       pathname,
       repositoryID:

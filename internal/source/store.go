@@ -48,6 +48,24 @@ func NewGitDefinitionStore(checkout *GitCheckout) GitDefinitionStore {
 }
 
 func (s GitDefinitionStore) ResolveDefinition(ctx context.Context, req DefinitionRequest) (Definition, error) {
+	if req.JobID != "" {
+		if s.Checkout == nil {
+			return Definition{}, fmt.Errorf("%w: checkout is required", ErrInvalidReference)
+		}
+
+		definitionPath, revision, err := s.Checkout.ResolveJobDefinitionPath(ctx, req.Ref, req.JobID)
+		if err != nil {
+			return Definition{}, err
+		}
+
+		file, err := s.ReadDefinitionFile(ctx, DefinitionFileRequest{Ref: req.Ref, Revision: revision, Path: definitionPath})
+		if err != nil {
+			return Definition{}, err
+		}
+
+		return ParseDefinitionFile(file, req.Ref, req.Validation)
+	}
+
 	file, err := s.ReadDefinitionFile(ctx, DefinitionFileRequest{
 		Ref:  req.Ref,
 		Path: req.Path,

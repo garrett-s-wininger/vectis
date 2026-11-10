@@ -600,6 +600,22 @@ CREATE TABLE source_repository_namespaces (
 CREATE INDEX idx_source_repository_namespaces_namespace ON source_repository_namespaces(namespace_id);
 CREATE UNIQUE INDEX uidx_source_repositories_kind_checkout_path ON source_repositories(source_kind, checkout_path);
 
+
+CREATE TABLE source_jobs (
+ repository_id TEXT NOT NULL REFERENCES source_repositories(repository_id),
+ job_id TEXT NOT NULL,
+ namespace_id BIGINT NOT NULL REFERENCES namespaces(id),
+ definition_path TEXT NOT NULL,
+ source_ref TEXT NOT NULL DEFAULT '',
+ revision INTEGER NOT NULL DEFAULT 1,
+ hotfix_store TEXT NOT NULL DEFAULT '',
+ hotfix_json TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(repository_id,job_id),
+ UNIQUE(repository_id,definition_path)
+);
+
+CREATE INDEX idx_source_jobs_namespace ON source_jobs(namespace_id);
+
 CREATE TABLE job_definition_sources (
     job_id TEXT NOT NULL,
     version INTEGER NOT NULL,
@@ -608,6 +624,7 @@ CREATE TABLE job_definition_sources (
     resolved_commit TEXT NOT NULL,
     definition_path TEXT NOT NULL,
     blob_sha TEXT NOT NULL DEFAULT '',
+    hotfix_json TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (job_id, version),
     FOREIGN KEY (job_id, version) REFERENCES job_definitions(job_id, version) ON DELETE CASCADE

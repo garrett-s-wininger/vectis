@@ -32,8 +32,8 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.getByText("Available", { exact: true })).toBeVisible();
       await expect(page.getByText("No valid job definitions discovered.", { exact: true })).toBeVisible();
 
-      await page.getByRole("button", { name: "Sync now", exact: true }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Sync completed." })).toBeVisible();
+      await page.getByRole("button", { name: "Check checkout", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: "Checkout check completed." })).toBeVisible();
       expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual(
         []
       );
@@ -67,6 +67,7 @@ test("shows invalid definitions and keeps read-only users from syncing", async (
   await page.goto("http://127.0.0.1:6101/iframe.html?id=pages-repositories--viewer&viewMode=story");
   await expect(page.getByText("Available", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sync now", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Check checkout", exact: true })).toHaveCount(0);
 });
 
 for (const colorScheme of ["light", "dark"] as const) {

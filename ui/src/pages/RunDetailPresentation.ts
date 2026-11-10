@@ -134,15 +134,7 @@ export function referenceLabel(run: RunListItem) {
 
 export function formatRunDefinition(run: RunListItem) {
   if (!run.definition) {
-    return JSON.stringify(
-      {
-        id: run.jobName,
-        source: run.source ?? "stored",
-        run_id: run.id
-      },
-      null,
-      2
-    );
+    return "";
   }
 
   try {

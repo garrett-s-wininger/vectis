@@ -48,3 +48,88 @@ describe("repository API source", () => {
     });
   });
 });
+
+it("sends public connection registration and edits as scoped JSON mutations", async () => {
+  vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+  const fetchMock = vi
+    .fn()
+    .mockImplementation(async () => new Response(JSON.stringify({ repository_id: "public" }), { status: 200 }));
+
+  vi.stubGlobal("fetch", fetchMock);
+
+  try {
+    const api = createRepositorySource(undefined, true);
+    const settings = {
+      canonical_url: "https://example.test/public.git",
+      default_ref: "HEAD",
+      credential_ref: "",
+      enabled: true
+    };
+
+    await api.create({
+      ...settings,
+      repository_id: "public",
+      namespace: "/team",
+      source_kind: "local_checkout",
+      checkout_mode: "managed",
+      authoring_mode: "read_only"
+    });
+
+    await api.update("repo/name", settings);
+    await api.validate({
+      ...settings,
+      repository_id: "public",
+      namespace: "/team",
+      source_kind: "local_checkout",
+      checkout_mode: "managed",
+      authoring_mode: "read_only"
+    });
+
+    await api.validate(settings, "repo/name");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/source-repositories",
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"credential_ref":""') })
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/source-repositories/repo%2Fname?scope=all",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify(settings) })
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/source-repositories",
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"validate_only":true') })
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/v1/source-repositories/repo%2Fname?scope=all",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ ...settings, validate_only: true }) })
+    );
+  } finally {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("deletes encoded connection IDs with a bodyless request and accepts 204", async () => {
+  vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+  const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  try {
+    await createRepositorySource(undefined, true).remove("repo/name");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/source-repositories/repo%2Fname?scope=all",
+      expect.objectContaining({ method: "DELETE", credentials: "same-origin" })
+    );
+
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+  } finally {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  }
+});

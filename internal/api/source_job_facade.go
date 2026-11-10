@@ -38,6 +38,7 @@ func requireSourceJobRepositoryIDFromQuery(w http.ResponseWriter, r *http.Reques
 			"repository_id is required for reusable jobs",
 			nil,
 		)
+
 		return "", false
 	}
 
@@ -231,6 +232,15 @@ func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(
 	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, repositoryID, authz.ActionJobWrite, true)
 	if !ok {
 		return
+	}
+
+	if strings.TrimSpace(q.Get("path")) == "" {
+		var pathErr error
+		definitionPath, pathErr = sourceJobAuthoringPath(ctx, rec, jobID, firstNonEmpty(q.Get("branch"), q.Get("ref")), definitionPath)
+		if pathErr != nil {
+			s.writeSourceDefinitionError(w, pathErr)
+			return
+		}
 	}
 
 	author, err := s.newSourceDefinitionAuthor(rec)

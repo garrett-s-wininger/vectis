@@ -155,6 +155,7 @@ var (
 	sourceUpdateCredentialRef   string
 	sourceUpdateEnable          bool
 	sourceUpdateDisable         bool
+	sourceUpdateImpactRevision  string
 	sourceDeleteYes             bool
 	sourceDeleteScheduleYes     bool
 	sourceBranchesPrefix        string
@@ -366,6 +367,7 @@ func init() {
 		sourcesDeleteCmd,
 		sourcesSyncCmd,
 		sourcesStatusCmd,
+		sourcesImpactCmd,
 		sourcesBranchesCmd,
 		sourcesTreeCmd,
 		sourcesDefinitionsCmd,

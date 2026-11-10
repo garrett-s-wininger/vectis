@@ -53,10 +53,10 @@ describe("run detail presentation", () => {
     expect(runDefinitionDescription({ ...run, source: "ephemeral" })).toBe("Inline work submitted for this run.");
   });
 
-  it("formats JSON definitions and falls back to generated metadata", () => {
+  it("formats JSON definitions without inventing missing contents", () => {
     expect(formatRunDefinition(run)).toContain('"id": "api-test-suite"');
     expect(formatRunDefinition({ ...run, definition: "{bad" })).toBe("{bad");
-    expect(formatRunDefinition({ ...run, definition: undefined })).toContain('"run_id": "run-1"');
+    expect(formatRunDefinition({ ...run, definition: undefined })).toBe("");
   });
 
   it("builds timeline events with deltas", () => {

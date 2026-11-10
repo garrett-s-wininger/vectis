@@ -14,7 +14,7 @@ func TestResolveDefinitionTargetDefaultsAndNormalizes(t *testing.T) {
 		t.Fatalf("ResolveDefinitionTarget: %v", err)
 	}
 
-	if target.Ref != "main" || target.Path != ".vectis/jobs/team/build.json" {
+	if target.Ref != "main" || target.Path != ".vectis/team.build.json" {
 		t.Fatalf("target mismatch: %+v", target)
 	}
 
@@ -41,7 +41,7 @@ func TestResolveDefinitionTargetDefaultsToHEAD(t *testing.T) {
 		t.Fatalf("ResolveDefinitionTarget: %v", err)
 	}
 
-	if target.Ref != "HEAD" || target.Path != ".vectis/jobs/build.json" {
+	if target.Ref != "HEAD" || target.Path != ".vectis/build.json" {
 		t.Fatalf("target mismatch: %+v", target)
 	}
 }

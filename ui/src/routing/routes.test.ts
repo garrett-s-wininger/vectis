@@ -130,3 +130,18 @@ it("preserves repository context and decodes nested job IDs", () => {
     jobRepository: "repo"
   });
 });
+
+it("keeps connection editor URLs separate from valid repository IDs", () => {
+  expect(routeFromPath("/manage/repositories", "?editor=create")).toMatchObject({
+    repositoryManagement: true,
+    repositoryEditor: "create"
+  });
+
+  expect(routeFromPath("/manage/repositories/new", "?editor=edit")).toMatchObject({
+    repositoryID: "new",
+    repositoryEditor: "edit"
+  });
+
+  expect(routeFromPath("/manage/repositories/new").repositoryEditor).toBeUndefined();
+  expect(routeFromPath("/repositories/new", "?editor=edit").repositoryEditor).toBeUndefined();
+});

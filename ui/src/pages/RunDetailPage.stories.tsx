@@ -59,6 +59,25 @@ export const StoredRun: Story = {
   }
 };
 
+export const CapturedDefinition: Story = {
+  args: {
+    run: { ...data.runs[0], definition: undefined },
+    loadDefinition: async (runID) => ({
+      run_id: runID,
+      definition_version: 3,
+      definition: {
+        root: { id: "root", uses: "builtins/script", with: { script: "echo captured definition" } }
+      },
+      source: {
+        repository_id: "monorepo",
+        requested_ref: "main",
+        resolved_commit: "1234567890abcdef1234567890abcdef12345678",
+        path: ".vectis/platform.build.json"
+      }
+    })
+  }
+};
+
 export const EphemeralRun: Story = {
   args: {
     run: ephemeralData.runs[0],
@@ -259,4 +278,39 @@ export const RetriedRun: Story = {
 
 export const SharedAttemptContext: Story = {
   args: { run: retriedArtifactRun, runID: retriedArtifactRun.id, loadArtifacts: loadRetriedArtifacts }
+};
+
+const runOnlyChange = {
+  one_off: true,
+  actor: "mira",
+  reason: "Run the release validation with a repaired checkout step.",
+  commit: "override-commit",
+  base_commit: "1234567890abcdef1234567890abcdef12345678",
+  base_ref: "main",
+  base_path: ".vectis/platform.build.json",
+  created_at: 1793664000
+};
+
+export const RunOnlyDefinition: Story = {
+  args: {
+    run: {
+      ...data.runs[0],
+      jobID: "platform.build",
+      repositoryID: "monorepo",
+      submittedBy: "mira",
+      hotfix: runOnlyChange
+    },
+    loadDefinition: async (runID) => ({
+      run_id: runID,
+      definition_version: 3,
+      definition: { root: { id: "root", uses: "builtins/script", with: { script: "echo captured definition" } } },
+      source: {
+        repository_id: "monorepo",
+        requested_ref: "main",
+        resolved_commit: "captured-commit",
+        path: ".vectis/platform.build.json",
+        hotfix: runOnlyChange
+      }
+    })
+  }
 };

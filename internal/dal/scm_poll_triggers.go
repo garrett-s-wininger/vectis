@@ -26,7 +26,7 @@ func (r *SQLSCMPollTriggersRepository) GetReady(
 		SELECT
 			spts.id,
 			spts.trigger_id,
-			jt.job_id,
+			jt.job_id, jt.source_repository_id, jt.namespace_id,
 			spts.provider,
 			spts.base_url,
 			spts.project,
@@ -58,6 +58,7 @@ func (r *SQLSCMPollTriggersRepository) GetReady(
 			&spec.ID,
 			&spec.TriggerID,
 			&spec.JobID,
+			&spec.SourceRepositoryID, &spec.NamespaceID,
 			&spec.Provider,
 			&spec.BaseURL,
 			&spec.Project,
@@ -105,7 +106,7 @@ func (r *SQLSCMPollTriggersRepository) ListEnabledByProvider(
 		SELECT
 			spts.id,
 			spts.trigger_id,
-			jt.job_id,
+			jt.job_id, jt.source_repository_id, jt.namespace_id,
 			spts.provider,
 			spts.base_url,
 			spts.project,
@@ -156,6 +157,7 @@ func scanSCMPollTriggerSpec(scanner scmPollTriggerSpecScanner) (SCMPollTriggerSp
 		&spec.ID,
 		&spec.TriggerID,
 		&spec.JobID,
+		&spec.SourceRepositoryID, &spec.NamespaceID,
 		&spec.Provider,
 		&spec.BaseURL,
 		&spec.Project,

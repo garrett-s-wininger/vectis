@@ -201,10 +201,16 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Query:     routeQueryParams("scope", "namespace"),
 			RateLimit: defaultLimits.General,
 		},
+		{Pattern: "GET /api/v1/source-repositories/{id}/impact", Query: routeQueryParams("namespace", "scope"), Handler: http.HandlerFunc(s.GetSourceRepositoryImpact), Auth: routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"}, RateLimit: defaultLimits.General},
+		{Pattern: "GET /api/v1/source-repositories/{id}/jobs/{job_id}/lifecycle", Handler: http.HandlerFunc(s.GetSourceJobLifecycle), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, Query: routeQueryParams("namespace", "scope"), RateLimit: defaultLimits.General},
+		{Pattern: "PUT /api/v1/source-repositories/{id}/jobs/{job_id}/ownership", Handler: http.HandlerFunc(s.PutSourceJobOwnership), Query: routeQueryParams("namespace", "scope"), Auth: routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"}, Body: jsonDocumentBody, RateLimit: defaultLimits.General},
+		{Pattern: "PUT /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix", Handler: http.HandlerFunc(s.ChangeSourceJobHotfix), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, Query: routeQueryParams("namespace", "scope"), Body: jsonDocumentBody, RateLimit: defaultLimits.General},
+		{Pattern: "DELETE /api/v1/source-repositories/{id}/jobs/{job_id}/hotfix", Handler: http.HandlerFunc(s.ChangeSourceJobHotfix), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, Query: routeQueryParams("namespace", "scope"), Body: jsonDocumentBody, RateLimit: defaultLimits.General},
 		{Pattern: "GET /api/v1/source-repositories/{id}/namespaces", Handler: http.HandlerFunc(s.SourceRepositoryNamespaceAccess), Auth: routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"}, RateLimit: defaultLimits.General},
 		{Pattern: "PUT /api/v1/source-repositories/{id}/namespaces/{namespace_id}", Handler: http.HandlerFunc(s.SourceRepositoryNamespaceAccess), Auth: routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"}, RateLimit: defaultLimits.General},
 		{Pattern: "DELETE /api/v1/source-repositories/{id}/namespaces/{namespace_id}", Handler: http.HandlerFunc(s.SourceRepositoryNamespaceAccess), Auth: routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"}, RateLimit: defaultLimits.General},
 
+		{Pattern: "GET /api/v1/source-credentials", Handler: http.HandlerFunc(s.ListSourceCredentialReferences), Auth: routeAuthPolicy{Action: authz.ActionAdmin, NamespacePath: "/"}, RateLimit: defaultLimits.General},
 		{
 			Pattern:   "POST /api/v1/source-repositories",
 			Query:     routeQueryParams("namespace", "scope"),

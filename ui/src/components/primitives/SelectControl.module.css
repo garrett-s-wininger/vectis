@@ -152,6 +152,50 @@
   width: 100%;
 }
 
+.optionList {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.optionLabel {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.optionDescription {
+  color: var(--text-subtle);
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.search {
+  background: var(--surface-panel);
+  border: var(--control-border);
+  border-radius: var(--control-radius);
+  box-sizing: border-box;
+  color: var(--text-primary);
+  font: inherit;
+  min-height: var(--control-height-md);
+  padding: var(--space-sm) var(--space-md);
+  position: sticky;
+  top: 0;
+  width: 100%;
+  z-index: 1;
+}
+
+.search:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: -2px;
+}
+
+.emptyOption {
+  color: var(--text-subtle);
+  padding: var(--space-sm) var(--space-md);
+}
+
 .menuItem:hover,
 .menuItem[aria-current="true"] {
   background: var(--dropdown-menu-item-bg);

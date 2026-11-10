@@ -2,6 +2,7 @@ import { unrestrictedAccess, type ConsoleAccess } from "./domain/access";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 import * as dataSource from "./data/consoleDataSource";
+import * as sourceJobs from "./data/sourceJobs";
 
 describe("App", () => {
   const fetchMock = vi.fn();
@@ -383,6 +384,13 @@ describe("App", () => {
         body = {};
       } else if (path.startsWith("/api/v1/jobs?"))
         body = { jobs: created ? [{ job_id: "new-source-job", path: ".vectis/jobs/new-source-job.json" }] : [] };
+      else if (path === "/api/v1/source-repositories/demo/jobs/new-source-job/lifecycle?namespace=%2F")
+        body = {
+          source_commit: "1111111111111111111111111111111111111111",
+          source_definition: { root: { uses: "builtins/script", with: { script: "echo actual source" } } },
+          effective_definition: { root: { uses: "builtins/script", with: { script: "echo actual source" } } }
+        };
+      else if (path === "/api/v1/source-repositories/demo/namespaces") body = [{ namespace: "/" }];
       else if (path.startsWith("/api/v1/jobs/new-source-job?"))
         body = {
           definition: {
@@ -409,7 +417,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "View new-source-job" }));
     expect(await screen.findByText(/echo actual source/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit new-source-job" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit source for new-source-job" }));
     expect(await screen.findByLabelText("Payload")).toHaveValue(
       JSON.stringify({ root: { uses: "builtins/script", with: { script: "echo actual source" } } }, null, 2)
     );
@@ -1229,7 +1237,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit docs-publish" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit source for docs-publish" }));
 
     expect(await screen.findByRole("heading", { name: "Configure Job" })).toBeInTheDocument();
     expect(screen.getByText("Update editable settings, trigger policy, and definition JSON.")).toBeInTheDocument();
@@ -1266,7 +1274,9 @@ describe("App", () => {
     expect(screen.getByText(/\+0s/)).toBeInTheDocument();
     expect(screen.getByText(/\+5s/)).toBeInTheDocument();
     expect(screen.getByText("Streaming")).toBeInTheDocument();
-    expect(screen.getByText(/go test \.\/internal\/api/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Job Definition"));
+    expect(await screen.findByText(/go test \.\/internal\/api/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "api-test-suite" }));
 
@@ -1298,7 +1308,9 @@ describe("App", () => {
     expect(screen.getByText("Ephemeral")).toBeInTheDocument();
     expect(screen.getByText("Inline")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Submitted Definition" })).toBeInTheDocument();
-    expect(screen.getByText(/"id": "database-backfill"/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Submitted Definition"));
+    expect(await screen.findByText(/"id": "database-backfill"/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "Jobs" }));
 
@@ -1390,10 +1402,11 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "View cache-warmup" }));
     expect(await screen.findByRole("heading", { name: "cache-warmup" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Edit cache-warmup" }));
-    expect(screen.queryByLabelText("State")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
+    fireEvent.click(screen.getByRole("button", { name: "Edit source for cache-warmup" }));
+    expect(screen.queryByLabelText("State")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect((await screen.findAllByText("cache-warmup")).length).toBeGreaterThan(0);
   });
 
@@ -1592,8 +1605,11 @@ describe("App", () => {
     try {
       render(<App />);
 
-      await screen.findByRole("button", { name: "View repository" });
-      expect(screen.getAllByText(".vectis/second.json")).toHaveLength(2);
+      expect(await screen.findByRole("link", { name: "second" })).toHaveAttribute(
+        "href",
+        "/repositories/second?namespace=%2F"
+      );
+      expect(screen.getAllByText(".vectis/second.json")).toHaveLength(1);
 
       fireEvent.click(screen.getByRole("button", { name: "Run build" }));
       await waitFor(() => expect(source.triggerRun).toHaveBeenCalledWith("build", "second", "/"));
@@ -1842,5 +1858,83 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Namespace Not Found" });
     expect(screen.queryByRole("heading", { name: "Namespaces" })).not.toBeInTheDocument();
+  });
+
+  it("moves a newly owned source job into one namespace without leaving duplicate catalog entries", async () => {
+    const source = dataSource.createConsoleDataSource();
+    const data = await source.loadConsole();
+    const first = {
+      ...data.jobs[0],
+      id: "owned-build",
+      name: "owned-build",
+      repository: "monorepo",
+      namespacePath: "/team-a",
+      definition: '{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}',
+      canAuthor: false
+    };
+
+    source.loadConsole = vi.fn(async () => ({ ...data, jobs: [first, { ...first, namespacePath: "/prod" }] }));
+    source.loadJob = vi.fn(async (job) => job);
+    let lifecycle: sourceJobs.SourceJobLifecycle = {
+      source_commit: "base",
+      source_definition: JSON.parse(first.definition),
+      effective_definition: JSON.parse(first.definition)
+    };
+
+    const client: sourceJobs.SourceJobClient = {
+      load: vi.fn(async () => structuredClone(lifecycle)),
+      namespaces: vi.fn().mockResolvedValue([{ path: "/prod", label: "/prod" }]),
+      assign: vi.fn(async (namespace) => {
+        const registration: sourceJobs.SourceJobRegistration = {
+          repository_id: "monorepo",
+          job_id: "owned-build",
+          namespace_id: 4,
+          namespace,
+          path: ".vectis/build.json",
+          ref: "",
+          revision: 1
+        };
+
+        lifecycle = { ...lifecycle, registration };
+        return registration;
+      }),
+      activate: vi.fn(),
+      clear: vi.fn()
+    };
+
+    const factory = vi.spyOn(dataSource, "createConsoleDataSource").mockReturnValue(source);
+    const jobFactory = vi.spyOn(sourceJobs, "createSourceJobClient").mockReturnValue(client);
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ auth_enabled: false, principal: { username: "admin" } }), { status: 200 })
+    );
+
+    window.history.replaceState(null, "", "/jobs/owned-build?repository=monorepo&namespace=%2Fteam-a");
+    try {
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Assign owner" }));
+      await waitFor(() => expect(new URLSearchParams(window.location.search).get("namespace")).toBe("/prod"));
+      expect(await screen.findByRole("heading", { level: 1, name: "owned-build" })).toBeInTheDocument();
+
+      act(() => {
+        window.history.pushState(null, "", "/jobs?namespace=%2Fteam-a");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+
+      expect(await screen.findByRole("heading", { name: "Create One Today" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "View owned-build" })).not.toBeInTheDocument();
+
+      act(() => {
+        window.history.pushState(null, "", "/jobs?namespace=%2Fprod");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+
+      expect(await screen.findByRole("button", { name: "View owned-build" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "View owned-build" })).toHaveLength(1);
+    } finally {
+      jobFactory.mockRestore();
+      factory.mockRestore();
+    }
   });
 });

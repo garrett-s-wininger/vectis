@@ -12,16 +12,24 @@
 }
 
 .identityTitle {
+  align-items: center;
+  display: flex;
+  gap: var(--space-sm);
   min-width: 0;
 }
 
 .identityTitle strong {
+  min-width: 0;
   color: var(--text-primary);
   font-size: var(--font-size-lg);
   line-height: var(--line-height-tight);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hotfixPill {
+  flex-shrink: 0;
 }
 
 .identityStatus {

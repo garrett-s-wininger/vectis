@@ -675,7 +675,7 @@
       "post": {
         "operationId": "createSourceRepository",
         "summary": "Register a source repository",
-        "description": "Requires root-namespace administration. This operation manages a shared repository connection.",
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection. Set validate_connection=true to check Git access and resolve the proposed default ref before persistence. Validation failure returns 422 source_connection_validation_failed and leaves the saved settings and existing checkout unchanged. Omit it for offline registration or maintenance. Set validate_only=true to preview the proposed connection without saving; a successful preview returns 200 with requested_ref and resolved_commit. It can also validate disabled connections. A client can reuse that result by saving without validate_connection until its form settings change.",
         "tags": [
           "Source"
         ],
@@ -699,6 +699,19 @@
           },
           "default": {
             "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "200": {
+            "description": "Validation preview; no connection was saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnectionValidation"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -720,7 +733,30 @@
             },
             "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "validate_connection": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Validate the proposed Git connection and default ref before saving. Failed validation does not persist the request."
+                  },
+                  "validate_only": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Validate and return the resolved revision without persisting settings. Takes precedence over validate_connection."
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/source-repositories/{id}": {
@@ -771,7 +807,7 @@
       "put": {
         "operationId": "updateSourceRepository",
         "summary": "Update a source repository",
-        "description": "Requires root-namespace administration. This operation manages a shared repository connection.",
+        "description": "Requires root-namespace administration. This operation manages a shared repository connection. Configuration-declared connection settings are read-only; update the server configuration instead. Set validate_connection=true to check Git access and resolve the proposed default ref before persistence. Validation failure returns 422 source_connection_validation_failed and leaves the saved settings and existing checkout unchanged. Omit it for offline registration or maintenance. Set validate_only=true to preview the proposed connection without saving; a successful preview returns 200 with requested_ref and resolved_commit. It can also validate disabled connections. A client can reuse that result by saving without validate_connection until its form settings change.",
         "tags": [
           "Source"
         ],
@@ -783,9 +819,16 @@
         "x-vectis-auth-action": "admin:*",
         "responses": {
           "200": {
-            "$ref": "#/components/responses/JSONOK"
+            "$ref": "#/components/responses/JSONOK",
+            "description": "Updated repository, or requested_ref and resolved_commit for a validation-only preview."
           },
           "default": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "description": "Connection settings are managed by server configuration, or the update conflicts with another repository."
+          },
+          "422": {
             "$ref": "#/components/responses/Error"
           }
         },
@@ -811,7 +854,30 @@
             },
             "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "validate_connection": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Validate the proposed Git connection and default ref before saving. Failed validation does not persist the request."
+                  },
+                  "validate_only": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Validate and return the resolved revision without persisting settings. Takes precedence over validate_connection."
+                  }
+                }
+              }
+            }
+          }
+        }
       },
       "delete": {
         "operationId": "deleteSourceRepository",
@@ -1144,7 +1210,8 @@
             },
             "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "description": " Without an explicit path, discover .vectis.json (the ci job), direct .vectis/<name>.json definitions, and legacy .vectis/jobs/ definitions. Duplicate job IDs are rejected for implicit execution."
       }
     },
     "/api/v1/source-repositories/{id}/jobs": {
@@ -1190,7 +1257,8 @@
             },
             "description": "Use all for root-administrator connection inventory and inspection."
           }
-        ]
+        ],
+        "description": " Without an explicit path, discover .vectis.json (the ci job), direct .vectis/<name>.json definitions, and legacy .vectis/jobs/ definitions. Duplicate job IDs are rejected for implicit execution."
       }
     },
     "/api/v1/source-repositories/{id}/definitions/resolve": {
@@ -3748,6 +3816,359 @@
           }
         }
       }
+    },
+    "/api/v1/source-repositories/{id}/impact": {
+      "get": {
+        "operationId": "getSourceRepositoryImpact",
+        "summary": "Review affected jobs, owners, automation and hotfixes before disabling a connection",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRepositoryImpact"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "409": {
+            "description": "Ownership, source, or lifecycle revision changed; reload and review before retrying."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-vectis-auth-action": "admin:*"
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs/{job_id}/lifecycle": {
+      "get": {
+        "operationId": "getSourceJobLifecycle",
+        "summary": "Read canonical ownership and separate source/effective definitions",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceJobLifecycle"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "409": {
+            "description": "Ownership, source, or lifecycle revision changed; reload and review before retrying."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-vectis-auth-action": "job:read"
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs/{job_id}/ownership": {
+      "put": {
+        "operationId": "assignSourceJobOwner",
+        "summary": "Assign one owning namespace to a source job (instance administration)",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceJobRegistration"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "409": {
+            "description": "Ownership, source, or lifecycle revision changed; reload and review before retrying."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "namespace"
+                ],
+                "properties": {
+                  "namespace": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-vectis-auth-action": "admin:*"
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs/{job_id}/hotfix": {
+      "put": {
+        "operationId": "activateSourceJobHotfix",
+        "summary": "Activate a validated local hotfix without writing upstream (owner administration)",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceJobRegistration"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "409": {
+            "description": "Ownership, source, or lifecycle revision changed; reload and review before retrying."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceJobHotfixRequest"
+              }
+            }
+          }
+        },
+        "x-vectis-auth-action": "job:write"
+      },
+      "delete": {
+        "operationId": "clearSourceJobHotfix",
+        "summary": "Clear the active hotfix after reviewing the current upstream definition (owner administration)",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceJobRegistration"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "409": {
+            "description": "Ownership, source, or lifecycle revision changed; reload and review before retrying."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceJobHotfixRequest"
+              }
+            }
+          }
+        },
+        "x-vectis-auth-action": "job:write"
+      }
+    },
+    "/api/v1/source-credentials": {
+      "get": {
+        "operationId": "listSourceCredentialReferences",
+        "summary": "List saved repository credential references",
+        "description": "Requires root-namespace administration. Returns reference names from the configured source credential provider that can be resolved as Git credentials. Secret values are never returned. An unconfigured provider returns an empty list.",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "description": "Credential references only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4904,6 +5325,216 @@
           }
         },
         "additionalProperties": false
+      },
+      "SourceJobHotfix": {
+        "type": "object",
+        "required": [
+          "commit",
+          "reason",
+          "actor",
+          "base_commit",
+          "created_at"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "base_commit": {
+            "type": "string"
+          },
+          "base_ref": {
+            "type": "string"
+          },
+          "base_path": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "one_off": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SourceJobRegistration": {
+        "type": "object",
+        "required": [
+          "repository_id",
+          "job_id",
+          "namespace",
+          "namespace_id",
+          "path",
+          "revision"
+        ],
+        "properties": {
+          "repository_id": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "namespace_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hotfix": {
+            "$ref": "#/components/schemas/SourceJobHotfix"
+          }
+        }
+      },
+      "SourceJobLifecycle": {
+        "type": "object",
+        "properties": {
+          "registration": {
+            "$ref": "#/components/schemas/SourceJobRegistration"
+          },
+          "source_definition": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "effective_definition": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "source_json": {
+            "type": "string"
+          },
+          "source_commit": {
+            "type": "string"
+          },
+          "source_error": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceJobHotfixRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "expected_source_commit"
+        ],
+        "properties": {
+          "definition": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expected_source_commit": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceRepositoryImpact": {
+        "type": "object",
+        "required": [
+          "jobs",
+          "automations",
+          "namespaces",
+          "unregistered_jobs",
+          "revision"
+        ],
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceJobRegistration"
+            }
+          },
+          "automations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "job_id": {
+                  "type": "string"
+                },
+                "namespace": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "namespaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unregistered_jobs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "job_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "revision": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "discovery_error": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceConnectionValidation": {
+        "type": "object",
+        "required": [
+          "requested_ref",
+          "resolved_commit"
+        ],
+        "properties": {
+          "requested_ref": {
+            "type": "string",
+            "description": "Normalized ref checked against the proposed connection."
+          },
+          "resolved_commit": {
+            "type": "string",
+            "description": "Commit resolved by this validation."
+          }
+        }
       }
     }
   }

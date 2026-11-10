@@ -258,7 +258,7 @@ func TestNamespaceAdminCannotReadClusterDiagnostics(t *testing.T) {
 	s.MetricsHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	h := s.Handler()
 	setup := httptest.NewRecorder()
-	setupReq := httptest.NewRequest("POST", "/api/v1/setup/complete", bytes.NewBufferString(`{"bootstrap_token":"sixteenchars----","admin_username":"root","admin_password":"longenough"}`))
+	setupReq := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewBufferString(`{"bootstrap_token":"sixteenchars----","admin_username":"root","admin_password":"longenough"}`))
 	setupReq.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(setup, setupReq)
 	if setup.Code != 200 {
@@ -277,7 +277,7 @@ func TestNamespaceAdminCannotReadClusterDiagnostics(t *testing.T) {
 	}
 
 	create := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/users", bytes.NewBufferString(fmt.Sprintf(`{"username":"team-admin","initial_binding":{"namespace_id":%d,"role":"admin"}}`, team.ID)))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(fmt.Sprintf(`{"username":"team-admin","initial_binding":{"namespace_id":%d,"role":"admin"}}`, team.ID)))
 	req.Header.Set("Authorization", "Bearer "+root.APIToken)
 	req.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(create, req)
@@ -297,7 +297,7 @@ func TestNamespaceAdminCannotReadClusterDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cookieReq := httptest.NewRequest("POST", "/api/v1/login", bytes.NewReader(cookieBody))
+	cookieReq := httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(cookieBody))
 	cookieReq.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(cookieLogin, cookieReq)
 	if cookieLogin.Code != 200 || len(cookieLogin.Result().Cookies()) == 0 {
@@ -306,7 +306,7 @@ func TestNamespaceAdminCannotReadClusterDiagnostics(t *testing.T) {
 
 	request := func(path, token string) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequest("GET", path, nil)
+		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -322,8 +322,8 @@ func TestNamespaceAdminCannotReadClusterDiagnostics(t *testing.T) {
 			t.Errorf("%s must require root administration", spec.Pattern)
 		}
 
-		path := strings.TrimPrefix(spec.Pattern, "GET ")
-		cookieReq := httptest.NewRequest("GET", path, nil)
+		path := strings.ReplaceAll(strings.TrimPrefix(spec.Pattern, "GET "), "{id}", "diagnostic-repository")
+		cookieReq := httptest.NewRequest(http.MethodGet, path, nil)
 		for _, cookie := range cookieLogin.Result().Cookies() {
 			cookieReq.AddCookie(cookie)
 		}

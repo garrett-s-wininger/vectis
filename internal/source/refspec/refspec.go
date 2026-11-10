@@ -7,7 +7,11 @@ import (
 	"strings"
 )
 
-const DefaultDefinitionPath = ".vectis/jobs"
+const (
+	DefaultDefinitionPath    = ".vectis/jobs"
+	PrimaryDefinitionPath    = ".vectis.json"
+	NamedDefinitionDirectory = ".vectis"
+)
 
 func NormalizeRef(ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
@@ -168,7 +172,11 @@ func DefinitionPathForJobID(jobID string) (string, error) {
 		}
 	}
 
-	return path.Join(DefaultDefinitionPath, path.Join(parts...)+".json"), nil
+	if jobID == "ci" {
+		return PrimaryDefinitionPath, nil
+	}
+
+	return path.Join(NamedDefinitionDirectory, jobID+".json"), nil
 }
 
 func validDefinitionPathJobIDPart(part string) bool {

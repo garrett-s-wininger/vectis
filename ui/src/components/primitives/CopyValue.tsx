@@ -6,12 +6,14 @@ export function CopyValue({
   value,
   label,
   children,
-  appearance = "inline"
+  appearance = "inline",
+  iconOnly = false
 }: {
   value: string;
   label: string;
   children?: ReactNode;
   appearance?: "inline" | "field";
+  iconOnly?: boolean;
 }) {
   const [feedback, setFeedback] = useState({ value: "", message: "", copied: false });
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -42,7 +44,7 @@ export function CopyValue({
 
   return (
     <span className={`${styles.root} ${appearance === "field" ? styles.field : ""}`}>
-      <span className={styles.value}>{children ?? value}</span>
+      {!iconOnly ? <span className={styles.value}>{children ?? value}</span> : null}
       <button
         className={styles.button}
         type="button"

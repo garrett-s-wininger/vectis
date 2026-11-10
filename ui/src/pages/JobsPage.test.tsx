@@ -145,6 +145,7 @@ describe("JobsPage", () => {
     const openJobRuns = vi.fn();
     const selectNamespace = vi.fn();
     const triggerRun = vi.fn();
+    const selectRun = vi.fn();
     const job = {
       id: "test-run",
       name: "test-run",
@@ -174,10 +175,40 @@ describe("JobsPage", () => {
         onOpenJob={openJob}
         onOpenJobRuns={openJobRuns}
         onSelectNamespace={selectNamespace}
-        onSelectRun={() => undefined}
+        onSelectRun={selectRun}
         onTriggerRun={triggerRun}
         onUpdateJob={() => undefined}
-        runs={[]}
+        runs={[
+          ...Array.from({ length: 7 }, (_, index) => ({
+            id: `run-${index + 1}`,
+            jobName: job.name,
+            repositoryID: job.repository,
+            namespacePath: "/",
+            runNumber: index + 1,
+            status: "succeeded" as const,
+            commit: "abc",
+            duration: "1s"
+          })),
+          {
+            id: "other-repo",
+            jobName: job.name,
+            repositoryID: "other",
+            namespacePath: "/",
+            runNumber: 100,
+            status: "failed",
+            commit: "abc",
+            duration: "1s"
+          },
+          {
+            id: "other-team",
+            jobName: job.name,
+            namespacePath: "/other",
+            runNumber: 200,
+            status: "failed",
+            commit: "abc",
+            duration: "1s"
+          }
+        ]}
       />
     );
 
@@ -201,6 +232,15 @@ describe("JobsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "View all runs for test-run" }));
     expect(openJobRuns).toHaveBeenCalledWith("test-run");
+
+    fireEvent.click(screen.getByRole("button", { name: "View latest run for test-run" }));
+    expect(selectRun).toHaveBeenLastCalledWith("run-7");
+
+    fireEvent.click(screen.getByRole("button", { name: "View run #6 for test-run" }));
+    expect(selectRun).toHaveBeenLastCalledWith("run-6");
+    expect(screen.queryByRole("button", { name: "View run #2 for test-run" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View run #100 for test-run" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View run #200 for test-run" })).not.toBeInTheDocument();
   });
 
   it("renders a shared missing state for unknown job detail routes", () => {

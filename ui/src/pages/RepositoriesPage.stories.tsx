@@ -78,3 +78,23 @@ export const Connections: Story = { args: { management: true, source: createMock
 export const NamespaceAccess: Story = {
   args: { management: true, repositoryID: "vectis-local", source: createMockRepositorySource(undefined, true) }
 };
+
+export const AddConnection: Story = {
+  args: { management: true, editor: "create", source: createMockRepositorySource(undefined, true) }
+};
+
+export const ConnectionValidationFailure: Story = {
+  args: {
+    management: true,
+    editor: "create",
+    source: {
+      ...createMockRepositorySource(undefined, true),
+      validate: async () => {
+        throw new Error("The remote could not be reached. Check the URL or retry later.");
+      },
+      create: async () => {
+        throw new Error("The remote could not be reached. Check the URL or retry later.");
+      }
+    }
+  }
+};

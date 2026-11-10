@@ -49,6 +49,8 @@ func (e sourceRefHydrationPendingError) Error() string {
 }
 
 type sourceRepositoryRequest struct {
+	ValidateOnly            bool     `json:"validate_only"`
+	ValidateConnection      bool     `json:"validate_connection"`
 	RepositoryID            string   `json:"repository_id"`
 	Namespace               string   `json:"namespace"`
 	SourceKind              string   `json:"source_kind"`
@@ -65,6 +67,10 @@ type sourceRepositoryRequest struct {
 }
 
 type sourceRepositoryUpdateRequest struct {
+	ValidateOnly       bool   `json:"validate_only"`
+	ValidateConnection bool   `json:"validate_connection"`
+	ImpactRevision     string `json:"impact_revision"`
+
 	SourceKind              *string   `json:"source_kind"`
 	CheckoutPath            *string   `json:"checkout_path"`
 	CheckoutMode            *string   `json:"checkout_mode"`
@@ -224,6 +230,9 @@ type sourceRepositoryDefinitionsResponse struct {
 }
 
 type sourceRepositoryJobResponse struct {
+	OwnerNamespace string               `json:"owner_namespace,omitempty"`
+	Hotfix         *dal.SourceJobHotfix `json:"hotfix,omitempty"`
+
 	JobID     string                   `json:"job_id"`
 	Path      string                   `json:"path"`
 	Name      string                   `json:"name"`
@@ -241,6 +250,7 @@ type invalidSourceRepositoryJobResponse struct {
 }
 
 type sourceRepositoryJobsResponse struct {
+	DiscoveryError string                               `json:"discovery_error,omitempty"`
 	RepositoryID   string                               `json:"repository_id"`
 	RequestedRef   string                               `json:"requested_ref"`
 	ResolvedCommit string                               `json:"resolved_commit"`
@@ -393,6 +403,11 @@ func sourceRepositorySyncAuditMetadata(
 }
 
 type sourceJobTriggerRequest struct {
+	Definition           json.RawMessage `json:"definition,omitempty"`
+	Reason               string          `json:"reason,omitempty"`
+	ExpectedRevision     int             `json:"expected_revision,omitempty"`
+	ExpectedSourceCommit string          `json:"expected_source_commit,omitempty"`
+
 	Ref          string `json:"ref"`
 	Path         string `json:"path"`
 	CellID       string `json:"cell_id"`
@@ -400,6 +415,8 @@ type sourceJobTriggerRequest struct {
 }
 
 type sourceProvenanceResponse struct {
+	Hotfix *dal.SourceJobHotfix `json:"hotfix,omitempty"`
+
 	RepositoryID   string `json:"repository_id"`
 	RequestedRef   string `json:"requested_ref"`
 	ResolvedCommit string `json:"resolved_commit"`
@@ -629,7 +646,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rec, err := s.sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+	candidate := dal.SourceRepositoryRecord{
 		RepositoryID:            req.RepositoryID,
 		NamespaceID:             ns.ID,
 		SourceKind:              req.SourceKind,
@@ -643,7 +660,25 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		DefaultRef:              req.DefaultRef,
 		CredentialRef:           req.CredentialRef,
 		Enabled:                 enabled,
-	})
+	}
+	if req.ValidateConnection || req.ValidateOnly {
+		if _, err := s.sources.GetRepository(ctx, candidate.RepositoryID); err == nil {
+			writeAPIError(w, http.StatusConflict, "source_repository_conflict", "source repository conflict", nil)
+			return
+		} else if !dal.IsNotFound(err) {
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+		status, valid := s.validateSourceConnectionBeforeSave(ctx, w, candidate)
+		if !valid {
+			return
+		}
+		if req.ValidateOnly {
+			writeJSON(w, http.StatusOK, sourceConnectionValidationResponse{RequestedRef: status.DefaultRef, ResolvedCommit: status.ResolvedCommit})
+			return
+		}
+	}
+	rec, err := s.sources.CreateRepository(ctx, candidate)
 
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -1529,10 +1564,11 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 
 	limit := sourceRepositoryTreeListLimit(r)
 	listing, err := s.listSourceRepositoryDefinitionFiles(ctx, rec, sourcepkg.ListDefinitionFilesOptions{
-		Ref:    ref,
-		Path:   r.URL.Query().Get("path"),
-		Limit:  limit,
-		Cursor: r.URL.Query().Get("cursor"),
+		Conventional: strings.TrimSpace(r.URL.Query().Get("path")) == "",
+		Ref:          ref,
+		Path:         r.URL.Query().Get("path"),
+		Limit:        limit,
+		Cursor:       r.URL.Query().Get("cursor"),
 	})
 
 	if err != nil {
@@ -1588,24 +1624,77 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 		ref = "HEAD"
 	}
 
-	limit := sourceRepositoryTreeListLimit(r)
-	listing, err := s.listSourceRepositoryDefinitionFiles(ctx, rec, sourcepkg.ListDefinitionFilesOptions{
-		Ref:    ref,
-		Path:   r.URL.Query().Get("path"),
-		Limit:  limit,
-		Cursor: r.URL.Query().Get("cursor"),
-	})
-
+	registrations, err := s.sources.ListSourceJobs(ctx, rec.RepositoryID)
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
 		return
 	}
 
+	limit := sourceRepositoryTreeListLimit(r)
+	listing, err := s.listSourceRepositoryDefinitionFiles(ctx, rec, sourcepkg.ListDefinitionFilesOptions{
+		Conventional: strings.TrimSpace(r.URL.Query().Get("path")) == "",
+		Ref:          ref,
+		Path:         r.URL.Query().Get("path"),
+		Limit:        limit,
+		Cursor:       r.URL.Query().Get("cursor"),
+	})
+
+	if err != nil {
+		hotfixes := make([]sourceRepositoryJobResponse, 0)
+		for _, registration := range registrations {
+			if registration.Hotfix != nil && (rec.NamespaceID == 0 || rec.NamespaceID == registration.NamespaceID) {
+				hotfixes = append(hotfixes, registeredHotfixJob(registration))
+			}
+		}
+
+		if len(hotfixes) == 0 {
+			s.writeSourceDefinitionError(w, err)
+			return
+		}
+
+		writeJSON(w, 200, sourceRepositoryJobsResponse{RepositoryID: rec.RepositoryID, RequestedRef: ref, RepositorySync: sourceRepositorySyncRecordToResponse(rec), Jobs: hotfixes, DiscoveryError: "Upstream discovery is unavailable. Registered hotfix definitions remain active."})
+		return
+	}
+
+	owners := map[string]dal.SourceJobRecord{}
+	for _, row := range registrations {
+		owners[row.JobID] = row
+	}
+
 	jobs := make([]sourceRepositoryJobResponse, 0, len(listing.Files))
 	invalid := make([]invalidSourceRepositoryJobResponse, 0)
 	seenJobIDs := make(map[string]string, len(listing.Files))
+	var locations map[string]sourcepkg.JobDefinitionLocation
+	if listing.Conventional {
+		jobIDs := make([]string, 0, len(listing.Files))
+		seen := make(map[string]bool)
+		for _, file := range listing.Files {
+			if jobID, err := sourcepkg.ConventionalJobID(file.Path); err == nil && !seen[jobID] {
+				jobIDs = append(jobIDs, jobID)
+				seen[jobID] = true
+			}
+		}
+
+		locations, err = newGitCheckoutForSourceRepository(rec).ResolveJobDefinitionPaths(ctx, listing.Revision, jobIDs)
+		if err != nil {
+			s.writeSourceDefinitionError(w, err)
+			return
+		}
+	}
+
 	for _, file := range listing.Files {
 		jobID, err := sourceJobIDFromDefinitionPath(listing.Path, file.Path)
+		if listing.Conventional {
+			jobID, err = sourcepkg.ConventionalJobID(file.Path)
+			if err == nil {
+				err = locations[jobID].Err
+			}
+		}
+
+		if registered, ok := owners[jobID]; ok && registered.Path == file.Path {
+			err = nil
+		}
+
 		if err != nil {
 			invalid = append(invalid, invalidSourceRepositoryJobResponse{
 				Path:      file.Path,
@@ -1630,6 +1719,15 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 
+		owner, registered := owners[jobID]
+		if registered && file.Path != owner.Path {
+			continue
+		}
+
+		if registered && rec.NamespaceID != 0 && rec.NamespaceID != owner.NamespaceID {
+			continue
+		}
+
 		seenJobIDs[jobID] = file.Path
 		source := sourceProvenanceResponse{
 			RepositoryID:   rec.RepositoryID,
@@ -1640,6 +1738,7 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 		}
 
 		jobs = append(jobs, sourceRepositoryJobResponse{
+			OwnerNamespace: owner.Namespace, Hotfix: owner.Hotfix,
 			JobID:     jobID,
 			Path:      file.Path,
 			Name:      file.Name,
@@ -1647,6 +1746,14 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 			SizeBytes: file.SizeBytes,
 			Source:    source,
 		})
+	}
+
+	if !listing.Truncated && r.URL.Query().Get("cursor") == "" {
+		for _, registration := range registrations {
+			if registration.Hotfix != nil && seenJobIDs[registration.JobID] == "" && (rec.NamespaceID == 0 || rec.NamespaceID == registration.NamespaceID) {
+				jobs = append(jobs, registeredHotfixJob(registration))
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, sourceRepositoryJobsResponse{
@@ -1699,10 +1806,7 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	loaded, err := s.resolveSourceRepositoryDefinition(ctx, rec, sourcepkg.DefinitionRequest{
-		Ref:  target.Ref,
-		Path: target.Path,
-	})
+	loaded, err := s.resolveSourceRepositoryJobDefinition(ctx, rec, jobID, target, strings.TrimSpace(r.URL.Query().Get("path")) != "")
 
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -1719,6 +1823,7 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 			ResolvedCommit: loaded.Source.Commit,
 			Path:           loaded.Source.Path,
 			BlobSHA:        loaded.Source.BlobSHA,
+			Hotfix:         loaded.Source.Hotfix,
 		},
 		RepositorySync: sourceRepositorySyncRecordToResponse(rec),
 	})
@@ -1806,6 +1911,14 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r, r.PathValue("id"), authz.ActionJobWrite, true)
 	if !ok {
 		return
+	}
+
+	if strings.TrimSpace(req.Path) == "" {
+		definitionPath, err = sourceJobAuthoringPath(ctx, rec, jobID, firstNonEmpty(req.Branch, req.Ref), definitionPath)
+		if err != nil {
+			s.writeSourceDefinitionError(w, err)
+			return
+		}
 	}
 
 	author, err := s.newSourceDefinitionAuthor(rec)
@@ -1986,10 +2099,13 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	loaded, err := s.resolveSourceRepositoryDefinition(ctx, rec, sourcepkg.DefinitionRequest{
-		Ref:  target.Ref,
-		Path: target.Path,
-	})
+	var loaded sourcepkg.Definition
+	if len(req.Definition) > 0 {
+		actor, _ := sourceLifecycleActor(p)
+		loaded, err = s.prepareOneOffSourceHotfix(ctx, rec, jobID, actor, req)
+	} else {
+		loaded, err = s.resolveSourceRepositoryJobDefinition(ctx, rec, jobID, target, strings.TrimSpace(req.Path) != "")
+	}
 
 	if err != nil {
 		if idempotencyReserved {
@@ -2735,6 +2851,34 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if sourceRepositoryIsDeclared(rec.RepositoryID, declared) {
+		writeAPIError(w, http.StatusConflict, "source_repository_declared", "connection settings are managed by server configuration", nil)
+		return
+	}
+	if req.ValidateOnly {
+		status, valid := s.validateSourceConnectionBeforeSave(ctx, w, updated)
+		if !valid {
+			return
+		}
+		writeJSON(w, http.StatusOK, sourceConnectionValidationResponse{RequestedRef: status.DefaultRef, ResolvedCommit: status.ResolvedCommit})
+		return
+	}
+	if rec.Enabled && !updated.Enabled {
+		impact, impactErr := s.sourceRepositoryImpact(ctx, rec.RepositoryID)
+		if impactErr != nil {
+			s.writeSourceDefinitionError(w, impactErr)
+			return
+		}
+		if req.ImpactRevision == "" || req.ImpactRevision != impact.Revision {
+			writeAPIError(w, 409, "source_impact_review_required", "review the current affected-job inventory before disabling this connection", nil)
+			return
+		}
+	}
+	if req.ValidateConnection {
+		if _, valid := s.validateSourceConnectionBeforeSave(ctx, w, updated); !valid {
+			return
+		}
+	}
 	updated, err = s.sources.UpdateRepository(ctx, updated)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -2834,6 +2978,7 @@ func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Reque
 			ResolvedCommit: loaded.Source.Commit,
 			Path:           loaded.Source.Path,
 			BlobSHA:        loaded.Source.BlobSHA,
+			Hotfix:         loaded.Source.Hotfix,
 		},
 	})
 }
@@ -4383,6 +4528,7 @@ func sourceRecordToProvenance(rec dal.JobDefinitionSourceRecord) sourceProvenanc
 		ResolvedCommit: rec.ResolvedCommit,
 		Path:           rec.DefinitionPath,
 		BlobSHA:        rec.BlobSHA,
+		Hotfix:         decodeSourceHotfix(rec.HotfixJSON),
 	}
 }
 

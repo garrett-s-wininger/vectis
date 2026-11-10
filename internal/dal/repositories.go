@@ -172,9 +172,9 @@ type JobRecord struct {
 }
 
 type SourceRepositoryRecord struct {
-	ID           int64
-	GlobalID     string
-	RepositoryID string
+	ID                      int64
+	GlobalID                string
+	RepositoryID            string
 	NamespaceID             int64
 	NamespacePaths          []string
 	SourceKind              string
@@ -221,6 +221,8 @@ type SourceRepositoryCountSummary struct {
 }
 
 type JobDefinitionSourceRecord struct {
+	HotfixJSON string
+
 	JobID          string
 	Version        int
 	RepositoryID   string
@@ -978,6 +980,9 @@ type SourceCronScheduleCountSummary struct {
 }
 
 type SCMPollTriggerSpec struct {
+	SourceRepositoryID string
+	NamespaceID        int64
+
 	ID         int64
 	TriggerID  int64
 	JobID      string
@@ -1298,6 +1303,12 @@ type JobsRepository interface {
 }
 
 type SourcesRepository interface {
+	RegisterSourceJob(context.Context, SourceJobRecord) (SourceJobRecord, error)
+	GetSourceJob(context.Context, string, string) (SourceJobRecord, error)
+	ListSourceJobs(context.Context, string) ([]SourceJobRecord, error)
+	SetSourceJobHotfix(context.Context, SourceJobRecord, int) (SourceJobRecord, error)
+	SourceJobAutomations(context.Context, string) ([]SourceJobAutomation, error)
+
 	GrantRepositoryNamespace(ctx context.Context, repositoryID string, namespaceID int64) error
 	RevokeRepositoryNamespace(ctx context.Context, repositoryID string, namespaceID int64) error
 	RepositoryNamespaces(ctx context.Context, repositoryID string) ([]NamespaceRecord, error)

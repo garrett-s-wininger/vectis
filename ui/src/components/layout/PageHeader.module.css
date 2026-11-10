@@ -71,6 +71,7 @@
 .actions {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-sm);
   justify-content: end;
   min-width: 0;
@@ -83,7 +84,7 @@
 @media (max-width: 440px) {
   .root {
     align-items: start;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .actions {

@@ -381,3 +381,43 @@ it("uses task keys without parsing IDs or requiring unique display names", async
   await userEvent.click(screen.getByRole("button", { name: "Build: Planned" }));
   expect(onInvestigationChange).toHaveBeenCalledWith({ task: "compile:windows", attempt: 1 });
 });
+
+it("links a stored job ID to its namespace and repository definition", () => {
+  const stored = { ...run, jobID: "platform/build", repositoryID: "mono repo" };
+  render(<RunDetailPage run={stored} runID={stored.id} onBack={() => undefined} />);
+
+  expect(screen.getByRole("link", { name: "View job definition for platform/build" })).toHaveAttribute(
+    "href",
+    "/jobs/platform%2Fbuild?repository=mono+repo&namespace=%2Fteam-a#job-definition-title"
+  );
+
+  expect(screen.queryByRole("button", { name: "Copy Job ID" })).not.toBeInTheDocument();
+});
+
+it("opens the captured definition from a Run Once job ID and shows the reason without repeating its actor", async () => {
+  const ephemeral: RunListItem = {
+    ...run,
+    source: "ephemeral",
+    jobID: "one-time-job",
+    hotfix: {
+      one_off: true,
+      actor: "mira",
+      reason: "Repair this execution",
+      commit: "hotfix",
+      base_commit: "base",
+      base_ref: "main",
+      base_path: ".vectis/build.json",
+      created_at: 1
+    }
+  };
+
+  render(<RunDetailPage run={ephemeral} runID={ephemeral.id} onBack={() => undefined} />);
+
+  const summary = within(screen.getByRole("region", { name: "Run summary" }));
+  expect(summary.getByText("Hotfix")).toBeInTheDocument();
+  expect(summary.getByRole("region", { name: "Reason for changes" })).toHaveTextContent("Repair this execution");
+  expect(summary.getAllByText("mira")).toHaveLength(1);
+
+  await userEvent.click(summary.getByRole("link", { name: "View captured definition for one-time-job" }));
+  expect(screen.getByRole("region", { name: "Submitted Definition" }).querySelector("details")).toHaveAttribute("open");
+});

@@ -1,3 +1,4 @@
+import type { SourceHotfixInput, SourceJobChange } from "../data/sourceJobs";
 import { useConsoleAccess } from "../domain/access";
 import type { SourceRepository } from "../domain/console";
 import { Button } from "../components";
@@ -11,7 +12,7 @@ import { JobDetailPage } from "./jobs/JobDetailPage";
 import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEditorModel";
 import { JobList } from "./jobs/JobList";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
-import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
+import { getRunsForJob } from "./jobs/JobPresentation";
 import { EmptyStateRail, PageMissingState } from "./shared";
 import { RoutedJobEditor } from "./jobs/RoutedJobEditor";
 
@@ -34,7 +35,8 @@ type JobsPageProps = {
   onOpenJobRuns?: (jobName: string) => void;
   onSelectRun: (runID: string) => void;
   onSelectNamespace: (namespacePath: string) => void;
-  onTriggerRun: (jobID: string) => void;
+  onTriggerRun: (jobID: string, changes?: SourceHotfixInput) => Promise<void> | void;
+  onSourceJobChanged?: (job: Job, change: SourceJobChange) => void;
   onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
   runs: RunListItem[];
 };
@@ -57,6 +59,7 @@ export function JobsPage({
   onSelectRun,
   onSelectNamespace,
   onTriggerRun,
+  onSourceJobChanged,
   onUpdateJob,
   runs
 }: JobsPageProps) {
@@ -99,24 +102,20 @@ export function JobsPage({
   }
 
   if (detailJob) {
-    const latestRun = getLatestRunForJob(detailJob, runs);
     const jobRuns = getRunsForJob(detailJob, runs);
 
     return (
       <JobDetailPage
         job={detailJob}
         sharedWorkspace={sharedWorkspace}
-        lastRun={latestRun}
         runs={jobRuns}
         onBack={() => onOpenJob("")}
         onConfigure={() => startEditJob(detailJob)}
-        onOpenLastRun={() => {
-          if (latestRun) {
-            onSelectRun(latestRun.id);
-          }
-        }}
+        onOpenRun={onSelectRun}
         onOpenRuns={() => onOpenJobRuns?.(detailJob.name)}
         onTrigger={() => onTriggerRun(detailJob.id)}
+        onRunWithChanges={(input) => onTriggerRun(detailJob.id, input)}
+        onSourceJobChanged={(change) => onSourceJobChanged?.(detailJob, change)}
       />
     );
   }
